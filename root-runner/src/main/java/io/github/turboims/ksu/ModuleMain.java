@@ -117,7 +117,7 @@ public final class ModuleMain {
             Map<String, Object> desired = target ? config.desired() : Collections.emptyMap();
             Engine.Result r = engine.reconcile(sub, desired, !preview);
             boolean waiting = r.phase.equals("waiting");
-            if (waiting && config.enabled && target) { ok = false; pending = true; }
+            if (waiting && (target || restore)) { ok = false; pending = true; }
             if (!r.conflicts.isEmpty()) ok = false;
             changed |= r.changed;
             verified |= r.phase.equals("verified") || r.phase.equals("restored");
