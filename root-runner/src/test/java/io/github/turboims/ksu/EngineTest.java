@@ -39,8 +39,12 @@ public class EngineTest {
         assertRun(f,"verified",on(),true);assertEquals(true,f.values.get(KEY));assertEquals(1,f.writes);}
     @Test public void repeatedApplyIsIdempotent(){Fake f=new Fake();
         assertRun(f,"verified",on(),true);assertRun(f,"unchanged",on(),true);assertEquals(1,f.writes);}
-    @Test public void previewDoesNotMutateOrSave(){Fake f=new Fake();
-        assertRun(f,"preview",on(),false);assertEquals(0,f.writes);assertEquals(0,f.saves);}
+    @Test public void previewDoesNotMutateOrSaveOrClaimAChange() throws Exception {
+        Fake f=new Fake();
+        Engine.Result result=f.engine().reconcile(SUB,on(),false);
+        assertEquals("preview",result.phase);assertFalse(result.changed);
+        assertEquals(0,f.writes);assertEquals(0,f.saves);
+    }
     @Test public void waitsForLoadedCarrierConfig(){Fake f=new Fake();f.values.put(Engine.LOADED,false);
         assertRun(f,"waiting",on(),true);assertEquals(0,f.writes);assertEquals(0,f.saves);}
     @Test public void restoreOnlyOwnValues(){Fake f=new Fake();assertRun(f,"verified",on(),true);
