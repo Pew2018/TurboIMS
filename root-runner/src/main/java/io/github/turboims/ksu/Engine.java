@@ -97,7 +97,7 @@ public final class Engine {
                 payload.put(key, baseline.get(key));
         }
         if (!allowWrite)
-            return new Result(sub, "preview", !payload.isEmpty(), unsupported, conflicts, current);
+            return new Result(sub, "preview", false, unsupported, conflicts, current);
         if (!payload.isEmpty()) {
             // Snapshot BEFORE mutation; a crash/failure must still leave a recovery record.
             Map<String, Object> pending = new LinkedHashMap<>(previous);
