@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "enabled": false,
+  "selection": "all",
+  "interval_seconds": 30,
+  "features": {
+    "volte": "on",
+    "vowifi": "on",
+    "vt": "on",
+    "vonr": "on",
+    "cross_sim": "on",
+    "ut": "on",
+    "5g_nr": "on"
+  }
+}

@@ -1,0 +1,55 @@
+name: Build TurboIMS Next module
+on:
+  push:
+    branches: ["feature/**", "fix/**", "master"]
+    paths: ["root-runner/**", "module/**", "ci/**", "docs/KERNELSU_NEXT.md", ".github/workflows/ksu-next.yml"]
+  pull_request:
+    paths: ["root-runner/**", "module/**", "ci/**", "docs/KERNELSU_NEXT.md", ".github/workflows/ksu-next.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ksu-next-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Validate module scripts and offline WebUI
+        run: |
+          shellcheck -S warning -e SC2154 module/*.sh
+          for script in module/*.sh; do bash -n "$script"; done
+          node --check module/webroot/app.js
+          node --test ci/test_webui.cjs
+      - name: Build and test standalone root runner
+        run: ./gradlew -p root-runner --no-daemon testReleaseUnitTest assembleRelease
+      - name: Package single module ZIP
+        run: python3 ci/package_module.py
+      - name: Upload installable module
+        uses: actions/upload-artifact@v4
+        with:
+          name: TurboIMS-Next-0.1.0-experimental
+          path: dist/*
+          if-no-files-found: error
+      - name: Upload unit-test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TurboIMS-Next-test-reports
+          path: |
+            root-runner/build/reports/tests/
+            root-runner/build/test-results/
+          if-no-files-found: ignore
