@@ -92,7 +92,7 @@ public final class AndroidCarrierBackend implements CarrierBackend {
             if (value instanceof Boolean) bundle.putBoolean(key, (boolean) value);
             else if (value instanceof Integer) bundle.putInt(key, (int) value);
             else if (value instanceof int[]) bundle.putIntArray(key, (int[]) value);
-            else if (key.equals(Engine.MARKER) && value instanceof String)
+            else if (value instanceof String && (key.equals(Engine.MARKER) || key.equals("sim_country_iso_override_string") || key.equals("carrier_name_string")))
                 bundle.putString(key, (String) value);
             else throw new IllegalArgumentException("Unsupported value type: " + key);
         }
