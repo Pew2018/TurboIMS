@@ -149,6 +149,13 @@ details .log-view { margin-top:12px; }
 .feature { min-height:68px; }
 .feature .row-copy { padding-right:4px; }
 @media(prefers-reduced-motion:reduce) { .tap-ripple { animation:none; display:none; } }
+:root[data-edge-to-edge="true"] body::before,
+:root[data-edge-to-edge="true"] body::after {
+  content:""; position:fixed; left:0; right:0; z-index:4;
+  pointer-events:none; background:var(--system-bar-bg,var(--background));
+}
+:root[data-edge-to-edge="true"] body::before { top:0; height:var(--inset-top); }
+:root[data-edge-to-edge="true"] body::after { bottom:0; height:var(--inset-bottom); }
 /* Root destinations share a scroll viewport above the fixed classic navigation. */
 html { height:100%; overscroll-behavior:none; }
 body { height:100%; min-height:100vh; min-height:100svh; display:flex; flex-direction:column; overflow:hidden; }

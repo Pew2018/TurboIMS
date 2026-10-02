@@ -15,6 +15,7 @@ if (location.hostname === "mui.kernelsu.org" && window.ksu?.enableInsets) {
   const insets = document.createElement("link");
   insets.rel = "stylesheet";
   insets.href = "/internal/insets.css";
+  document.documentElement.dataset.edgeToEdge = "true";
   document.head.append(insets);
 }
 let busy = false;
@@ -46,6 +47,9 @@ function showAppearance() {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
   const chromeColor = dark ? "#121212" : "#ffffff";
+  // Android system icons follow the host Activity, not this WebUI preference.
+  // Keep their background legible if a manual WebUI theme differs from the host.
+  document.documentElement.style.setProperty("--system-bar-bg", media?.matches ? "#121212" : "#ffffff");
   for (const id of ["theme-color","status-bar-color","navigation-bar-color"]) {
     const meta = document.getElementById(id);
     if (meta) meta.setAttribute("content",chromeColor);
