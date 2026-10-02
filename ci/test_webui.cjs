@@ -104,8 +104,8 @@ test("choice and appearance changes never call the privileged bridge",async()=>{
   assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
 test("cancelled apply does not save or apply",async()=>{
-  const {elements,calls}=await appHarness();
-  elements.get("enabled").checked=true;
+  const {elements,calls,doc}=await appHarness();
+  doc.getElementById("enabled").checked=true;
   const click=elements.get("apply").onclick();
   elements.get("sheet-actions").children[0].onclick();
   await click;
