@@ -361,13 +361,14 @@ test("SIM is empty and existing tools belong exclusively to Settings",()=>{
   assert.match(nav,/tab-home[^]*tab-sim-page[^]*tab-settings-page/);
 });
 
-test("touch feedback uses a scroll-safe slop and suppresses cancelled clicks",()=>{
+test("touch feedback keeps scrolling free of transient effects",()=>{
   const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
-  assert.match(feedback,/TOUCH_SLOP = 14/);
-  assert.match(feedback,/MOUSE_SLOP = 8/);
-  assert.match(feedback,/Capture this before row handlers/);
+  assert.doesNotMatch(feedback,/pointerdown|pointermove|pointerup|pointercancel|transient|ripple/i);
+  assert.match(feedback,/window\.TouchFeedback/);
   const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
-  assert.match(style,/\[data-feedback="row"\][^}]*touch-action: pan-y/);
+  assert.doesNotMatch(style,/\.touch-ripple|\.touch-surface|feedback-pressed|--ripple-/);
+  assert.match(style,/touch-action: manipulation/);
+  assert.match(style,/-webkit-overflow-scrolling: touch/);
 });
 
 test("dark mode publishes matching WebView chrome colors",()=>{
@@ -385,17 +386,11 @@ test("IMS feature preferences are switch controls without feature dialogs",()=>{
   assert.match(app,/cycleFeature\(select,toggle\)/);
   assert.doesNotMatch(app,/button\.id = key\+"-choice"/);
 });
-test("touch ripples are deferred until a tap is confirmed",()=>{
+test("touch feedback has no document interception or ripple allocation",()=>{
   const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
-  assert.match(feedback,/Touch feedback is deferred until pointerup/);
-  assert.match(feedback,/pointerType === "touch"/);
-  assert.match(feedback,/if \(cancelled\)/);
+  assert.doesNotMatch(feedback,/pointerdown|pointermove|pointerup|pointercancel|ripple/i);
+  assert.match(feedback,/openDialog\(backdrop\)/);
   const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
-  assert.match(style,/-webkit-overflow-scrolling: touch/);
-});
-
-test("pointer clicks have a ripple fallback when pointerup is unavailable",()=>{
-  const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
-  assert.match(feedback,/Pointer-up normally creates the ripple/);
-  assert.match(feedback,/pointerActivation && surface\.querySelector\("\.touch-ripple"\)/);
+  assert.doesNotMatch(style,/\.touch-ripple|\.touch-surface|feedback-pressed|--ripple-/);
+  assert.match(style,/:active:not/);
 });

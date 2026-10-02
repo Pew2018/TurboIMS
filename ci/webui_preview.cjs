@@ -37,9 +37,9 @@ const fs = require("node:fs");
   const close=async()=>{ await page.locator("#sheet-close").click(); await page.locator("#sheet").waitFor({state:"hidden"}); };
   const back=async id=>{ await page.locator("#back").click(); await visible(id); };
   const systemBack=async id=>{ await page.evaluate(()=>history.back()); await visible(id); };
-  const capture=async (name, feedback=false)=>{
+  const capture=async name=>{
     await page.waitForFunction(()=>document.getElementById("sheet").getAnimations().every(animation=>animation.playState !== "running"));
-    if (!feedback) await page.waitForTimeout(220);
+    await page.waitForTimeout(220);
     // Content now scrolls internally; capture the phone viewport, not offscreen DOM bounds.
     return page.screenshot({path:"preview/"+name+".png",fullPage:false});
   };
@@ -86,10 +86,10 @@ const fs = require("node:fs");
   const tabX=Math.round(tabBounds.x+20),tabY=Math.round(tabBounds.y+20);
   await touchEvent("touchStart",tabX,tabY);
   await page.waitForTimeout(40);
-  assert.equal(await page.locator("#tab-sim-page .touch-ripple").count(),0);
+  assert.equal(await page.locator(".touch-ripple").count(),0);
   await touchEvent("touchEnd");
   await page.waitForTimeout(120);
-  await capture("bottom-nav-ripple",true);
+  await capture("bottom-nav-pressed");
   await visible("sim-page");
   await page.locator("#tab-home").click();
   const row = page.locator(".feature").first();
@@ -103,8 +103,8 @@ const fs = require("node:fs");
   assert.equal(await row.locator(".touch-ripple").count(),0);
   await page.screenshot({path:"preview/preference-pressed.png"});
   await touchEvent("touchEnd");
-  await page.waitForTimeout(120);
-  await page.screenshot({path:"preview/preference-ripple.png"});
+  await page.waitForTimeout(220);
+  await page.screenshot({path:"preview/preference-after-tap.png"});
   await page.waitForTimeout(220);
   // IMS feature rows are switches; a tap changes state without opening a dialog.
   assert.equal(await page.locator("#sheet").isVisible(),false);
@@ -117,7 +117,6 @@ const fs = require("node:fs");
   await touchEvent("touchEnd");
   await page.waitForTimeout(300);
   assert.equal(await page.locator("#sheet").isVisible(),false);
-  assert.equal(await page.locator(".feedback-pressed").count(),0);
   assert.equal(await page.locator(".touch-ripple").count(),0);
   await page.locator("#selection-choice").click();
   await capture("sim-dialog");
@@ -127,7 +126,7 @@ const fs = require("node:fs");
   assert.equal(await page.locator("#probe").isDisabled(),true);
   assert.equal(await page.locator("#probe").innerText(),"正在检测…");
   await page.dispatchEvent("#refresh","pointerdown",{button:0,isPrimary:true,pointerId:999,clientX:10,clientY:10});
-  assert.equal(await page.locator("#refresh .touch-ripple").count(),0);
+  assert.equal(await page.locator(".touch-ripple").count(),0);
   await page.waitForFunction(()=>!document.getElementById("probe").disabled);
   assert.equal(await page.locator("#message").innerText(),"检测完成");
   assert.match(await page.locator("#device").innerText(),/只读检测.*尚未验证/);
@@ -255,7 +254,7 @@ const fs = require("node:fs");
   await fresh.locator("#custom-hex").fill("#123456");
   await fresh.locator("#apply-hex").click();
   assert.equal(await fresh.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()),"#123456");
-  assert.match(await fresh.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue("--ripple-rgb")),/7,21,34/);
+  assert.match(await fresh.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue("--press-rgb")),/7,21,34/);
   await fresh.locator("#back").click();
   await fresh.locator("#appearance-page").waitFor({state:"visible"});
   await fresh.emulateMedia({reducedMotion:"reduce"});
@@ -271,7 +270,6 @@ const fs = require("node:fs");
   await fresh.locator("#sheet-content .option").nth(0).click();
   await fresh.locator("#sheet").waitFor({state:"hidden"});
   await fresh.waitForFunction(()=>document.documentElement.dataset.theme === "light");
-  await fresh.waitForFunction(()=>!document.querySelector(".touch-ripple"));
   assert.equal(await fresh.locator(".touch-ripple").count(),0);
   await fresh.locator("#back").click();
   await fresh.locator("#settings-page").waitFor({state:"visible"});
@@ -283,7 +281,7 @@ const fs = require("node:fs");
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
   fs.writeFileSync("preview/verification.json",JSON.stringify({passed:true,rootLength,
     checked:["root tabs without history growth","empty SIM root","IMS scroll and form retention","bottom row clearance","accent navigation","nested history","dialog cancellation","stale confirmation forward","reload","hashchange","full-row choice",
-      "diagnostic summary","unbroken horizontal JSON","text selection","dark theme","320px viewport","touch-origin ripple","scroll cancels press","disabled feedback",
+      "diagnostic summary","unbroken horizontal JSON","text selection","dark theme","320px viewport","no transient touch nodes","scroll keeps native press state","disabled feedback",
       "real probe semantics","system theme changes","custom accent","reduced motion"],
     limitation:"Native Android 16 gesture dispatch and predictive animation require device verification."},null,2));
   if(errors.length) throw new Error(errors.join("\n"));

@@ -44,7 +44,7 @@ function showAppearance() {
   }
   document.documentElement.style.setProperty("--accent", accent);
   const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
-  document.documentElement.style.setProperty("--ripple-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
+  document.documentElement.style.setProperty("--press-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
   document.documentElement.style.setProperty("--accent-track", "rgba(" + rgb.join(",") + ",.45)");
   const luminance = rgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
   document.documentElement.style.setProperty("--accent-text",

@@ -4,8 +4,7 @@
   --title-size:15px; --summary-size:13px; --value-size:13px;
   --dialog-padding:18px; --dialog-option-height:48px; --touch-target:48px;
   --switch-duration:160ms; --dialog-enter-duration:160ms; --dialog-exit-duration:100ms;
-  --ripple-grow-duration:220ms; --ripple-fade-duration:140ms;
-  --ripple-opacity:.09; --pressed-opacity:.045; --ripple-rgb:26,66,98;
+  --pressed-opacity:.045; --press-rgb:26,66,98;
   color-scheme:light;
   --accent:#42A5F5; --accent-ink:#24618f;
   --background:#ffffff; --surface:#ffffff; --ink:#212121; --muted:#757575;
@@ -14,7 +13,7 @@
 }
 :root[data-theme="dark"] {
   color-scheme:dark;
-  --ripple-opacity:.14; --pressed-opacity:.07;
+  --pressed-opacity:.07;
   --background:#121212; --surface:#212121; --ink:rgba(255,255,255,.87); --muted:rgba(255,255,255,.60);
   --divider:rgba(255,255,255,.07); --toolbar:#121212; --track:#777777; --log:#1e1e1e;
   --danger:#ffb4ab; --scrim:rgba(0,0,0,.48);
@@ -116,20 +115,28 @@ details .log-view { margin-top:12px; }
 #sim-summary { margin-top:5px; font-size:12px; }
 .setting-row[data-feedback],.feature[data-feedback],label.setting-row { cursor:pointer; }
 [data-feedback="row"],label.setting-row,.bottom-tab,.text-action,.pref-action,.choice,.option,.swatch-item {
-  touch-action: pan-y;
+  touch-action: manipulation;
 }
-.touch-surface { position:relative; overflow:hidden; isolation:isolate; touch-action:pan-y; -webkit-tap-highlight-color:transparent; }
-.touch-surface > :not(.touch-ripple) { position:relative; z-index:1; }
-.touch-ripple { position:absolute; z-index:0; border-radius:50%; background:rgb(var(--ripple-rgb)); opacity:var(--ripple-opacity); transform:scale(0); pointer-events:none; }
-.touch-surface.feedback-pressed { background-color:rgba(var(--ripple-rgb),var(--pressed-opacity)); }
-button:active:not(:disabled) { background-color:rgba(var(--ripple-rgb),var(--pressed-opacity)); }
-[data-feedback][aria-disabled="true"] { cursor:default; }
-.dialog-backdrop[data-closing="true"] { pointer-events:none; }
-
+/* Fast native press feedback. It does not allocate or animate a transient node. */
+.setting-row:active:not([aria-disabled="true"]),
+.feature:active:not([aria-disabled="true"]),
+.pref-action:active:not(:disabled),
+.text-action:active:not(:disabled),
+.choice:active:not(:disabled),
+.option:active:not(:disabled),
+.swatch-item:active:not(:disabled),
+.bottom-tab:active:not(:disabled) {
+  background-color:rgba(var(--press-rgb),var(--pressed-opacity));
+}
 /* Root destinations share a scroll viewport above the fixed classic navigation. */
-body { height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden; }
+html { height:100%; overscroll-behavior:none; }
+body { height:100%; min-height:100vh; min-height:100svh; display:flex; flex-direction:column; overflow:hidden; }
+@supports (height:100svh) { body { height:100svh; } }
 .toolbar { flex:none; }
-#page-content { flex:1; min-height:0; overflow:auto; overscroll-behavior-y:contain; }
+#page-content {
+  flex:1; min-height:0; overflow:auto; overscroll-behavior-y:contain;
+  touch-action:pan-y; contain:layout paint;
+}
 #page-content[data-primary="true"] { margin-bottom:calc(var(--bottom-nav-height) + env(safe-area-inset-bottom)); }
 .bottom-nav { position:fixed; inset:auto 0 0; z-index:2; padding-bottom:env(safe-area-inset-bottom); background:var(--toolbar); border-top:1px solid var(--divider); }
 .bottom-nav-inner { display:flex; max-width:620px; height:var(--bottom-nav-height); margin:auto; }
