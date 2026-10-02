@@ -63,6 +63,52 @@ let browser;
   assert.equal(await page.locator("#apply").evaluate(el=>getComputedStyle(el).userSelect),"none");
 
 
+
+  // Verify the same action component across themes and every preset, without
+  // invoking apply/restore. Arbitrary dark/light HEX uses the same contrast rule.
+  const palette=await page.evaluate(()=>[...onePlusColors,...materialColors].map(x=>x[1]).concat(["#FFF176","#37474F","#777777","#000000","#FFFFFF"]));
+  for(const theme of ["light","dark"])for(const color of palette){
+    await page.evaluate(({theme,color})=>{themeMode=theme;accent=color;showAppearance();},{theme,color});
+    const primary=await page.locator("#apply").evaluate(el=>{
+      const s=getComputedStyle(el);return {bg:s.backgroundColor,fg:s.color,height:s.height,width:s.width};
+    });
+    const ratio=await page.evaluate(({bg,fg})=>{
+      const lum=value=>{const rgb=value.match(/[\\d.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
+      const a=lum(bg),b=lum(fg);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+    },{bg:primary.bg,fg:primary.fg});
+    assert.ok(ratio>=4.5,theme+" "+color+" action contrast");
+    assert.equal(primary.height,"48px");
+    assert.equal(primary.width,"112px");
+    assert.equal(await page.locator("#restore").evaluate(el=>getComputedStyle(el).boxShadow),"none");
+    await page.evaluate(()=>{document.getElementById("apply").disabled=true;});
+    assert.notEqual(await page.locator("#apply").evaluate(el=>getComputedStyle(el).backgroundColor),primary.bg);
+    await page.dispatchEvent("#apply","pointerdown",{button:0,isPrimary:true,pointerId:997,clientX:10,clientY:10});
+    await page.dispatchEvent("#apply","pointerup",{button:0,isPrimary:true,pointerId:997,clientX:10,clientY:10});
+    assert.equal(await page.locator("#apply .tap-ripple").count(),0);
+    await page.evaluate(()=>{document.getElementById("apply").disabled=false;});
+  }
+  await page.evaluate(()=>{themeMode="system";accent="#42A5F5";showAppearance();});
+  for(const tab of ["tab-home","tab-sim-page"]){
+    await page.locator("#"+tab).click();
+    const actions=page.locator(tab==="tab-home"?"#home .action-button":"#sim-page .action-button");
+    const a=await actions.nth(0).boundingBox(),b=await actions.nth(1).boundingBox();
+    assert.equal(a.y,b.y);assert.equal(a.width,b.width);assert.equal(a.height,b.height);
+    assert.equal(b.x-a.x-a.width,12);
+  }
+  assert.equal(await page.locator("#sim-page #device-heading").count(),0);
+  assert.equal(await page.locator("#home #device-heading").count(),0);
+  assert.equal(await page.locator("#settings-page #device-heading").innerText(),"设备状态（IMS）");
+  await page.locator("#tab-home").click();
+
+  const switchHit=page.locator("#enabled").locator("..");
+  assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"1");
+  assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el,"::after").backgroundColor),"rgb(238, 238, 238)");
+  await page.evaluate(()=>{document.getElementById("enabled").disabled=true;});
+  assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"0.38");
+  await switchHit.dispatchEvent("pointerdown",{button:0,isPrimary:true,pointerId:996,clientX:10,clientY:10});
+  await switchHit.dispatchEvent("pointerup",{button:0,isPrimary:true,pointerId:996,clientX:10,clientY:10});
+  assert.equal(await switchHit.locator(".tap-ripple").count(),0);
+  await page.evaluate(()=>{document.getElementById("enabled").disabled=false;});
   // Root tabs replace, rather than push, and preserve untouched IMS controls.
   await page.locator("#enabled").check();
   await page.evaluate(()=>{document.getElementById("page-content").scrollTop=400;});
@@ -126,6 +172,10 @@ let browser;
   assert.ok((await page.locator("#restore").boundingBox()).y+
     (await page.locator("#restore").boundingBox()).height <= (await page.locator("#bottom-nav").boundingBox()).y);
   await capture("ims-bottom");
+  await page.locator("#tab-sim-page").click();
+  await page.locator("#sim-save").scrollIntoViewIfNeeded();
+  await capture("sim-actions-light");
+  await page.locator("#tab-home").click();
   await page.locator("#enabled").uncheck();
   const touch = await page.context().newCDPSession(page);
   const touchEvent = (type,x,y) => touch.send("Input.dispatchTouchEvent",{
@@ -190,6 +240,7 @@ let browser;
   await page.locator("#selection-choice").click();
   await capture("sim-dialog");
   await close();
+  await page.locator("#tab-settings-page").click();
   await page.evaluate(()=>{window.nextReadDelay=300;});
   await page.locator("#probe").click();
   assert.equal(await page.locator("#probe").isDisabled(),true);
@@ -206,6 +257,7 @@ let browser;
   assert.equal(await page.locator("#probe").innerText(),"检测设备");
   assert.equal(await page.locator("#refresh").innerText(),"刷新");
   assert.equal(await page.locator("#interval-choice").isDisabled(),true);
+  await page.locator("#tab-home").click();
   await page.locator("#periodic-check").check();
   await page.waitForFunction(()=>!document.getElementById("interval-choice").disabled);
   await page.locator("#interval-choice").click();

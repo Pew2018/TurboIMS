@@ -21,7 +21,7 @@
     bound.add(surface);
     surface.dataset.ripple = "control";
     surface.addEventListener("pointerdown", event => {
-      if (!event.isPrimary || event.button !== 0 || surface.disabled ||
+      if (!event.isPrimary || event.button !== 0 || surface.disabled || surface.querySelector('input:disabled') ||
           surface.closest('[aria-disabled="true"]')) return;
       pending.set(surface,{
         id:event.pointerId,x:event.clientX,y:event.clientY,
@@ -32,7 +32,7 @@
     surface.addEventListener("pointerup",event => {
       const tap = pending.get(surface);
       pending.delete(surface);
-      if (!tap || tap.id !== event.pointerId || surface.disabled ||
+      if (!tap || tap.id !== event.pointerId || surface.disabled || surface.querySelector('input:disabled') ||
           surface.closest('[aria-disabled="true"]')) return;
       const slop = event.pointerType === "mouse" ? 8 : 10;
       const scroll = document.getElementById("page-content")?.scrollTop || 0;
@@ -58,7 +58,7 @@
     },{passive:true});
   }
   function bind(root=document) {
-    const selector=".bottom-tab,.switch-hit,.text-action,.choice,.option,.swatch-item,.sim-edit-row,.feature-reset,.primary-action,.dialog-cancel,.back,[data-ripple='control']";
+    const selector=".bottom-tab,.switch-hit,.text-action,.choice,.option,.swatch-item,.sim-edit-row,.feature-reset,.action-button,.dialog-cancel,.back,[data-ripple='control']";
     if (root.matches?.(selector)) bindRipple(root);
     root.querySelectorAll?.(selector).forEach(bindRipple);
   }

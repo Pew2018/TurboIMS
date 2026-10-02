@@ -33,14 +33,11 @@
   </section>
   <section class="pref-group" aria-label="操作">
     <h2 class="category">操作</h2>
-    <button id="apply" class="pref-action primary-action" type="button"><span>应用配置</span></button>
-    <button id="restore" class="pref-action primary-action" type="button"><span>停止并恢复</span></button>
-    <p class="hint preference-footer">停止自动应用并恢复原值，保留冲突项。</p>
-  </section>
-  <section class="pref-group device-status-group" aria-labelledby="device-heading">
-    <h2 id="device-heading" class="category">设备状态</h2>
-    <div class="status-row"><span id="status-indicator" class="status-indicator" aria-hidden="true"></span><div><p id="message" role="status" aria-live="polite">正在读取…</p><p id="device" class="summary"></p><p id="sim-summary" class="summary" hidden></p></div></div>
-    <div class="status-actions"><button id="probe" class="text-action" type="button"><span class="action-label">检测设备</span></button><button id="refresh" class="text-action" type="button"><span class="action-label">刷新</span></button></div>
+    <div class="action-group" role="group" aria-label="页面操作">
+      <button id="apply" class="action-button action-button--primary" type="button"><span>应用配置</span></button>
+      <button id="restore" class="action-button action-button--secondary" type="button"><span>停止恢复</span></button>
+    </div>
+    <p class="hint action-summary">应用当前 IMS 配置；停止恢复会关闭自动应用并恢复原值，保留冲突项。</p>
   </section>
 </main>
 <main id="sim-page" class="page" hidden>
@@ -57,8 +54,11 @@
     <div class="setting-row"><span class="row-copy"><strong>运营商名称</strong><small id="sim-carrier-summary">设置系统读取的名称</small></span><button id="sim-carrier-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
     <button id="sim-edit-carrier" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义运营商名称</strong><small>优先使用自定义名称</small></span><span id="sim-custom-carrier-value" class="sim-pref-value">未设置</span></button>
     <h3 class="category subcategory">操作</h3>
-    <button id="sim-save" class="pref-action primary-action" type="button"><span>应用信息</span></button>
-    <button id="sim-restore" class="pref-action primary-action" type="button"><span>恢复原信息</span></button>
+    <div class="action-group" role="group" aria-label="页面操作">
+      <button id="sim-save" class="action-button action-button--primary" type="button"><span>应用信息</span></button>
+      <button id="sim-restore" class="action-button action-button--secondary" type="button"><span>恢复原值</span></button>
+    </div>
+    <p class="hint action-summary">应用当前 SIM 信息；恢复原值仅移除本模块记录的 SIM 信息覆盖。</p>
     <p class="hint preference-footer">仅修改系统读取的信息，不改变运营商服务。已保存配置会在重启后重新应用。</p>
   </section>
 </main>
@@ -71,6 +71,11 @@
     <h2 class="category">工具</h2>
     <button id="open-diagnostics" class="pref-action" type="button"><span>诊断与验证<small>运行状态与诊断数据</small></span><span class="chevron" aria-hidden="true"></span></button>
     <button id="reset-features" class="pref-action" type="button"><span>恢复 IMS 单项原值<small>选择功能后，回到 IMS 应用</small></span></button>
+  </section>
+  <section class="pref-group device-status-group" aria-labelledby="device-heading">
+    <h2 id="device-heading" class="category">设备状态（IMS）</h2>
+    <div class="status-row"><span id="status-indicator" class="status-indicator" aria-hidden="true"></span><div><p id="message" role="status" aria-live="polite">正在读取…</p><p id="device" class="summary"></p><p id="sim-summary" class="summary" hidden></p></div></div>
+    <div class="status-actions"><button id="probe" class="text-action" type="button"><span class="action-label">检测设备</span></button><button id="refresh" class="text-action" type="button"><span class="action-label">刷新</span></button></div>
   </section>
 </main>
 <main id="appearance-page" class="page" hidden>

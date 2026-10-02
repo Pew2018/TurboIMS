@@ -512,15 +512,19 @@ test("appearance refinements are opt-in and preserve current actions",()=>{
   const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
   assert.match(html,/id="card-groups"[^>]*role="switch"/);
   assert.match(app,/turboims-card-groups","false"/);
-  assert.match(html,/id="apply" class="pref-action primary-action"/);
-  assert.match(html,/id="sim-save" class="pref-action primary-action"/);
+  assert.match(html,/id="apply" class="action-button action-button--primary"/);
+  assert.match(html,/id="sim-save" class="action-button action-button--primary"/);
   assert.ok(app.includes('visualViewport.addEventListener("resize",updateDialogViewport)'));
   assert.match(css,/data-ime="true"/);
   assert.match(app,/system-status-bg/);
   assert.match(app,/statusRgb = accentToolbar/);
   assert.ok(css.includes(':root[data-card-groups="true"] .pref-group'));
   assert.match(css,/system-navigation-bg/);
-  assert.ok(html.indexOf('id="device-heading"') > html.indexOf('id="apply"'));
+  const settings=html.split('<main id="settings-page"')[1].split("</main>")[0];
+  const home=html.split('<main id="home"')[1].split("</main>")[0];
+  assert.ok(settings.includes('id="device-heading"'));
+  assert.ok(settings.includes("设备状态（IMS）"));
+  assert.ok(!home.includes('id="device-heading"'));
 });
 
 test("initial view stays clean until status succeeds or fails",async()=>{
@@ -540,9 +544,9 @@ test("initial view stays clean until status succeeds or fails",async()=>{
 });
 test("operation buttons use short single-line labels and retain separate actions",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
-  for(const [id,label] of Object.entries({apply:"应用配置",restore:"停止并恢复","sim-save":"应用信息","sim-restore":"恢复原信息"})){
+  for(const [id,label] of Object.entries({apply:"应用配置",restore:"停止恢复","sim-save":"应用信息","sim-restore":"恢复原值"})){
     const button=html.match(new RegExp('<button id="'+id+'"[^>]*>([\\s\\S]*?)</button>'))[0];
-    assert.ok(button.includes("primary-action"));
+    assert.ok(button.includes("action-button"));
     assert.ok(button.includes(label));
     assert.doesNotMatch(button,/<small/);
     assert.ok(label.length>=4 && label.length<=5);
@@ -566,4 +570,26 @@ test("toolbar palette is independent, readable and updates with accent",async()=
     const contrast=(Math.max(luminance,fg)+.05)/(Math.min(luminance,fg)+.05);
     assert.ok(contrast>=4.5,color+" toolbar contrast "+contrast);
   }
+});
+
+test("every preset and arbitrary RGB accent has readable action text in both themes",async()=>{
+  const {context,doc,calls}=await appHarness();
+  const vm=require("node:vm");
+  const colors=vm.runInContext('[...onePlusColors,...materialColors].map(x=>x[1])',context);
+  for(let value=0;value<=255;value+=17) colors.push("#"+value.toString(16).padStart(2,"0").repeat(3));
+  colors.push("#FFF176","#37474F","#777777","#123456");
+  const luminance=hex=>{
+    const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+    return c[0]*.2126+c[1]*.7152+c[2]*.0722;
+  };
+  for(const mode of ["light","dark"])for(const color of colors){
+    context.actionTestColor=color;context.actionTestTheme=mode;
+    vm.runInContext('accent=actionTestColor; themeMode=actionTestTheme; showAppearance();',context);
+    const vars=doc.documentElement.style.properties;
+    assert.equal(vars["--accent"],color);
+    const a=luminance(color),b=luminance(vars["--on-accent"]);
+    assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5,color);
+    assert.ok(vars["--switch-on-track"].endsWith(",.35)"));
+  }
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
 });

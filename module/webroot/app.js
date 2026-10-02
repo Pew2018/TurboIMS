@@ -275,6 +275,15 @@ function showAppearance() {
   const luminance = rgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
   const relativeLuminance = luminance[0]*.2126 + luminance[1]*.7152 + luminance[2]*.0722;
   document.documentElement.style.setProperty("--accent-text",relativeLuminance > .18 ? "#101010" : "#ffffff");
+  // Pick a real foreground contrast, including near-black luminance. Pure black
+  // covers the small range where neither near-black nor white reaches 4.5:1.
+  const actionWhiteContrast = 1.05 / (relativeLuminance + .05);
+  const actionDarkContrast = (relativeLuminance + .05) / (.0051815167 + .05);
+  const onAccent = actionDarkContrast >= 4.5 && actionDarkContrast >= actionWhiteContrast
+    ? "#101010" : actionWhiteContrast >= 4.5 ? "#FFFFFF" : "#000000";
+  root.style.setProperty("--on-accent",onAccent);
+  root.style.setProperty("--action-border","rgba(" + rgb.join(",") + ",.36)");
+  root.style.setProperty("--switch-on-track","rgba(" + rgb.join(",") + ",.35)");
   const whiteContrast = 1.05 / (relativeLuminance + .05);
   const darkContrast = (relativeLuminance + .05) / .05;
   const toolbarLuminance = toolbarRgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
