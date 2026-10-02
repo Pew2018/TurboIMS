@@ -13,11 +13,16 @@ public final class Engine {
     public interface Sleeper { void sleep() throws Exception; }
     public static final class Snapshot {
         public final String session;
-        public final Map<String, Object> baseline, owned;
+        public final Map<String, Object> baseline, owned, pending;
         public Snapshot(String session, Map<String, Object> baseline, Map<String, Object> owned) {
+            this(session, baseline, owned, Collections.emptyMap());
+        }
+        public Snapshot(String session, Map<String, Object> baseline, Map<String, Object> owned,
+                        Map<String, Object> pending) {
             this.session = session;
             this.baseline = new LinkedHashMap<>(baseline);
             this.owned = new LinkedHashMap<>(owned);
+            this.pending = new LinkedHashMap<>(pending);
         }
     }
     public static final class Result {
@@ -56,7 +61,35 @@ public final class Engine {
         if (ours) {
             baseline.putAll(old.baseline);
             previous.putAll(old.owned);
+            // Resolve an interrupted transaction from observed values. The last verified
+            // ownership must survive a Binder failure before mutation.
+            for (var entry : old.pending.entrySet()) {
+                String key = entry.getKey();
+                if (FeatureConfig.same(current.get(key), entry.getValue())) {
+                    previous.put(key, entry.getValue());
+                } else if (previous.containsKey(key)
+                        && FeatureConfig.same(current.get(key), previous.get(key))) {
+                    // The attempted mutation did not happen; retain the verified ownership.
+                } else if (!previous.containsKey(key)
+                        && FeatureConfig.same(current.get(key), baseline.get(key))) {
+                    // First write did not happen; do not invent ownership.
+                } else {
+                    // Unknown value: preserve a claim for conflict detection, never overwrite.
+                    previous.put(key, entry.getValue());
+                }
+            }
         } else {
+            if (old != null && session.equals(old.session)
+                    && (!old.owned.isEmpty() || !old.pending.isEmpty())) {
+                Set<String> tracked = new LinkedHashSet<>(old.owned.keySet());
+                tracked.addAll(old.pending.keySet());
+                List<String> lost = new ArrayList<>();
+                for (String key : tracked)
+                    if (!FeatureConfig.same(current.get(key), old.baseline.get(key))) lost.add(key);
+                if (!lost.isEmpty())
+                    return new Result(sub, "ownership_lost", false, List.of(), lost, current);
+                // All tracked values returned to baseline, e.g. after a carrier reload.
+            }
             for (String key : FeatureConfig.knownKeys())
                 if (current.containsKey(key)) baseline.put(key, current.get(key));
         }
@@ -100,11 +133,7 @@ public final class Engine {
             return new Result(sub, "preview", false, unsupported, conflicts, current);
         if (!payload.isEmpty()) {
             // Snapshot BEFORE mutation; a crash/failure must still leave a recovery record.
-            Map<String, Object> pending = new LinkedHashMap<>(previous);
-            pending.putAll(nextOwned);
-            // Includes restoration values if the process dies during asynchronous verification.
-            for (String key : payload.keySet()) pending.put(key, payload.get(key));
-            store.save(sub.id, new Snapshot(session, baseline, pending));
+            store.save(sub.id, new Snapshot(session, baseline, previous, payload));
             payload.put(MARKER, session);
             backend.override(sub.id, payload);
             boolean verified = false;

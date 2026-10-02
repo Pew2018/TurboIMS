@@ -101,7 +101,8 @@ public final class ModuleMain {
                 StandardCharsets.UTF_8).replace("\u0000", "").trim();
         return new JSONObject().put("uid", Os.getuid()).put("pid", Process.myPid())
                 .put("selinux_context", context).put("sdk", Build.VERSION.SDK_INT)
-                .put("device", Build.DEVICE).put("time_ms", System.currentTimeMillis());
+                .put("device", Build.DEVICE).put("session", session)
+                .put("time_ms", System.currentTimeMillis());
     }
 
     private static JSONObject runOnce(boolean preview, boolean restore) throws Exception {
@@ -109,33 +110,33 @@ public final class ModuleMain {
         AndroidCarrierBackend backend = backend();
         Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
         List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
+        BatchRunner.Report report = BatchRunner.run(subscriptions, config, engine, preview, restore);
         JSONArray results = new JSONArray();
-        boolean ok = true, selected = false, pending = false, changed = false, verified = false;
-        for (CarrierBackend.Subscription sub : subscriptions) {
-            boolean target = !restore && config.selects(sub.slot);
-            if (target) selected = true;
-            Map<String, Object> desired = target ? config.desired() : Collections.emptyMap();
-            Engine.Result r = engine.reconcile(sub, desired, !preview);
-            boolean waiting = r.phase.equals("waiting");
-            if (waiting && (target || restore)) { ok = false; pending = true; }
-            if (!r.conflicts.isEmpty()) ok = false;
-            changed |= r.changed;
-            verified |= r.phase.equals("verified") || r.phase.equals("restored");
-            JSONObject row = new JSONObject().put("sub_id", r.subId).put("slot", r.slot)
-                    .put("selected", target).put("phase", r.phase).put("changed", r.changed)
-                    .put("unsupported", new JSONArray(r.unsupported))
-                    .put("conflicts", new JSONArray(r.conflicts))
-                    .put("effective", JsonIO.values(r.effective));
+        for (BatchRunner.Entry entry : report.entries) {
+            CarrierBackend.Subscription sub = entry.sub;
+            JSONObject row = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
+                    .put("selected", entry.selected);
+            if (entry.error != null) {
+                row.put("phase", "error").put("changed", false).put("write_state_unknown", !preview)
+                        .put("error", String.valueOf(entry.error.getMessage()))
+                        .put("type", entry.error.getClass().getName())
+                        .put("unsupported", new JSONArray()).put("conflicts", new JSONArray());
+                if (!preview) log("subId=" + sub.id + " ERROR " + entry.error);
+            } else {
+                Engine.Result r = entry.result;
+                row.put("phase", r.phase).put("changed", r.changed)
+                        .put("unsupported", new JSONArray(r.unsupported))
+                        .put("conflicts", new JSONArray(r.conflicts))
+                        .put("effective", JsonIO.values(r.effective));
+                if (!preview && (r.changed || !r.conflicts.isEmpty()))
+                    log("subId=" + sub.id + " phase=" + r.phase
+                            + " conflicts=" + r.conflicts + " unsupported=" + r.unsupported);
+            }
             results.put(row);
-            if (!preview && (r.changed || !r.conflicts.isEmpty()))
-                log("subId=" + sub.id + " phase=" + r.phase
-                        + " conflicts=" + r.conflicts + " unsupported=" + r.unsupported);
         }
-        if (config.enabled && !selected && !restore) { ok = false; pending = true; }
-        String phase = preview ? "probe" : pending ? "waiting" : !ok ? "conflict"
-                : config.enabled && !restore ? "active" : "paused";
-        return identity().put("ok", ok).put("phase", phase).put("changed", changed)
-                .put("write_readback_verified", verified)
+        return identity().put("ok", report.ok).put("phase", report.phase)
+                .put("changed", report.changed).put("write_readback_verified", report.verified)
+                .put("requires_manual_retry", report.requiresManualRetry)
                 .put("config", JsonIO.config(config)).put("subscriptions", results)
                 .put("binder", new JSONObject(backend.capabilities()));
     }
@@ -143,9 +144,16 @@ public final class ModuleMain {
     private static JSONObject status() throws Exception {
         JSONObject result = identity().put("ok", true)
                 .put("config", JsonIO.config(JsonIO.config(JsonIO.read(JsonIO.CONFIG))));
-        result.put("status", Files.exists(STATUS) ? JsonIO.read(STATUS)
-                : new JSONObject().put("phase", "not_started"));
-        if (Files.exists(BLOCKED)) result.put("blocked", JsonIO.read(BLOCKED));
+        JSONObject last = Files.exists(STATUS) ? JsonIO.read(STATUS) : null;
+        if (last != null && session.equals(last.optString("session"))) result.put("status", last);
+        else {
+            result.put("status", new JSONObject().put("phase", "not_started"));
+            if (last != null) result.put("previous_status", last);
+        }
+        if (Files.exists(BLOCKED)) {
+            JSONObject blocked = JsonIO.read(BLOCKED);
+            if (session.equals(blocked.optString("session"))) result.put("blocked", blocked);
+        }
         Path pid = JsonIO.STATE.resolve("watcher.json");
         if (Files.exists(pid)) {
             JSONObject info = JsonIO.read(pid);
@@ -174,6 +182,8 @@ public final class ModuleMain {
                             try (Locked operation = lock("operation.lock", true)) {
                                 JSONObject result = runOnce(false, false);
                                 JsonIO.write(STATUS, result);
+                                if (result.optBoolean("requires_manual_retry"))
+                                    JsonIO.write(BLOCKED, result);
                                 if (result.optString("phase").equals("waiting")) seconds = 5;
                             }
                         }
@@ -215,7 +225,7 @@ public final class ModuleMain {
     private static JSONObject error(Throwable e) throws Exception {
         return new JSONObject().put("ok", false).put("phase", "error")
                 .put("type", e.getClass().getName()).put("error", String.valueOf(e.getMessage()))
-                .put("uid", Os.getuid()).put("sdk", Build.VERSION.SDK_INT)
+                .put("uid", Os.getuid()).put("sdk", Build.VERSION.SDK_INT).put("session", session)
                 .put("time_ms", System.currentTimeMillis());
     }
 

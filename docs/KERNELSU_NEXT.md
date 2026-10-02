@@ -142,3 +142,23 @@ CI 是离线与编译验证，不是设备 Binder/SELinux/IMS 测试。
 - KernelSU / KernelSU Next 模块、late service 与 WebUI API
 - org.lsposed.hiddenapibypass:hiddenapibypass:6.1（Apache-2.0）
   这是 Java 库，不要求安装 LSPosed 或 Zygisk。
+
+
+## Recovery audit follow-up
+
+- Recovery snapshots now keep the last verified ownership and a separate pending write.
+  A Binder exception before mutation must not turn our previous value into a false
+  third-party conflict. Interrupted writes and restores are reconciled from read-back.
+  Legacy snapshots without pending writes remain readable.
+- If the boot marker disappears while tracked values differ from their baseline, the
+  controller preserves the snapshot and reports ownership_lost instead of rebasing on
+  a possibly modified value. Export diagnostics; disabling the module and rebooting
+  clears its nonpersistent overrides.
+- Each active subscription is processed separately. An exception on one SIM does not
+  erase another SIM's result. Failed writes are conservatively reported as unconfirmed;
+  automatic retries stop until an explicit apply/restore succeeds.
+- Unsupported requested keys produce partial status, never complete success.
+- Status records are tagged with boot sessions. Previous-boot status is retained only
+  as previous_status and is not presented as a current successful application.
+- These checks do not prove IMS registration, carrier provisioning or call capability.
+  Root Binder/SELinux behavior still requires device validation.

@@ -56,18 +56,23 @@ function render(result, replaceForm = false) {
   const phase = state.phase || "not_started";
   const texts = { probe:"只读检测完成；尚未验证写入权限。",
     active:state.write_readback_verified ? "写入并读回验证成功。" : "已启用，当前配置无需写入；请查看详情。",
-    paused:"已暂停自动覆盖。", waiting:"等待活跃 SIM 和运营商配置加载。", conflict:"检测到第三方配置冲突，冲突键未覆盖。",
+    paused:"已暂停自动覆盖。", partial:"部分配置键不受支持；请查看逐卡结果，未报告全部生效。",
+    ownership_lost:"覆盖标记丢失且配置尚未恢复；已停止自动写入，请导出诊断。",
+    waiting:"等待活跃 SIM 和运营商配置加载。", conflict:"检测到第三方配置冲突，冲突键未覆盖。",
     not_started:"执行器尚未启动；安装后请重启，再进行只读检测。",
-    error:"执行失败：" + (state.error || "未知错误") };
-  message(texts[phase] || phase, !!result.blocked || ["error","conflict"].includes(phase));
-  if (result.blocked) message("自动写入已停止：" + result.blocked.error, true);
+    error:"执行失败：" + (state.error || "请查看下方各 SIM 的错误") };
+  message(texts[phase] || phase, !!result.blocked || ["error","conflict","partial","ownership_lost"].includes(phase));
+  if (result.blocked) message("自动写入已停止：" + (result.blocked.error || result.blocked.phase || "请查看逐卡诊断"), true);
   if (result.watcher && !result.watcher.alive)
     message("后台适配进程未运行。请重启并导出诊断。", true);
   $("sims").replaceChildren();
   for (const sub of state.subscriptions || []) {
     const line = document.createElement("div"); line.className = "sim";
     line.textContent = "SIM 卡槽 " + (sub.slot + 1) + " · subId " + sub.sub_id +
-      " · " + sub.phase + (sub.unsupported.length ? " · 跳过不支持的键 " + sub.unsupported.length + " 个" : "");
+      " · " + sub.phase
+      + (sub.unsupported.length ? " · 跳过不支持的键 " + sub.unsupported.length + " 个" : "")
+      + (sub.error ? " · " + sub.error : "")
+      + (sub.write_state_unknown ? " · 此卡写入结果未确认" : "");
     $("sims").append(line);
   }
 }
