@@ -279,6 +279,7 @@ const fs = require("node:fs");
   await page.setViewportSize({width:320,height:720});
   await capture("home-narrow");
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+  // Touch feedback is intentionally native press-only; scrolling never creates transient nodes.
   fs.writeFileSync("preview/verification.json",JSON.stringify({passed:true,rootLength,
     checked:["root tabs without history growth","empty SIM root","IMS scroll and form retention","bottom row clearance","accent navigation","nested history","dialog cancellation","stale confirmation forward","reload","hashchange","full-row choice",
       "diagnostic summary","unbroken horizontal JSON","text selection","dark theme","320px viewport","no transient touch nodes","scroll keeps native press state","disabled feedback",
