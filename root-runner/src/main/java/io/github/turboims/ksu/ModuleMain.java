@@ -16,6 +16,7 @@ public final class ModuleMain {
     private static String session;
     private static final Path STATUS = JsonIO.STATE.resolve("status.json");
     private static final Path BLOCKED = JsonIO.STATE.resolve("blocked.json");
+    private static final Path UI_CONFIG = JsonIO.STATE.resolve("ui.json");
 
     public static void main(String[] args) {
         int code = 0;
@@ -37,6 +38,7 @@ public final class ModuleMain {
                 Files.copy(module.resolve("default-config.json"), JsonIO.CONFIG);
                 Os.chmod(JsonIO.CONFIG.toString(), 0600);
             }
+            if (!Files.exists(UI_CONFIG)) JsonIO.write(UI_CONFIG, defaultUi());
             String action = args[1];
             if (action.equals("watch")) { watch(); return; }
             JSONObject result;
@@ -48,6 +50,7 @@ public final class ModuleMain {
                             ? new String(Files.readAllBytes(log), StandardCharsets.UTF_8) : "");
                 }
             } else if (action.equals("get-config")) result = JsonIO.read(JsonIO.CONFIG);
+            else if (action.equals("get-ui")) result = new JSONObject().put("ok", true).put("ui", readUi());
             else {
                 try (Locked ignored = lock("operation.lock", true)) {
                     if (action.equals("save")) {
@@ -59,6 +62,15 @@ public final class ModuleMain {
                         JsonIO.write(JsonIO.CONFIG, JsonIO.config(config));
                         result = new JSONObject().put("ok", true).put("saved", true)
                                 .put("config", JsonIO.config(config));
+                    } else if (action.equals("save-ui")) {
+                        if (args.length != 3 || args[2].length() > 4096)
+                            throw new IllegalArgumentException("Missing or oversized UI preferences");
+                        JSONObject incoming = new JSONObject(new String(
+                                Base64.getDecoder().decode(args[2]), StandardCharsets.UTF_8));
+                        JSONObject preferences = normalizeUi(incoming);
+                        JsonIO.write(UI_CONFIG, preferences);
+                        result = new JSONObject().put("ok", true).put("saved", true)
+                                .put("ui", preferences);
                     } else if (Set.of("probe", "apply", "restore").contains(action)) {
                         if (action.equals("restore")) {
                             JSONObject config = JsonIO.read(JsonIO.CONFIG);
@@ -87,6 +99,37 @@ public final class ModuleMain {
             code = 1;
         }
         System.exit(code);
+    }
+
+    private static JSONObject defaultUi() {
+        return new JSONObject().put("schema", 1)
+                .put("theme_mode", "system").put("accent", "#009866");
+    }
+
+    private static JSONObject readUi() throws Exception {
+        if (!Files.exists(UI_CONFIG)) {
+            JSONObject defaults = defaultUi();
+            JsonIO.write(UI_CONFIG, defaults);
+            return defaults;
+        }
+        return normalizeUi(JsonIO.read(UI_CONFIG));
+    }
+
+    private static JSONObject normalizeUi(JSONObject object) throws Exception {
+        Set<String> keys = new HashSet<>();
+        Iterator<String> names = object.keys();
+        while (names.hasNext()) keys.add(names.next());
+        if (!keys.equals(Set.of("schema", "theme_mode", "accent")))
+            throw new IllegalArgumentException("Unexpected UI preference fields");
+        if (!(object.get("schema") instanceof Integer) || object.getInt("schema") != 1)
+            throw new IllegalArgumentException("Unsupported UI preference schema");
+        String mode = object.getString("theme_mode");
+        if (!Set.of("system", "light", "dark").contains(mode))
+            throw new IllegalArgumentException("Theme mode must be system, light or dark");
+        String accent = object.getString("accent").toUpperCase(Locale.ROOT);
+        if (!accent.matches("#[0-9A-F]{6}"))
+            throw new IllegalArgumentException("Accent must be #RRGGBB");
+        return new JSONObject().put("schema", 1).put("theme_mode", mode).put("accent", accent);
     }
 
     private static AndroidCarrierBackend backend() throws Exception {

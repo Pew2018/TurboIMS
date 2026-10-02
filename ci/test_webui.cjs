@@ -6,6 +6,11 @@ const bridge=require("../module/webroot/bridge.js");
 
 test("operations are whitelisted",()=>assert.throws(()=>bridge.command("reboot")));
 test("arguments forbidden except save",()=>assert.throws(()=>bridge.command("apply","extra")));
+test("UI preference save is whitelisted and separately routed",()=>{
+  const data=Buffer.from("{\"theme_mode\":\"dark\",\"accent\":\"#009866\"}").toString("base64");
+  assert.equal(bridge.command("save-ui",data),
+    "/system/bin/sh '/data/adb/modules/turboims_next/control.sh' save-ui '" + data + "'");
+});
 test("shell injection is rejected",()=>assert.throws(()=>bridge.command("save","x'; reboot; '")));
 test("base64 config is passed as a single quoted argument",()=>{
   const data=Buffer.from('{"schema":1}').toString("base64");
@@ -38,7 +43,7 @@ test("WebUI has offline assets and no CDN dependencies",()=>{
   for(const file of ["bridge.js","app.js","style.css"])
     assert.ok(fs.existsSync(path.join(__dirname,"../module/webroot",file)));
   assert.ok(!/https?:\/\/|<iframe/i.test(html));
-  for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh"])
+  for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh","themeMode","accentText","accentPicker","statusBadge","logView"])
     assert.ok(html.includes('id="'+id+'"'));
 });
 test("default config is deliberately paused",()=>{
@@ -86,4 +91,13 @@ test("aggregate blocked result has a readable reason",async()=>{
   context.render({status:{phase:"error"},blocked:{phase:"ownership_lost"}});
   assert.match(elements.get("message").textContent,/ownership_lost/);
   assert.doesNotMatch(elements.get("message").textContent,/undefined/);
+});
+
+test("Lineage Teal UI has theme and accent controls without remote assets",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  assert.match(html,/data-accent="#009866"/);
+  assert.match(html,/value="system"/);
+  assert.match(css,/prefers-color-scheme/);
+  assert.doesNotMatch(css,/backdrop-filter|linear-gradient|url\(/i);
 });

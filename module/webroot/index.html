@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-Hans">
+<html lang="zh-Hans" data-theme="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; connect-src 'none'; img-src 'self' data:">
   <title>TurboIMS Next</title>
   <link rel="stylesheet" href="style.css">
@@ -11,33 +11,174 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-<header><h1>TurboIMS Next</h1><p>独立 KernelSU 模块 · 实验版 0.1.1</p></header>
-<main>
-  <section aria-labelledby="device-heading">
-    <h2 id="device-heading">设备状态</h2>
-    <p id="message" role="status" aria-live="polite">正在读取状态…</p>
-    <p id="device" class="muted"></p>
-    <div id="sims"></div>
-    <p class="notice">检测成功只表示读通路可用。只有“写入并读回验证成功”才表示覆盖已生效；IMS 注册和通话仍需运营商支持。</p>
-    <div class="actions"><button id="probe" type="button">只读检测</button><button id="refresh" type="button" class="secondary">刷新状态</button></div>
+<header class="toolbar">
+  <div class="toolbar-brand">
+    <div class="brand-title">TurboIMS Next</div>
+    <div class="brand-subtitle">KernelSU IMS 配置工具</div>
+  </div>
+  <div class="toolbar-actions">
+    <button id="refresh" class="icon-button" type="button" aria-label="刷新状态" title="刷新状态">↻</button>
+    <button id="appearanceFocus" class="icon-button" type="button" aria-label="外观设置" title="外观设置">⚙</button>
+  </div>
+</header>
+
+<main class="page-shell">
+  <section class="card status-card span-full" aria-labelledby="status-heading">
+    <div class="status-heading">
+      <div>
+        <p class="eyebrow">模块状态</p>
+        <h1 id="status-heading">TurboIMS Next</h1>
+        <p id="version" class="subtle">Standalone KernelSU Next module · 0.2.0-experimental</p>
+      </div>
+      <div id="statusBadge" class="status-mark status-unknown">
+        <span id="statusDot" class="status-dot"></span>
+        <span id="statusText">正在读取</span>
+      </div>
+    </div>
+    <div class="status-grid">
+      <div><span>KernelSU 权限</span><strong id="rootValue">检查中</strong></div>
+      <div><span>服务状态</span><strong id="serviceValue">检查中</strong></div>
+      <div><span>最后检测</span><strong id="lastCheckValue">—</strong></div>
+      <div><span>当前设备</span><strong id="deviceValue">—</strong></div>
+    </div>
+    <p id="message" class="inline-message" role="status" aria-live="polite">正在读取模块状态…</p>
+    <div id="sims" class="sim-list" aria-live="polite"></div>
   </section>
-  <section aria-labelledby="settings-heading">
-    <h2 id="settings-heading">自动适配设置</h2>
-    <label class="master"><span><strong>启用自动适配</strong><small>保存后，在开机和 SIM / CarrierConfig 变化后检查设置</small></span><input id="enabled" type="checkbox" role="switch"></label>
-    <label class="field">应用范围<select id="selection"><option value="all">所有活跃 SIM</option><option value="slot:0">SIM 卡槽 1</option><option value="slot:1">SIM 卡槽 2</option></select></label>
-    <label class="field">检查间隔<select id="interval"><option value="15">15 秒</option><option value="30">30 秒（默认）</option><option value="60">60 秒</option><option value="120">120 秒</option><option value="300">5 分钟</option></select></label>
-    <div id="features"></div>
-    <p class="muted">“恢复原值”仅恢复本模块修改前记录的有效值，可能包含其他工具已有的设置，并不保证是运营商默认。检测到第三方冲突时不覆盖冲突键。</p>
-    <div class="actions"><button id="apply" type="button">保存并应用</button><button id="restore" type="button" class="secondary">暂停并恢复原值</button></div>
-  </section>
-  <section aria-labelledby="diagnostics-heading">
-    <h2 id="diagnostics-heading">诊断与验证</h2>
-    <p class="muted">不采集电话号码、IMSI 或 ICCID。不修改系统分区、不关闭 SELinux、不清空整张 SIM 的覆盖配置。</p>
-    <button id="export" type="button" class="secondary">生成诊断</button>
-    <label for="diagnostics" class="sr-only">诊断 JSON</label><textarea id="diagnostics" readonly rows="10" placeholder="生成的诊断会显示在这里，可全选复制。"></textarea>
-    <details><summary>最近一次操作的完整结果</summary><pre id="details">暂无</pre></details>
-  </section>
-  <footer>首次安装默认为暂停。设置启用后才写入。停用模块并重启可清除其非持久覆盖。</footer>
+
+  <div class="page-grid">
+    <section class="card" aria-labelledby="core-heading">
+      <div class="section-heading">
+        <div><p class="eyebrow">控制</p><h2 id="core-heading">核心设置</h2></div>
+        <span class="section-icon">◉</span>
+      </div>
+      <label class="setting-row switch-row">
+        <span class="setting-copy"><strong>启用自动适配</strong><small>开机和 SIM / CarrierConfig 变化后自动应用当前配置</small></span>
+        <input id="enabled" type="checkbox" role="switch">
+        <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+      </label>
+      <label class="field-row">应用范围
+        <select id="selection" aria-label="应用范围">
+          <option value="all">所有活跃 SIM</option>
+          <option value="slot:0">SIM 卡槽 1</option>
+          <option value="slot:1">SIM 卡槽 2</option>
+        </select>
+      </label>
+      <label class="field-row">检查间隔
+        <select id="interval" aria-label="检查间隔">
+          <option value="15">15 秒</option>
+          <option value="30">30 秒（默认）</option>
+          <option value="60">60 秒</option>
+          <option value="120">120 秒</option>
+          <option value="300">5 分钟</option>
+        </select>
+      </label>
+      <div class="subsection-heading"><span>IMS 功能覆盖</span><small>每项可以开启、关闭或恢复原值</small></div>
+      <div id="features" class="feature-list"></div>
+      <div class="actions">
+        <button id="apply" class="button primary" type="button">保存并应用</button>
+        <button id="restore" class="button secondary" type="button">暂停并恢复原值</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="device-heading">
+      <div class="section-heading">
+        <div><p class="eyebrow">运行环境</p><h2 id="device-heading">设备与 KernelSU</h2></div>
+        <span class="section-icon">▣</span>
+      </div>
+      <div class="kv-grid">
+        <div><span>Device</span><strong id="deviceModel">—</strong></div>
+        <div><span>Android / SDK</span><strong id="androidValue">—</strong></div>
+        <div><span>SELinux</span><strong id="selinuxValue">—</strong></div>
+        <div><span>Root UID</span><strong id="uidValue">—</strong></div>
+        <div><span>Boot completed</span><strong id="bootValue">—</strong></div>
+        <div><span>接口</span><strong id="interfacesValue">—</strong></div>
+      </div>
+      <div class="runtime-note">
+        <span class="status-dot teal"></span>
+        <span>所有执行均在 KernelSU root runner 中完成，WebUI 关闭后服务仍由模块维持。</span>
+      </div>
+    </section>
+
+    <section id="appearance" class="card" aria-labelledby="appearance-heading">
+      <div class="section-heading">
+        <div><p class="eyebrow">显示</p><h2 id="appearance-heading">外观与强调色</h2></div>
+        <span class="section-icon">Aa</span>
+      </div>
+      <label class="field-row">主题模式
+        <select id="themeMode" aria-label="主题模式">
+          <option value="system">跟随系统</option>
+          <option value="light">浅色模式</option>
+          <option value="dark">深色模式</option>
+        </select>
+      </label>
+      <div class="subsection-heading"><span>强调色</span><small>选择 Material 2 风格预设，或输入自定义颜色</small></div>
+      <div id="accentPresets" class="accent-presets">
+        <button class="accent-chip" type="button" data-accent="#009866"><i></i><span>Lineage Teal<code>#009866</code></span></button>
+        <button class="accent-chip" type="button" data-accent="#009688"><i></i><span>Material Teal<code>#009688</code></span></button>
+        <button class="accent-chip" type="button" data-accent="#2196F3"><i></i><span>Blue<code>#2196F3</code></span></button>
+        <button class="accent-chip" type="button" data-accent="#3F51B5"><i></i><span>Indigo<code>#3F51B5</code></span></button>
+        <button class="accent-chip" type="button" data-accent="#9C27B0"><i></i><span>Purple<code>#9C27B0</code></span></button>
+        <button class="accent-chip" type="button" data-accent="#E91E63"><i></i><span>Pink<code>#E91E63</code></span></button>
+        <button class="accent-chip" type="button" data-accent="#F44336"><i></i><span>Red<code>#F44336</code></span></button>
+        <button class="accent-chip" type="button" data-accent="#FF9800"><i></i><span>Orange<code>#FF9800</code></span></button>
+        <button class="accent-chip" type="button" data-accent="#4CAF50"><i></i><span>Green<code>#4CAF50</code></span></button>
+        <button class="accent-chip" type="button" data-accent="#607D8B"><i></i><span>Blue Grey<code>#607D8B</code></span></button>
+      </div>
+      <div class="custom-accent">
+        <label class="text-field"><span>自定义颜色</span><input id="accentText" type="text" inputmode="text" maxlength="7" value="#009866" aria-label="自定义强调色"></label>
+        <input id="accentPicker" class="color-picker" type="color" value="#009866" aria-label="选择强调色">
+      </div>
+      <button id="resetAppearance" class="button text-button" type="button">恢复默认外观</button>
+    </section>
+
+    <section class="card" aria-labelledby="advanced-heading">
+      <div class="section-heading">
+        <div><p class="eyebrow">工具</p><h2 id="advanced-heading">高级配置</h2></div>
+        <span class="section-icon">⌄</span>
+      </div>
+      <details class="disclosure">
+        <summary><span><strong>CarrierConfig 读写策略</strong><small>非持久覆盖、读回验证与冲突保护</small></span><b>›</b></summary>
+        <p>模块只写入已声明的 IMS 配置键，写入后会重新读取并验证。检测到其他工具修改同一键时，会保留冲突并停止自动覆盖。</p>
+      </details>
+      <details class="disclosure">
+        <summary><span><strong>SIM 选择与恢复</strong><small>按当前活跃卡槽匹配，不使用固定 subId</small></span><b>›</b></summary>
+        <p>恢复原值只处理本模块记录且仍由本模块持有的键。系统重载 CarrierConfig 后可能需要人工重试或重启。</p>
+      </details>
+      <details class="disclosure">
+        <summary><span><strong>安全边界</strong><small>不修改系统分区，不关闭 SELinux</small></span><b>›</b></summary>
+        <p>root runner 通过 KernelSU 的 uid 0 运行，不安装辅助 APK，不依赖 Shizuku、Sui、Zygisk 或联网服务。</p>
+      </details>
+    </section>
+
+    <section class="card span-full" aria-labelledby="diagnostics-heading">
+      <div class="section-heading">
+        <div><p class="eyebrow">维护</p><h2 id="diagnostics-heading">诊断与日志</h2></div>
+        <span class="section-icon">⌁</span>
+      </div>
+      <div class="actions">
+        <button id="probe" class="button secondary" type="button">重新检测</button>
+        <button id="export" class="button secondary" type="button">生成诊断</button>
+        <button id="copyLog" class="button secondary" type="button">复制日志</button>
+      </div>
+      <div class="log-panel">
+        <div class="log-toolbar"><span>最近运行日志</span><span id="logMeta">等待导出</span></div>
+        <pre id="logView" class="log-view">暂无日志。生成诊断后显示最近记录。</pre>
+      </div>
+      <label for="diagnostics" class="sr-only">诊断 JSON</label>
+      <textarea id="diagnostics" readonly rows="8" placeholder="生成的诊断 JSON 会显示在这里，可复制或导出。"></textarea>
+      <details class="result-details"><summary>最近一次操作的完整结果</summary><pre id="details">暂无</pre></details>
+    </section>
+
+    <section class="card span-full about-card" aria-labelledby="about-heading">
+      <div class="section-heading">
+        <div><p class="eyebrow">信息</p><h2 id="about-heading">关于 TurboIMS Next</h2></div>
+      </div>
+      <p>独立 KernelSU Next 模块，复用 TurboIMS 的 IMS CarrierConfig 映射。它不保证运营商 provisioning 或 IMS 注册，只报告实际读写和读回结果。</p>
+      <div class="about-meta"><span>Material 2 / LineageOS-inspired</span><span>Android 13–16</span><span>No network dependency</span></div>
+    </section>
+  </div>
+  <footer>TurboIMS Next · WebUI 关闭后，后台 watcher 仍由模块服务维持。</footer>
 </main>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

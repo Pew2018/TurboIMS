@@ -3,9 +3,9 @@
 MODDIR=${0%/*}
 umask 077
 case "$1" in
-  probe|status|get-config|apply|restore|export|watch)
+  probe|status|get-config|get-ui|apply|restore|export|watch)
     [ "$#" -eq 1 ] || exit 64 ;;
-  save)
+  save|save-ui)
     [ "$#" -eq 2 ] || exit 64
     case "$2" in *[!A-Za-z0-9+/=]*) exit 64 ;; esac ;;
   *) echo '{"ok":false,"error":"Unknown action"}'; exit 64 ;;

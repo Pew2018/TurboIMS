@@ -1,12 +1,13 @@
 (function (root) {
   "use strict";
-  const allowed = new Set(["probe", "status", "apply", "restore", "export", "get-config", "save"]);
+  const allowed = new Set(["probe", "status", "apply", "restore", "export", "get-config", "get-ui", "save", "save-ui"]);
+  const saveActions = new Set(["save", "save-ui"]);
   let counter = 0;
   const controller = "/data/adb/modules/turboims_next/control.sh";
   function quote(value) { return "'" + value.replace(/'/g, "'\\''") + "'"; }
   function command(action, argument) {
     if (!allowed.has(action)) throw new Error("Unsupported operation");
-    if (action === "save") {
+    if (saveActions.has(action)) {
       if (typeof argument !== "string" || !/^[A-Za-z0-9+/=]+$/.test(argument))
         throw new Error("Invalid configuration payload");
     } else if (argument !== undefined) throw new Error("Unexpected argument");
@@ -30,8 +31,8 @@
         let result;
         try { result = JSON.parse(lines[lines.length - 1]); }
         catch (_) {
-          reject(new Error("执行器未返回 JSON（exit=" + code + "）："
-            + String(stderr || stdout || "无输出").slice(-1500)));
+          reject(new Error("执行器未返回 JSON（exit=" + code + "）：" +
+            String(stderr || stdout || "无输出").slice(-1500)));
           return;
         }
         if (Number(code) !== 0 || result.ok === false) {

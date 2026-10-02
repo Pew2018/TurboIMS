@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-版本：0.1.1-experimental。**构建测试不等于手机上的 CarrierConfig 写入或 IMS 通话已经验证。**
+版本：0.2.0-experimental。**构建测试不等于手机上的 CarrierConfig 写入或 IMS 通话已经验证。**
 初始验证设备是 Pixel 8 Pro / husky / Android 16 / SDK 36 / SELinux Enforcing。
 安装器接受 arm64、SDK 33–36；其他组合的兼容性尚未实测，SDK 37+ 明确拒绝，避免静默误用。
 
@@ -13,7 +13,7 @@
 
 ## 安装与首次验证
 
-1. 下载成功 Actions 中的 **FLASHABLE-TurboIMS-Next-0.1.1-experimental.zip**。
+1. 下载成功 Actions 中的 **FLASHABLE-TurboIMS-Next-0.2.0-experimental.zip**。
    在 KernelSU Next 直接选择此下载文件安装，**无需解压，不存在内层模块 ZIP**。
    必须等待 Verify actual downloadable ZIP and installer 检查通过。
    旧 0.1.0 的外层 artifact 和 test-reports ZIP 不是模块，不可直接安装。
@@ -113,10 +113,17 @@ save 接收严格校验的 base64 JSON，不接受任意 Shell 内容。
 
 ## WebUI
 
-无 CDN、无 npm 运行时依赖。使用 KernelSU Next 的 ksu.exec(cmd, options, callbackName) 异步接口；
-回调、退出码、JSON 错误和超时均检查。根权限操作来自白名单，配置是 base64 单独参数，
-不把自由文本拼接成 Shell 命令。页面采用深灰顶栏、灰色背景与蓝色操作元素，无模糊或噪点。
-webroot 的权限和 SELinux 标签由 KernelSU 安装器设置，不自行破坏。
+WebUI 使用本地打包的 Material 2 / LineageOS-inspired Teal 风格界面：
+
+- 默认强调色为 `#009866)，预设包含 `#009688)、`#2196F3` 以及其他 Material 2 颜色；
+- 支持浅色、深色和跟随系统三种模式；
+- 支持输入任意 `#RRGGBB` 自定义强调色；
+- 启用自动适配使用页面内绘制的 Switch，不使用浏览器确认框；
+- 外观偏好持久化到 `/data/adb/turboims-next/ui.json`；
+- 所有 CSS、JavaScript 和字体资源均本地存在，不依赖 CDN；
+- 日志、诊断、加载、成功和错误状态均在页面内显示。
+
+页面仍通过 KernelSU Next 的 `ksu.exec(cmd, options, callbackName)` 执行白名单命令。WebUI 关闭后不依赖页面进程维持 watcher。
 
 ## 构建与测试
 
