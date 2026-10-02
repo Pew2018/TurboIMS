@@ -242,7 +242,6 @@ if (!history.state?.turboims) {
   if (["diagnostic-data-page","operation-data-page"].includes(initialPage)) navigate("diagnostics-page");
   if (initialPage !== "home") navigate(initialPage);
 } else {
-  if (history.state.dialog) history.replaceState({...history.state,dialog:null}, "", routeURL(initialPage));
   synchronizeHistory();
 }
 $("open-appearance").onclick = () => navigate("appearance-page");
@@ -285,6 +284,7 @@ for (const [key, title, description] of features) {
 function message(text, error = false, tone = error ? "danger" : "neutral") {
   $("message").textContent = text; $("message").className = error ? "error" : "";
   $("status-indicator").dataset.tone = tone;
+  if (currentPage === "diagnostics-page") $("diagnostic-notice").textContent = text;
 }
 function form(config) {
   $("enabled").checked = config.enabled;
@@ -409,8 +409,7 @@ $("restore").onclick = async () => {
 $("export").onclick = () => operation(async () => {
   const result = await TurboBridge.call("export");
   $("diagnostics").textContent = JSON.stringify(result, null, 2);
-  renderDiagnosticSummary(result);
-  renderSimResults(result);
+  render(result);
   $("diagnostic-notice").textContent = "诊断已生成，完整数据可进入下方页面查看和复制。";
 });
 operation(async () => render(await TurboBridge.call("status"), true));
