@@ -74,6 +74,7 @@ public final class ModuleMain {
                             JSONObject config = JsonIO.read(JsonIO.CONFIG);
                             config.put("enabled", false);
                             config.put("periodic_check_enabled", false);
+                            config.put("sim_profiles", new JSONObject());
                             JsonIO.write(JsonIO.CONFIG, JsonIO.config(JsonIO.config(config)));
                         }
                         result = runOnce(action.equals("probe"), action.equals("restore"),
@@ -122,7 +123,7 @@ public final class ModuleMain {
         // Manual apply and scheduled repair are independent from boot auto apply.
         FeatureConfig effective = forceApply && !restore && !preview
                 ? new FeatureConfig(true, config.periodicCheckEnabled, config.selection,
-                        config.intervalSeconds, config.modes) : config;
+                        config.intervalSeconds, config.modes, config.simProfiles) : config;
         AndroidCarrierBackend backend = backend();
         Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
         List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
@@ -207,7 +208,7 @@ public final class ModuleMain {
     private static JSONObject boundedApply(boolean bootOnly) throws Exception {
         JSONObject result = AutoApply.untilReady(() -> {
             FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
-            if (!installedAndEnabled() || (bootOnly && !config.enabled)
+            if (!installedAndEnabled() || (bootOnly && !config.enabled && !config.hasSimProfiles())
                     || (!bootOnly && !config.periodicCheckEnabled))
                 return identity().put("ok", true).put("phase", "paused");
             if (Files.exists(BLOCKED)) return JsonIO.read(BLOCKED);
@@ -245,7 +246,7 @@ public final class ModuleMain {
             observer.startWatching();
             try {
                 FeatureConfig boot = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
-                if (bootPass && boot.enabled && !Files.exists(BLOCKED)) boundedApply(true);
+                if (bootPass && (boot.enabled || boot.hasSimProfiles()) && !Files.exists(BLOCKED)) boundedApply(true);
                 while (installedAndEnabled()) {
                     long seen;
                     synchronized (changed) { seen = generation[0]; }
