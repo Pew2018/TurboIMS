@@ -121,7 +121,7 @@ public final class ModuleMain {
     private static JSONObject runOnce(boolean preview, boolean restore, boolean forceApply) throws Exception {
         FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
         // Manual apply and scheduled repair are independent from boot auto apply.
-        FeatureConfig effective = forceApply && !restore && !preview
+        FeatureConfig effective = forceApply && !restore && !preview && !config.hasSimProfiles()
                 ? new FeatureConfig(true, config.periodicCheckEnabled, config.selection,
                         config.intervalSeconds, config.modes, config.simProfiles) : config;
         AndroidCarrierBackend backend = backend();
