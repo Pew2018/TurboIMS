@@ -36,7 +36,23 @@
     <p class="hint preference-footer">仅恢复本模块记录的原值，可能包含其他工具的设置；发生冲突时保留冲突项。</p>
   </section>
 </main>
-<main id="sim-page" class="page" hidden></main>
+<main id="sim-page" class="page" hidden>
+  <section class="pref-group" aria-labelledby="sim-heading">
+    <h2 id="sim-heading" class="category">SIM 卡选择</h2>
+    <div class="setting-row"><span class="row-copy"><strong>目标 SIM 卡</strong><small>分别保存每张卡的覆盖信息</small></span><button id="sim-slot-choice" class="choice" type="button" aria-haspopup="dialog">未检测到 SIM</button></div>
+    <div id="sim-current" class="sim-info-card" role="status"></div>
+  </section>
+  <section class="pref-group" aria-labelledby="sim-override-heading">
+    <h2 id="sim-override-heading" class="category">覆盖信息</h2>
+    <div class="setting-row"><span class="row-copy"><strong>国家或地区</strong><small>修改应用读取的 SIM 国家码</small></span><button id="sim-country-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
+    <label class="sim-custom-row" for="sim-custom-country"><span class="row-copy"><strong>自定义国家码</strong><small>两位字母，例如 JP</small></span><input id="sim-custom-country" class="inline-field" type="text" maxlength="2" placeholder="可选" autocomplete="off" spellcheck="false"></label>
+    <div class="setting-row"><span class="row-copy"><strong>运营商名称</strong><small>修改系统报告的运营商名称，可留空</small></span><button id="sim-carrier-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
+    <label class="sim-custom-row" for="sim-custom-carrier"><span class="row-copy"><strong>自定义名称</strong><small>输入后会覆盖上方预设名称</small></span><input id="sim-custom-carrier" class="inline-field" type="text" maxlength="128" placeholder="可选"></label>
+    <button id="sim-save" class="pref-action" type="button"><span>保存并应用<small>写入选中 SIM 的国家码和运营商名称</small></span></button>
+    <button id="sim-restore" class="pref-action" type="button"><span>恢复原始信息<small>只恢复本模块记录的 SIM 信息，不清除 IMS 配置</small></span></button>
+    <p class="hint preference-footer">覆盖使用系统 CarrierConfig，重启后需要模块自动应用已保存的配置。国家码变化不保证 IMS 注册或运营商服务改变。</p>
+  </section>
+</main>
 <main id="settings-page" class="page" hidden>
   <section class="pref-group" aria-labelledby="more-heading">
     <h2 id="more-heading" class="category">更多</h2>
