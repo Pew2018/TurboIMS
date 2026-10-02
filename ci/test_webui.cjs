@@ -362,7 +362,8 @@ test("SIM is empty and existing tools belong exclusively to Settings",()=>{
   assert.doesNotMatch(home,/open-appearance|open-diagnostics|chevron/);
   assert.match(settings,/open-appearance/);
   assert.match(settings,/open-diagnostics/);
-  assert.match(html,/<main id="sim-page" class="page" hidden>/);\n  assert.match(html, /id="sim-save"/); // SIM controls are part of the primary navigation contract
+  assert.match(html,/<main id="sim-page" class="page" hidden>/);
+  assert.match(html, /id="sim-save"/); // SIM controls are part of the primary navigation contract
   const nav=html.split('<nav id="bottom-nav"')[1].split('</nav>')[0];
   assert.equal((nav.match(/<svg /g)||[]).length,3);
   assert.match(nav,/tab-home[^]*tab-sim-page[^]*tab-settings-page/);
