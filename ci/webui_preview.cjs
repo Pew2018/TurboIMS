@@ -77,6 +77,13 @@ let browser;
   assert.match(await page.locator("#sheet-content .dialog-input-error").innerText(),/两位英文字母/);
   await page.locator("#sheet-content input").fill("jp");
   assert.equal(await page.locator("#sheet-content input").inputValue(),"JP");
+  assert.equal(await page.locator("#sheet").getAttribute("data-ime"),"true");
+  const imeLayout=await page.locator("#sheet").evaluate(el=>({
+    align:getComputedStyle(el).alignItems,
+    footer:getComputedStyle(el.querySelector(".dialog-footer")).position
+  }));
+  assert.equal(imeLayout.align,"flex-start");
+  assert.equal(imeLayout.footer,"sticky");
   await systemBack("sim-page");
   await page.locator("#sheet").waitFor({state:"hidden"});
   assert.equal(await page.locator("#sim-custom-country-value").innerText(),"未设置");
@@ -262,15 +269,22 @@ let browser;
   await page.locator("#accent-scope-choice").click();
   await visible("accent-scope-page");
   assert.equal(await page.locator("#accent-toolbar").isChecked(),false);
+  assert.equal(await page.locator("#card-groups").isChecked(),false);
+  await page.locator("#card-groups").check();
+  assert.equal(await page.locator("html").getAttribute("data-card-groups"),"true");
+  assert.notEqual(await page.locator(".pref-group").first().evaluate(el=>getComputedStyle(el).boxShadow),"none");
+  await page.locator("#card-groups").uncheck();
   await page.locator("#accent-toolbar").check();
-  assert.equal(await page.locator(".toolbar").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(66, 165, 245)");
+  assert.equal(await page.locator(".toolbar").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(61, 152, 225)");
+  assert.equal(await page.locator("#status-bar-color").getAttribute("content"),"#3687C9");
+  assert.equal(await page.locator("#navigation-bar-color").getAttribute("content"),"#121212");
   assert.equal(await page.locator("#page-title").evaluate(el=>getComputedStyle(el).color),"rgb(16, 16, 16)");
   await page.locator("#back").click();
   await visible("appearance-page");
   await page.locator("#accent-choice").click();
   await visible("accent-page");
   await page.getByRole("button",{name:/Lemon Yellow/}).click();
-  assert.equal(await page.locator(".toolbar").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(230, 165, 69)");
+  assert.equal(await page.locator(".toolbar").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(212, 152, 63)");
   assert.equal(await page.locator("#page-title").evaluate(el=>getComputedStyle(el).color),"rgb(16, 16, 16)");
   await page.locator("#back").click();
   await visible("appearance-page");

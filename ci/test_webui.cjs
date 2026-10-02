@@ -38,7 +38,7 @@ test("WebUI has offline assets and no CDN dependencies",()=>{
   for(const file of ["bridge.js","feedback.js","app.js","style.css"])
     assert.ok(fs.existsSync(path.join(__dirname,"../module/webroot",file)));
   assert.ok(!/https?:\/\/|<iframe/i.test(html));
-  for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh","sim-edit-country","sim-edit-carrier","accent-scope-choice","accent-toolbar","accent-section-labels","accent-navigation-icons"])
+  for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh","sim-edit-country","sim-edit-carrier","accent-scope-choice","accent-toolbar","accent-section-labels","accent-navigation-icons","card-groups"])
     assert.ok(html.includes('id="'+id+'"'));
 });
 test("default config is deliberately paused",()=>{
@@ -60,7 +60,7 @@ async function appHarness() {
   }
   const elements=new Map();
   const doc={activeElement:null, body:{style:{}},
-    documentElement:{dataset:{},style:{properties:{},setProperty(name,value) { this.properties[name]=value; }}},
+    documentElement:{dataset:{},style:{properties:{},setProperty(name,value) { this.properties[name]=value; },removeProperty(name) { delete this.properties[name]; }}},
     addEventListener() {}, createElement:element, querySelectorAll:()=>[],
     getElementById(id) {
       if(!elements.has(id)) {
@@ -503,4 +503,21 @@ test("system bar background opts into KernelSU insets without touching core",()=
   assert.match(style,/--inset-bottom:var\(--safe-area-inset-bottom/);
   assert.match(style,/body::before/);
   assert.match(app,/--system-bar-bg/);
+});
+
+test("appearance refinements are opt-in and preserve current actions",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+  const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  assert.match(html,/id="card-groups"[^>]*role="switch"/);
+  assert.match(app,/turboims-card-groups","false"/);
+  assert.match(html,/id="apply" class="pref-action primary-action"/);
+  assert.match(html,/id="sim-save" class="pref-action primary-action"/);
+  assert.ok(app.includes('visualViewport.addEventListener("resize",updateDialogViewport)'));
+  assert.match(css,/data-ime="true"/);
+  assert.match(app,/system-status-bg/);
+  assert.match(app,/statusRgb = accentToolbar/);
+  assert.ok(css.includes(':root[data-card-groups="true"] .pref-group'));
+  assert.match(css,/system-navigation-bg/);
+  assert.ok(html.indexOf('id="device-heading"') > html.indexOf('id="apply"'));
 });

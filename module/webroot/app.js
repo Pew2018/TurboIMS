@@ -1,12 +1,12 @@
 "use strict";
 const features = [
-  ["volte", "VoLTE", "LTE 语音通话"],
-  ["vowifi", "VoWiFi", "Wi-Fi 通话与模式设置"],
-  ["vt", "视频通话", "运营商 IMS 视频通话"],
-  ["vonr", "VoNR", "5G 语音通话"],
-  ["cross_sim", "跨 SIM 通话", "使用另一张 SIM 卡的数据进行通话"],
-  ["ut", "UT 补充服务", "基于 IMS 的补充服务"],
-  ["5g_nr", "5G NR", "NSA / SA 网络与信号阈值"]
+  ["volte", "VoLTE", "LTE 通话"],
+  ["vowifi", "VoWiFi", "Wi-Fi 通话"],
+  ["vt", "视频通话", "运营商视频通话"],
+  ["vonr", "VoNR", "5G 通话"],
+  ["cross_sim", "跨 SIM 通话", "使用另一张 SIM 卡的数据通话"],
+  ["ut", "UT 补充服务", "通话补充服务"],
+  ["5g_nr", "5G NR", "5G 网络模式与信号阈值"]
 ];
 const $ = id => document.getElementById(id);
 const simCountries = [
@@ -225,6 +225,7 @@ if (!/^#[0-9A-F]{6}$/.test(accent)) accent = "#42A5F5";
 let accentToolbar = storage.read("turboims-accent-toolbar","false") === "true";
 let accentSectionLabels = storage.read("turboims-accent-section-labels","false") === "true";
 let accentNavigationIcons = storage.read("turboims-accent-navigation-icons","false") === "true";
+let cardGroups = storage.read("turboims-card-groups","false") === "true";
 try {
   const editors = JSON.parse(storage.read("turboims-sim-editors","{}"));
   if (editors && typeof editors === "object") simEditorProfiles = editors;
@@ -232,27 +233,38 @@ try {
 let accentInputInitialized = false;
 let accentInputTimer = null;
 const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+function colorHex(rgb) { return "#" + rgb.map(value => Math.max(0,Math.min(255,Math.round(value))).toString(16).padStart(2,"0")).join("").toUpperCase(); }
 function showAppearance() {
   const dark = themeMode === "dark" || (themeMode === "system" && !!media?.matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
   const chromeColor = dark ? "#121212" : "#ffffff";
-  // Android system icons follow the host Activity, not this WebUI preference.
-  // Keep their background legible if a manual WebUI theme differs from the host.
-  document.documentElement.style.setProperty("--system-bar-bg", media?.matches ? "#121212" : "#ffffff");
-  for (const id of ["theme-color","status-bar-color","navigation-bar-color"]) {
-    const meta = document.getElementById(id);
-    if (meta) meta.setAttribute("content",chromeColor);
-  }
   document.documentElement.style.setProperty("--accent", accent);
   const root = document.documentElement;
   root.dataset.accentToolbar = String(accentToolbar);
   root.dataset.accentSectionLabels = String(accentSectionLabels);
   root.dataset.accentNavigationIcons = String(accentNavigationIcons && !accentToolbar);
+  root.dataset.cardGroups = String(cardGroups);
+  $("card-groups").checked = cardGroups;
   $("accent-toolbar").checked = accentToolbar;
   $("accent-section-labels").checked = accentSectionLabels;
   $("accent-navigation-icons").checked = accentNavigationIcons;
   const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
+  // Leave standard controls on the selected accent. Tone only the toolbar surface
+  // and its status-bar companion for a quieter, connected system chrome.
+  const surfaceRgb = dark ? [18,18,18] : [255,255,255];
+  const toolbarRgb = accentToolbar ? rgb.map(value => value * .92) : surfaceRgb;
+  const statusRgb = accentToolbar ? rgb.map(value => value * .82) : surfaceRgb;
+  const toolbarColor = accentToolbar ? colorHex(toolbarRgb) : chromeColor;
+  const statusColor = accentToolbar ? colorHex(statusRgb) : chromeColor;
+  root.style.setProperty("--toolbar-tint",toolbarColor);
+  root.style.setProperty("--system-status-bg",statusColor);
+  root.style.setProperty("--system-navigation-bg",media?.matches ? "#121212" : "#ffffff");
+  const metaColors = {"theme-color":toolbarColor,"status-bar-color":statusColor,"navigation-bar-color":chromeColor};
+  for (const [id,color] of Object.entries(metaColors)) {
+    const meta = document.getElementById(id);
+    if (meta) meta.setAttribute("content",color);
+  }
   document.documentElement.style.setProperty("--press-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
   document.documentElement.style.setProperty("--accent-track", "rgba(" + rgb.join(",") + ",.45)");
   const luminance = rgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
@@ -260,8 +272,12 @@ function showAppearance() {
   document.documentElement.style.setProperty("--accent-text",relativeLuminance > .18 ? "#101010" : "#ffffff");
   const whiteContrast = 1.05 / (relativeLuminance + .05);
   const darkContrast = (relativeLuminance + .05) / .05;
+  const toolbarLuminance = toolbarRgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
+  const toolbarRelative = toolbarLuminance[0]*.2126 + toolbarLuminance[1]*.7152 + toolbarLuminance[2]*.0722;
+  const toolbarWhiteContrast = 1.05 / (toolbarRelative + .05);
+  const toolbarDarkContrast = (toolbarRelative + .05) / .05;
   document.documentElement.style.setProperty("--toolbar-foreground",
-    darkContrast >= whiteContrast ? "#101010" : "#ffffff");
+    toolbarDarkContrast >= toolbarWhiteContrast ? "#101010" : "#ffffff");
   $("theme-choice").textContent = {system:"跟随系统",light:"浅色模式",dark:"深色模式"}[themeMode];
   const chosen = [...onePlusColors,...materialColors].find(([,hex]) => hex === accent);
   $("accent-label").textContent = chosen ? chosen[0] : accent;
@@ -278,6 +294,9 @@ if (media) {
 let sheetFinishing = false;
 function finishSheet(value = false) {
   if ($("sheet").hidden || sheetFinishing) return;
+  $("sheet").removeAttribute("data-ime");
+  document.documentElement.style.removeProperty("--visual-viewport-top");
+  document.documentElement.style.removeProperty("--visual-viewport-height");
   sheetFinishing = true;
   const resolve = sheetResolve;
   sheetResolve = null;
@@ -383,7 +402,21 @@ function editTextPreference(title, description, initial, validate, onConfirm, sh
     field.setAttribute("aria-invalid",String(!valid));
   };
   field.oninput();
-  setTimeout(() => { field.focus(); field.setSelectionRange(field.value.length,field.value.length); },60);
+  field.onfocus = () => { $("sheet").dataset.ime = "true"; updateDialogViewport(); };
+  field.onblur = () => { if (document.activeElement !== field) $("sheet").removeAttribute("data-ime"); };
+  setTimeout(() => { field.focus(); field.setSelectionRange(field.value.length,field.value.length); updateDialogViewport(); },60);
+}
+function updateDialogViewport() {
+  if ($("sheet").hidden || !$("sheet").dataset.editor) return;
+  const viewport = window.visualViewport;
+  const top = viewport ? viewport.offsetTop : 0;
+  const height = viewport ? viewport.height : (window.innerHeight || 600);
+  document.documentElement.style.setProperty("--visual-viewport-top",Math.max(0,top)+"px");
+  document.documentElement.style.setProperty("--visual-viewport-height",Math.max(160,height)+"px");
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize",updateDialogViewport);
+  window.visualViewport.addEventListener("scroll",updateDialogViewport);
 }
 function choose(title, description, values, current, onSelect) {
   if (!$("sheet").hidden) return;
@@ -483,6 +516,11 @@ function persistAccentScope() {
 }
 for (const id of ["accent-toolbar","accent-section-labels","accent-navigation-icons"])
   $(id).onchange = persistAccentScope;
+$("card-groups").onchange = () => {
+  cardGroups = $("card-groups").checked;
+  storage.write("turboims-card-groups",String(cardGroups));
+  showAppearance();
+};
 showAppearance();
 const pageTitles = {home:"IMS","sim-page":"SIM 卡信息","settings-page":"设置",
   "appearance-page":"外观","accent-page":"强调色","accent-scope-page":"强调色应用范围","diagnostics-page":"诊断与验证",
