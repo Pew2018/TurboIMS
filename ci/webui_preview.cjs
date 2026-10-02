@@ -39,7 +39,7 @@ const fs = require("node:fs");
   const systemBack=async id=>{ await page.evaluate(()=>history.back()); await visible(id); };
   const capture=async (name, feedback=false)=>{
     await page.waitForFunction(()=>document.getElementById("sheet").getAnimations().every(animation=>animation.playState !== "running"));
-    if (!feedback) await page.waitForFunction(()=>!document.querySelector(".touch-ripple"));
+    if (!feedback) await page.waitForFunction(()=>!document.querySelector(".touch-ripple"),null,{timeout:3000});
     // Content now scrolls internally; capture the phone viewport, not offscreen DOM bounds.
     return page.screenshot({path:"preview/"+name+".png",fullPage:false});
   };
@@ -104,7 +104,7 @@ const fs = require("node:fs");
   assert.equal(await row.locator(".touch-ripple").count(),0);
   await page.screenshot({path:"preview/preference-pressed.png"});
   await touchEvent("touchEnd");
-  await page.waitForFunction(()=>document.querySelector(".feature .touch-ripple"));
+  await page.waitForFunction(()=>document.querySelector(".feature .touch-ripple"),null,{timeout:3000});
   const origin = await row.locator(".touch-ripple").evaluate(el=>({x:Number(el.dataset.x),y:Number(el.dataset.y)}));
   assert.ok(Math.abs(origin.x-(tx-bounds.x)) < 2);
   assert.ok(Math.abs(origin.y-(ty-bounds.y)) < 2);

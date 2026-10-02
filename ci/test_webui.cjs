@@ -393,3 +393,9 @@ test("touch ripples are deferred until a tap is confirmed",()=>{
   const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
   assert.match(style,/-webkit-overflow-scrolling: touch/);
 });
+
+test("pointer clicks have a ripple fallback when pointerup is unavailable",()=>{
+  const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
+  assert.match(feedback,/Pointer-up normally creates the ripple/);
+  assert.match(feedback,/pointerActivation && surface\.querySelector\("\.touch-ripple"\)/);
+});

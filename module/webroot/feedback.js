@@ -147,18 +147,24 @@
   },true);
 
   document.addEventListener("click", event => {
-    // Keyboard/assistive activation has no pointer location; use the row center.
-    if (event.detail !== 0) return;
+    // Pointer-up normally creates the ripple. This is a fallback for WebViews
+    // that deliver click without a usable pointer-up; cancelled drags are
+    // stopped by the capture listener above before reaching this handler.
+    const pointerActivation = event.detail !== 0;
     const surface = surfaceFor(event.target);
     if (!surface) return;
-    const guardedUntil = keyboardGuard.get(surface) || 0;
-    if (guardedUntil > now()) {
+    if (pointerActivation && surface.querySelector(".touch-ripple")) return;
+    if (!pointerActivation) {
+      const guardedUntil = keyboardGuard.get(surface) || 0;
+      if (guardedUntil > now()) {
+        keyboardGuard.delete(surface);
+        return;
+      }
       keyboardGuard.delete(surface);
-      return;
     }
-    keyboardGuard.delete(surface);
     const rect = surface.getBoundingClientRect();
-    begin(surface,rect.left+rect.width/2,rect.top+rect.height/2,"activation","keyboard");
+    begin(surface,rect.left+rect.width/2,rect.top+rect.height/2,
+      "activation",pointerActivation ? "touch" : "keyboard");
     release("activation");
   });
 
