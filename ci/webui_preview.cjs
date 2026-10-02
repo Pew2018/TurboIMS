@@ -1,9 +1,10 @@
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+let browser;
 (async () => {
   fs.mkdirSync("preview", { recursive: true });
-  const browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport:{width:393,height:852}, deviceScaleFactor:1, isMobile:true, hasTouch:true });
   const errors=[];
   page.on("pageerror",error=>errors.push(String(error)));
@@ -299,4 +300,4 @@ const fs = require("node:fs");
     limitation:"Native Android 16 gesture dispatch and predictive animation require device verification."},null,2));
   if(errors.length) throw new Error(errors.join("\n"));
   await browser.close();
-})().catch(error=>{console.error(error);process.exitCode=1;});
+})().catch(async error=>{console.error(error);await browser?.close();process.exitCode=1;});
