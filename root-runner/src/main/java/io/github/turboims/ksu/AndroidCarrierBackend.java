@@ -73,6 +73,18 @@ public final class AndroidCarrierBackend implements CarrierBackend {
         return result;
     }
 
+    /**
+     * SIM status feature added for the Settings status card.
+     * This is read-only: it observes the framework's public SIM properties and
+     * never changes CarrierConfig or the saved configuration.
+     */
+    public Map<String, String> simIdentity(CarrierBackend.Subscription sub) {
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put("country_iso", propertyAtSlot("gsm.sim.operator.iso-country", sub.slot).toUpperCase(Locale.ROOT));
+        result.put("carrier_name", propertyAtSlot("gsm.sim.operator.alpha", sub.slot));
+        return result;
+    }
+
     @Override public Map<String, Object> read(int subId) throws Exception {
         Object carrier = service("carrier_config", carrierType);
         PersistableBundle bundle = (PersistableBundle) (reader.getParameterCount() == 4

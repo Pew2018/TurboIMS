@@ -98,6 +98,8 @@ let browser;
   assert.equal(await page.locator("#sim-page #device-heading").count(),0);
   assert.equal(await page.locator("#home #device-heading").count(),0);
   assert.equal(await page.locator("#settings-page #device-heading").innerText(),"设备状态（IMS）");
+  assert.equal(await page.locator("#settings-page #sim-status-heading").innerText(),"SIM 卡状态");
+  assert.ok((await page.locator("#settings-page #device-heading").boundingBox()).y < (await page.locator("#settings-page #sim-status-heading").boundingBox()).y);
   await page.locator("#tab-home").click();
 
   for(const cards of [false,true])for(const width of [280,320,393]){

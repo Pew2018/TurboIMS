@@ -593,3 +593,22 @@ test("every preset and arbitrary RGB accent has readable action text in both the
   }
   assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
+
+test("Settings starts with matching IMS and SIM status cards",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  const settings=html.split('<main id="settings-page"')[1].split("</main>")[0];
+  assert.ok(settings.indexOf('id="device-heading"') < settings.indexOf('id="sim-status-heading"'));
+  for(const id of ["sim-status-title","sim-status-country","sim-status-carrier"])
+    assert.ok(settings.includes('id="'+id+'"'));
+  const java=fs.readFileSync(path.join(__dirname,"../root-runner/src/main/java/io/github/turboims/ksu/ModuleMain.java"),"utf8");
+  const backend=fs.readFileSync(path.join(__dirname,"../root-runner/src/main/java/io/github/turboims/ksu/AndroidCarrierBackend.java"),"utf8");
+  assert.match(java,/New bottom-layer feature: this path only reads/);
+  assert.match(java,/\.put\("sim_cards", simCards\(\)\)/);
+  assert.match(backend,/public Map<String, String> simIdentity/);
+});
+test("secondary page actions use accent-tonal surface",()=>{
+  const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+  assert.match(css,/action-button--secondary[\s\S]*background:var\(--action-tonal\)/);
+  assert.match(app,/--action-tonal/);
+});

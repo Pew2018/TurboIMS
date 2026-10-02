@@ -282,7 +282,13 @@ function showAppearance() {
   const onAccent = actionDarkContrast >= 4.5 && actionDarkContrast >= actionWhiteContrast
     ? "#101010" : actionWhiteContrast >= 4.5 ? "#FFFFFF" : "#000000";
   root.style.setProperty("--on-accent",onAccent);
-  root.style.setProperty("--action-border","rgba(" + rgb.join(",") + ",.36)");
+  const tonalStrength = dark ? .18 : .14;
+  const tonalSurfaceRgb = dark ? [33,33,33] : [255,255,255];
+  const tonalRgb = rgb.map((value,index) => Math.round(value * tonalStrength + tonalSurfaceRgb[index] * (1 - tonalStrength)));
+  const pressedRgb = rgb.map((value,index) => Math.round(value * (tonalStrength + .06) + tonalSurfaceRgb[index] * (1 - tonalStrength - .06)));
+  root.style.setProperty("--action-border","transparent");
+  root.style.setProperty("--action-tonal",colorHex(tonalRgb));
+  root.style.setProperty("--action-tonal-pressed",colorHex(pressedRgb));
   root.style.setProperty("--switch-on-track","rgba(" + rgb.join(",") + ",.35)");
   const whiteContrast = 1.05 / (relativeLuminance + .05);
   const darkContrast = (relativeLuminance + .05) / .05;
@@ -832,8 +838,35 @@ function render(result, replaceForm = false) {
     : Array.isArray(subscriptions) && subscriptions.length === 0 ? "暂未检测到活跃 SIM 卡" : "";
   $("sim-summary").hidden = !$("sim-summary").textContent;
   renderDiagnosticSummary(result);
+  renderSimStatus(result);
   renderSimResults(result);
   renderSimPage(result);
+}
+function renderSimStatus(result) {
+  const state = result.status || result;
+  const cards = Array.isArray(result.sim_cards) ? result.sim_cards
+    : Array.isArray(state.sim_cards) ? state.sim_cards
+    : Array.isArray(state.subscriptions) ? state.subscriptions.map(sub => ({
+      slot:sub.slot, sub_id:sub.sub_id,
+      country_iso:sub.country_iso || sub.effective?.sim_country_iso_override_string || "",
+      carrier_name:sub.carrier_name || sub.effective?.carrier_name_string || "",
+      phase:sub.phase
+    })) : [];
+  const selected = cards.find(card => Number(card.slot) === selectedSimSlot) || cards[0];
+  if (!selected) {
+    $("sim-status-title").textContent = "未检测到 SIM 卡";
+    $("sim-status-subtitle").textContent = "";
+    $("sim-status-country").textContent = "未读取";
+    $("sim-status-carrier").textContent = "未读取";
+    return;
+  }
+  const count = cards.length > 1 ? " · 共 " + cards.length + " 张" : "";
+  $("sim-status-title").textContent = "SIM 卡 " + (Number(selected.slot) + 1);
+  $("sim-status-subtitle").textContent =
+    (selected.sub_id ? "subId " + selected.sub_id : "已检测") + count;
+  const country = String(selected.country_iso || "").toUpperCase();
+  $("sim-status-country").textContent = country ? simCountryLabel(country) : "未覆盖";
+  $("sim-status-carrier").textContent = selected.carrier_name || "未覆盖";
 }
 function renderSimResults(result) {
   const state = result.status || result;

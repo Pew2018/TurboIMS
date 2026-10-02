@@ -160,9 +160,37 @@ public final class ModuleMain {
                 .put("binder", new JSONObject(backend.capabilities()));
     }
 
+    /**
+     * Read-only SIM status for the Settings card.
+     * New bottom-layer feature: this path only reads active subscriptions and
+     * public telephony properties; it is deliberately separate from apply/restore.
+     */
+    private static JSONArray simCards() {
+        JSONArray cards = new JSONArray();
+        try {
+            AndroidCarrierBackend backend = backend();
+            for (CarrierBackend.Subscription sub : backend.subscriptions()) {
+                JSONObject card = new JSONObject().put("slot", sub.slot).put("sub_id", sub.id);
+                try {
+                    Map<String, String> identity = backend.simIdentity(sub);
+                    card.put("country_iso", identity.getOrDefault("country_iso", ""));
+                    card.put("carrier_name", identity.getOrDefault("carrier_name", ""));
+                    card.put("phase", "ready");
+                } catch (Throwable error) {
+                    card.put("phase", "unavailable").put("error", String.valueOf(error.getMessage()));
+                }
+                cards.put(card);
+            }
+        } catch (Throwable error) {
+            // Status must remain usable when telephony is still booting.
+        }
+        return cards;
+    }
+
     private static JSONObject status() throws Exception {
         JSONObject result = identity().put("ok", true)
-                .put("config", JsonIO.config(JsonIO.config(JsonIO.read(JsonIO.CONFIG))));
+                .put("config", JsonIO.config(JsonIO.config(JsonIO.read(JsonIO.CONFIG))))
+                .put("sim_cards", simCards());
         JSONObject last = Files.exists(STATUS) ? JsonIO.read(STATUS) : null;
         if (last != null && session.equals(last.optString("session"))) result.put("status", last);
         else {
