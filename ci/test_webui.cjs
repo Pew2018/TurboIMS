@@ -100,4 +100,7 @@ test("Lineage Teal UI has theme and accent controls without remote assets",()=>{
   assert.match(html,/value="system"/);
   assert.match(css,/prefers-color-scheme/);
   assert.doesNotMatch(css,/backdrop-filter|linear-gradient|url\(/i);
+  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+  assert.match(app,/\$\("enabled"\)\.onchange/);
+  assert.match(app,/请点击保存并应用/);
 });
