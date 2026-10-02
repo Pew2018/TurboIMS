@@ -141,7 +141,13 @@
     // Keyboard/assistive activation has no pointer location; use the row center.
     if (event.detail !== 0) return;
     const surface = surfaceFor(event.target);
-    if (!surface || keyboardGuard.has(surface)) return;
+    if (!surface) return;
+    const guardedUntil = keyboardGuard.get(surface) || 0;
+    if (guardedUntil > now()) {
+      keyboardGuard.delete(surface);
+      return;
+    }
+    keyboardGuard.delete(surface);
     const rect = surface.getBoundingClientRect();
     begin(surface,rect.left+rect.width/2,rect.top+rect.height/2,"activation","keyboard");
     release("activation");
