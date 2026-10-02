@@ -66,9 +66,9 @@ details .log-view { margin-top:12px; }
 .option { display:flex; align-items:center; justify-content:space-between; width:100%; min-height:47px; padding:9px 0; border:0; background:transparent; color:var(--ink); text-align:left; font-size:14px; }
 .option[aria-selected="true"]::after { content:""; width:16px; height:16px; border:5px solid var(--accent); border-radius:50%; flex:none; margin-left:8px; }
 .option[aria-selected="false"]::after { content:""; width:16px; height:16px; border:2px solid var(--muted); border-radius:50%; flex:none; margin-left:8px; }
-.dialog-actions { display:inline-flex; justify-content:flex-end; gap:14px; float:right; margin-top:16px; }
-.dialog-actions button,.dialog-cancel { min-height:36px; padding:8px 2px; border:0; background:transparent; color:var(--accent-ink); font-size:13px; font-weight:500; }
-.dialog-cancel { float:right; clear:both; margin:16px 0 0 14px; }
+.dialog-footer { display:flex; justify-content:flex-end; align-items:center; gap:22px; margin-top:18px; }
+.dialog-actions { display:flex; align-items:center; gap:18px; }
+.dialog-actions button,.dialog-cancel { min-height:36px; padding:8px 0; border:0; background:transparent; color:var(--accent-ink); font-size:13px; font-weight:500; }
 .swatch-title { margin:16px 0 11px; color:var(--muted); font-size:12px; font-weight:500; }
 .swatches { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px 5px; }
 .swatch-item { display:flex; flex-direction:column; align-items:center; gap:4px; min-width:0; padding:0; border:0; background:transparent; color:var(--muted); font-size:10px; text-align:center; }
