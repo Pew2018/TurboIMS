@@ -44,14 +44,53 @@ const fs = require("node:fs");
   await page.goto("http://127.0.0.1:8765/",{waitUntil:"networkidle"});
   const rootLength=await page.evaluate(()=>history.length);
   await capture("home-light");
-  assert.equal(await page.locator("#home .chevron").count(),2);
+  assert.equal(await page.locator("#home .chevron").count(),0);
   assert.equal(await page.locator("#selection-choice").evaluate(el=>getComputedStyle(el,"::after").content),"none");
   assert.equal(await page.locator("#apply").evaluate(el=>getComputedStyle(el).userSelect),"none");
 
+
+  // Root tabs replace, rather than push, and preserve untouched IMS controls.
+  await page.locator("#enabled").check();
+  await page.evaluate(()=>{document.getElementById("page-content").scrollTop=400;});
+  const imsScroll=await page.locator("#page-content").evaluate(el=>el.scrollTop);
+  const callsBeforeTabs=await page.evaluate(()=>window.bridgeCalls.length);
+  await page.locator("#tab-sim-page").click();
+  await visible("sim-page");
+  assert.equal(await page.locator("#sim-page").innerHTML(),"");
+  assert.equal(await page.locator("#page-title").innerText(),"SIM 卡信息");
+  assert.equal(await page.locator("#back").isHidden(),true);
+  await capture("sim-empty");
+  await page.locator("#tab-settings-page").click();
+  await visible("settings-page");
+  await capture("settings-light");
+  assert.equal(await page.locator("#open-appearance").isVisible(),true);
+  assert.equal(await page.evaluate(()=>history.length),rootLength);
+  await page.locator("#tab-home").click();
+  assert.equal(await page.locator("#page-content").evaluate(el=>el.scrollTop),imsScroll);
+  assert.equal(await page.locator("#enabled").isChecked(),true);
+  assert.equal(await page.evaluate(()=>window.bridgeCalls.length),callsBeforeTabs);
+  // The last IMS row stays above the navigation at the bottom of the scroll viewport.
+  await page.evaluate(()=>{const el=document.getElementById("page-content");el.scrollTop=el.scrollHeight;});
+  assert.ok((await page.locator("#restore").boundingBox()).y+
+    (await page.locator("#restore").boundingBox()).height <= (await page.locator("#bottom-nav").boundingBox()).y);
+  await capture("ims-bottom");
+  await page.locator("#enabled").uncheck();
   const touch = await page.context().newCDPSession(page);
   const touchEvent = (type,x,y) => touch.send("Input.dispatchTouchEvent",{
     type,touchPoints:type === "touchEnd" ? [] : [{x,y}]
   });
+
+  const tabBounds=await page.locator("#tab-sim-page").boundingBox();
+  const tabX=Math.round(tabBounds.x+20),tabY=Math.round(tabBounds.y+20);
+  await touchEvent("touchStart",tabX,tabY);
+  await page.waitForFunction(()=>document.querySelector("#tab-sim-page.feedback-pressed .touch-ripple"));
+  const tabOrigin=await page.locator("#tab-sim-page .touch-ripple").evaluate(el=>Number(el.dataset.x));
+  assert.ok(Math.abs(tabOrigin-(tabX-tabBounds.x))<2);
+  await page.waitForTimeout(90);
+  await capture("bottom-nav-ripple");
+  await touchEvent("touchEnd");
+  await visible("sim-page");
+  await page.locator("#tab-home").click();
   const row = page.locator(".feature").first();
   await row.scrollIntoViewIfNeeded();
   let bounds = await row.boundingBox();
@@ -100,6 +139,7 @@ const fs = require("node:fs");
   await capture("interval-dialog");
   await close();
 
+  await page.locator("#tab-settings-page").click();
   await page.locator("#open-diagnostics").click();
   await visible("diagnostics-page");
   await page.locator("#export").click();
@@ -122,7 +162,8 @@ const fs = require("node:fs");
   await page.locator("#open-operation-data").click();
   await visible("operation-data-page");
   await systemBack("diagnostics-page");
-  await back("home");
+  await back("settings-page");
+  await page.locator("#tab-home").click();
 
   await page.locator("#enabled").check();
   await page.locator("#apply").click();
@@ -139,8 +180,10 @@ const fs = require("node:fs");
   assert.equal(await page.locator("#sheet").isVisible(),false);
   await page.locator("#enabled").uncheck();
 
+  await page.locator("#tab-settings-page").click();
   await page.locator("#open-appearance").click();
   await visible("appearance-page");
+  assert.equal(await page.locator("#bottom-nav").isHidden(),true);
   await capture("appearance-light");
   await page.locator("#accent-choice").click();
   await visible("accent-page");
@@ -160,7 +203,9 @@ const fs = require("node:fs");
   await visible("accent-page");
   await capture("accent-colors-dark");
   await back("appearance-page");
-  await systemBack("home");
+  await systemBack("settings-page");
+  await capture("settings-dark");
+  await page.locator("#tab-home").click();
   await capture("home-dark");
   assert.equal(await page.evaluate(()=>history.state.page),"home");
   assert.equal(await page.evaluate(()=>history.state.dialog),undefined);
@@ -169,15 +214,19 @@ const fs = require("node:fs");
   const fresh=await browser.newPage();
   await fresh.goto("http://127.0.0.1:8765/",{waitUntil:"networkidle"});
   const initial=await fresh.evaluate(()=>history.length);
+  for (let i=0;i<3;i++) for (const id of ["tab-sim-page","tab-settings-page","tab-home"]) await fresh.locator("#"+id).click();
+  assert.equal(await fresh.evaluate(()=>history.length),initial);
+  await fresh.locator("#tab-settings-page").click();
   await fresh.locator("#open-appearance").click();
   await fresh.locator("#accent-choice").click();
   assert.equal(await fresh.evaluate(()=>history.length),initial+2);
   await fresh.evaluate(()=>history.back());
   await fresh.locator("#appearance-page").waitFor({state:"visible"});
   await fresh.evaluate(()=>history.back());
-  await fresh.locator("#home").waitFor({state:"visible"});
-  assert.equal(await fresh.evaluate(()=>location.hash),"#/");
+  await fresh.locator("#settings-page").waitFor({state:"visible"});
+  assert.equal(await fresh.evaluate(()=>location.hash),"#/settings");
   // Restore a real page on reload and support externally changed hashes.
+  await fresh.locator("#tab-settings-page").click();
   await fresh.locator("#open-appearance").click();
   await fresh.reload({waitUntil:"networkidle"});
   await fresh.locator("#appearance-page").waitFor({state:"visible"});
@@ -187,15 +236,16 @@ const fs = require("node:fs");
   await fresh.locator("#appearance-page").waitFor({state:"visible"});
   await fresh.waitForFunction(()=>!history.state.dialog);
   await fresh.locator("#back").click();
-  await fresh.locator("#home").waitFor({state:"visible"});
+  await fresh.locator("#settings-page").waitFor({state:"visible"});
   await fresh.evaluate(()=>{location.hash="#/diagnostics";});
   await fresh.locator("#diagnostics-page").waitFor({state:"visible"});
   await fresh.evaluate(()=>history.back());
-  await fresh.locator("#home").waitFor({state:"visible"});
+  await fresh.locator("#settings-page").waitFor({state:"visible"});
   await fresh.emulateMedia({colorScheme:"dark"});
   await fresh.waitForFunction(()=>document.documentElement.dataset.theme === "dark");
   await fresh.emulateMedia({colorScheme:"light"});
   await fresh.waitForFunction(()=>document.documentElement.dataset.theme === "light");
+  await fresh.locator("#tab-settings-page").click();
   await fresh.locator("#open-appearance").click();
   await fresh.locator("#accent-choice").click();
   await fresh.locator("#custom-hex").fill("#123456");
@@ -219,12 +269,16 @@ const fs = require("node:fs");
   await fresh.waitForFunction(()=>document.documentElement.dataset.theme === "light");
   await fresh.waitForFunction(()=>!document.querySelector(".touch-ripple"));
   assert.equal(await fresh.locator(".touch-ripple").count(),0);
+  await fresh.locator("#back").click();
+  await fresh.locator("#settings-page").waitFor({state:"visible"});
+  assert.equal(await fresh.locator("#tab-settings-page").evaluate(el=>getComputedStyle(el).color),"rgb(18, 52, 86)");
+  assert.equal(await fresh.locator("#tab-settings-page").getAttribute("aria-current"),"page");
   await fresh.close();
   await page.setViewportSize({width:320,height:720});
   await capture("home-narrow");
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
   fs.writeFileSync("preview/verification.json",JSON.stringify({passed:true,rootLength,
-    checked:["nested history","dialog cancellation","stale confirmation forward","reload","hashchange","full-row choice",
+    checked:["root tabs without history growth","empty SIM root","IMS scroll and form retention","bottom row clearance","accent navigation","nested history","dialog cancellation","stale confirmation forward","reload","hashchange","full-row choice",
       "diagnostic summary","unbroken horizontal JSON","text selection","dark theme","320px viewport","touch-origin ripple","scroll cancels press","disabled feedback",
       "real probe semantics","system theme changes","custom accent","reduced motion"],
     limitation:"Native Android 16 gesture dispatch and predictive animation require device verification."},null,2));

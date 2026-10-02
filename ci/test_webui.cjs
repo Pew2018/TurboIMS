@@ -50,7 +50,7 @@ async function appHarness() {
   const vm=require("node:vm");
   function element() {
     return {children:[], options:[], value:"", textContent:"", className:"", dataset:{}, style:{setProperty(){}},
-      hidden:false, isConnected:true, checked:false,
+      hidden:false, isConnected:true, checked:false, scrollTop:0,
       append(...items) { this.children.push(...items); this.options.push(...items); },
       replaceChildren(...items) { this.children=[...items]; },
       attributes:{}, setAttribute(key,value) { this.attributes[key]=value; }, removeAttribute(key) { delete this.attributes[key]; }, focus() {}, closest:()=>null, querySelector:()=>null, querySelectorAll:()=>[] };
@@ -133,6 +133,7 @@ test("OnePlus Blue defaults to a separate Classic color page",async()=>{
   const {elements,doc,calls}=await appHarness();
   assert.equal(doc.documentElement.style.properties["--accent"],"#42A5F5");
   assert.equal(elements.get("accent-label").textContent,"OnePlus Blue");
+  elements.get("tab-settings-page").onclick();
   elements.get("open-appearance").onclick();
   elements.get("accent-choice").onclick();
   assert.equal(elements.get("accent-page").hidden,false);
@@ -164,12 +165,14 @@ test("IMS config semantics survive preference presentation",async()=>{
 });
 test("secondary pages preserve status and show diagnostics as selectable text",async()=>{
   const {elements,doc,calls}=await appHarness();
+  elements.get("tab-settings-page").onclick();
   elements.get("open-appearance").onclick();
   assert.equal(elements.get("home").hidden,true);
   assert.equal(elements.get("appearance-page").hidden,false);
   assert.equal(elements.get("page-title").textContent,"外观");
   elements.get("back").onclick();
-  assert.equal(elements.get("home").hidden,false);
+  assert.equal(elements.get("settings-page").hidden,false);
+  elements.get("tab-settings-page").onclick();
   elements.get("open-diagnostics").onclick();
   await elements.get("export").onclick();
   assert.match(doc.getElementById("diagnostics").textContent,/not_started/);
@@ -206,6 +209,7 @@ test("aggregate blocked result has a readable reason",async()=>{
 test("history returns nested pages one level at a time without a duplicate root",async()=>{
   const {elements,history,location,calls}=await appHarness();
   assert.equal(history.length,1);
+  elements.get("tab-settings-page").onclick();
   elements.get("open-appearance").onclick();
   elements.get("accent-choice").onclick();
   assert.equal(location.hash,"#/accent");
@@ -213,8 +217,8 @@ test("history returns nested pages one level at a time without a duplicate root"
   history.back();
   assert.equal(elements.get("appearance-page").hidden,false);
   history.back();
-  assert.equal(elements.get("home").hidden,false);
-  assert.equal(history.state.page,"home");
+  assert.equal(elements.get("settings-page").hidden,false);
+  assert.equal(history.state.page,"settings-page");
   assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
 test("system back cancels confirmation first and never saves config",async()=>{
@@ -235,6 +239,7 @@ test("system back cancels confirmation first and never saves config",async()=>{
 test("dialog back retains appearance and unsaved IMS selections",async()=>{
   const {elements,history,doc,calls}=await appHarness();
   doc.getElementById("volte").value="off";
+  elements.get("tab-settings-page").onclick();
   elements.get("open-appearance").onclick();
   elements.get("theme-choice").onclick();
   history.back();
@@ -298,4 +303,60 @@ test("probe and refresh keep their original privileged operation semantics",asyn
   await elements.get("probe").onclick();
   await elements.get("refresh").onclick();
   assert.deepEqual(calls.map(([action])=>action),["status","probe","status"]);
+});
+
+test("equal root destinations replace history and retain IMS form and scroll",async()=>{
+  const {elements,doc,history,calls}=await appHarness();
+  assert.equal(elements.get("page-title").textContent,"IMS");
+  assert.equal(elements.get("bottom-nav").hidden,false);
+  assert.equal(elements.get("back").hidden,true);
+  doc.getElementById("enabled").checked=true;
+  doc.getElementById("volte").value="off";
+  const viewport=doc.getElementById("page-content");
+  viewport.scrollTop=420;
+  elements.get("tab-sim-page").onclick();
+  assert.equal(elements.get("sim-page").hidden,false);
+  assert.equal(elements.get("page-title").textContent,"SIM 卡信息");
+  assert.equal(viewport.scrollTop,0);
+  elements.get("tab-settings-page").onclick();
+  viewport.scrollTop=30;
+  elements.get("tab-home").onclick();
+  assert.equal(viewport.scrollTop,420);
+  assert.equal(doc.getElementById("enabled").checked,true);
+  assert.equal(doc.getElementById("volte").value,"off");
+  elements.get("tab-settings-page").onclick();
+  assert.equal(viewport.scrollTop,30);
+  assert.equal(history.length,1);
+  assert.equal(history.state.page,"settings-page");
+  assert.equal(elements.get("tab-settings-page").attributes["aria-current"],"page");
+  assert.equal(elements.get("tab-home").attributes["aria-current"],undefined);
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+test("secondary history returns to selected Settings and restores root navigation",async()=>{
+  const {elements,history}=await appHarness();
+  elements.get("tab-settings-page").onclick();
+  elements.get("open-appearance").onclick();
+  assert.equal(elements.get("bottom-nav").hidden,true);
+  assert.equal(elements.get("back").hidden,false);
+  elements.get("theme-choice").onclick();
+  history.back();
+  assert.equal(elements.get("sheet").hidden,true);
+  assert.equal(elements.get("appearance-page").hidden,false);
+  history.back();
+  assert.equal(elements.get("settings-page").hidden,false);
+  assert.equal(elements.get("bottom-nav").hidden,false);
+  assert.equal(elements.get("back").hidden,true);
+  assert.equal(elements.get("tab-settings-page").attributes["aria-current"],"page");
+});
+test("SIM is empty and existing tools belong exclusively to Settings",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  const home=html.split('<main id="home"')[1].split('</main>')[0];
+  const settings=html.split('<main id="settings-page"')[1].split('</main>')[0];
+  assert.doesNotMatch(home,/open-appearance|open-diagnostics|chevron/);
+  assert.match(settings,/open-appearance/);
+  assert.match(settings,/open-diagnostics/);
+  assert.match(html,/<main id="sim-page" class="page" hidden><\/main>/);
+  const nav=html.split('<nav id="bottom-nav"')[1].split('</nav>')[0];
+  assert.equal((nav.match(/<svg /g)||[]).length,3);
+  assert.match(nav,/tab-home[^]*tab-sim-page[^]*tab-settings-page/);
 });

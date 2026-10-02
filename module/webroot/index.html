@@ -12,7 +12,8 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-<header class="toolbar"><div class="toolbar-inner"><button id="back" class="back" type="button" aria-label="返回" hidden></button><h1 id="page-title">TurboIMS Next</h1></div></header>
+<header class="toolbar"><div class="toolbar-inner"><button id="back" class="back" type="button" aria-label="返回" hidden></button><h1 id="page-title">IMS</h1></div></header>
+<div id="page-content" data-primary="true">
 <main id="home" class="page">
   <section class="pref-group" aria-labelledby="device-heading">
     <h2 id="device-heading" class="category">设备状态</h2>
@@ -30,6 +31,9 @@
     <button id="restore" class="pref-action" type="button"><span>停止并恢复<small>停止自动应用，恢复修改前的配置</small></span></button>
     <p class="hint preference-footer">仅恢复本模块记录的原值，可能包含其他工具的设置；发生冲突时保留冲突项。</p>
   </section>
+</main>
+<main id="sim-page" class="page" hidden></main>
+<main id="settings-page" class="page" hidden>
   <section class="pref-group" aria-labelledby="more-heading">
     <h2 id="more-heading" class="category">更多</h2>
     <button id="open-appearance" class="pref-action" type="button"><span>外观<small>显示模式与强调色</small></span><span class="chevron" aria-hidden="true"></span></button>
@@ -83,6 +87,12 @@
     <pre id="details" class="log-view" tabindex="0" aria-label="操作结果 JSON">暂无</pre>
   </section>
 </main>
+</div>
+<nav id="bottom-nav" class="bottom-nav" aria-label="一级导航"><div class="bottom-nav-inner">
+  <button id="tab-home" class="bottom-tab" type="button" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.02-.24c1.12.37 2.33.57 3.57.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.61 21 3 13.39 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1.02l-2.2 2.2z"></path></svg><span>IMS</span></button>
+  <button id="tab-sim-page" class="bottom-tab" type="button"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 2h-8L4 8v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM8 18H6v-2h2v2zm10 0h-2v-2h2v2zm-4 0h-4v-2h4v2zm4-4H6v-4h12v4z"></path></svg><span>SIM 卡信息</span></button>
+  <button id="tab-settings-page" class="bottom-tab" type="button"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.66-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65A.49.49 0 0 0 10 22h4a.49.49 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"></path></svg><span>设置</span></button>
+</div></nav>
 <div id="sheet" class="dialog-backdrop" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-describedby="sheet-description">
     <h2 id="sheet-title"></h2><p id="sheet-description"></p><div id="sheet-content"></div>

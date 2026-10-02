@@ -9,7 +9,7 @@ https://github.com/KernelSU-Next/KernelSU-Next/pull/1204
 
 The manager checks `WebView.canGoBack()`, calls `WebView.goBack()` when possible, and otherwise closes the Activity. The module must create real same-document history entries.
 
-The root is initialized with `replaceState`, not an extra `pushState`. Page links push states with distinct hash URLs. Both `popstate` and `hashchange` restore the page without saving or rewriting the IMS form. Toolbar back calls `history.back()`. Nested colors and raw diagnostic pages return to their parent. Scroll positions are retained.
+The default root is IMS. The three peer destinations are IMS, SIM information and Settings. Root tab clicks use `replaceState`, so switching tabs does not add exit steps. Only child page links push states with distinct hash URLs. Both `popstate` and `hashchange` restore the page without saving or rewriting the IMS form. Toolbar back calls `history.back()`. Nested colors and raw diagnostic pages return to their parent. Scroll positions are retained.
 
 Each dialog temporarily pushes a history entry. System back cancels the dialog and resolves an outstanding confirmation as false. Cancel/confirm buttons traverse back to consume the same entry before settling the promise. Already answered confirmations are not revived by forward traversal.
 
@@ -31,10 +31,10 @@ GitHub Actions runs Node regressions, root-runner tests, packaging validation, a
 
 Chromium traversal verifies web navigation behavior, not native Android dispatch. On a device with KernelSU Next v3.2.0+ confirm:
 
-1. Appearance → colors → back gesture → appearance → back gesture → home.
+1. Settings → appearance → colors → back gesture → appearance → back gesture → Settings.
 2. Diagnostics → full JSON → back → diagnostics.
 3. Open confirmation → system back: dialog closes; no settings are saved.
-4. Repeatedly open/close dialogs, then return home: the next back exits when the host history is exhausted.
+4. Repeatedly switch root tabs and open/close dialogs, then return to a root: the next back exits when the host history is exhausted.
 5. Abort an edge gesture: no page change or action.
 6. Hardware/three-button back and Android 16 edge back follow the same completed traversal.
 
@@ -49,3 +49,13 @@ The offline feedback helper delegates pointer and keyboard events without invoki
 Dialog exit lasts 100 ms, then resolves the original confirmation promise once. History traversal is unchanged: the temporary dialog entry is consumed first; no extra animation entries are pushed. Radio rows update their accessible checked state before closing. Core runner and bridge code remain untouched.
 
 The preview workflow additionally sends real touch events in Chromium, checks touch-origin feedback and scrolling cancellation, busy text-action states, system color-scheme changes, custom HEX and reduced motion. Native Android back dispatch still requires device verification.
+
+## Three root destinations
+
+The existing IMS form remains mounted under IMS, including unsubmitted selections. Appearance and diagnostics now belong exclusively to Settings. SIM information is an empty main element with only its toolbar title; this round implements no SIM data or functionality.
+
+The solid 56 px bottom navigation has three equal icon/label touch targets, monochrome inline SVGs and accent-colored selection. Labels are always shown. It reuses delegated touch-origin ripple, has no persistent selection background and adapts to the existing theme. Root pages have no back arrow. Child pages hide the bottom navigation, and history back restores Settings with its selected tab.
+
+A shared content viewport scrolls independently of the toolbar and fixed bottom navigation. Root viewport height reserves the navigation height plus the bottom safe-area inset. Each root's scroll position is retained in memory while the unchanged DOM retains UI values; parent scroll is also stored in history. Dialogs lock this viewport while their temporary history entry is active. Deep links initialize their owning root without an extra synthetic exit entry.
+
+Actions additionally verify root history replacement, unchanged privileged call counts across tab changes, unsaved IMS values, remembered scrolling, empty SIM content, final-row clearance, bottom-tab touch feedback and custom-accent selection. Native host gesture dispatch and device safe-area behavior still require Android verification.

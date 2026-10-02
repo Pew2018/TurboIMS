@@ -67,6 +67,7 @@ function finishSheet(value = false) {
     $("sheet").hidden = true;
     sheetFinishing = false;
     document.body.style.overflow = "";
+    $("page-content").style.overflow = "";
     if (focus && focus.isConnected) focus.focus({preventScroll:true});
     if (resolve) resolve(value);
   };
@@ -92,7 +93,7 @@ function openSheet(title, description) {
   sheetClosing = false;
   sheetAnswer = false;
   sheetHistoryToken = ++sheetSequence;
-  history.pushState({turboims:true,page:currentPage,dialog:sheetHistoryToken,scroll:window.scrollY || 0}, "", routeURL(currentPage, sheetHistoryToken));
+  history.pushState({turboims:true,page:currentPage,dialog:sheetHistoryToken,scroll:$("page-content").scrollTop || 0}, "", routeURL(currentPage, sheetHistoryToken));
   sheetFocus = document.activeElement;
   $("sheet-title").textContent = title;
   $("sheet-description").textContent = description || "";
@@ -102,6 +103,7 @@ function openSheet(title, description) {
   $("sheet").hidden = false;
   window.TouchFeedback?.openDialog($("sheet"));
   document.body.style.overflow = "hidden";
+  $("page-content").style.overflow = "hidden";
   $("sheet-close").focus();
   return new Promise(resolve => { sheetResolve = resolve; });
 }
@@ -202,11 +204,15 @@ function applyCustomColor() {
 $("apply-hex").onclick = applyCustomColor;
 $("custom-hex").onkeydown = event => { if (event.key === "Enter") applyCustomColor(); };
 showAppearance();
-const pageTitles = {home:"TurboIMS Next","appearance-page":"外观","accent-page":"强调色",
-  "diagnostics-page":"诊断与验证","diagnostic-data-page":"完整诊断数据","operation-data-page":"操作结果"};
-const pageRoutes = {home:"", "appearance-page":"appearance", "accent-page":"accent",
-  "diagnostics-page":"diagnostics", "diagnostic-data-page":"diagnostic-data", "operation-data-page":"operation-data"};
-let currentPage = "home";
+const pageTitles = {home:"IMS","sim-page":"SIM 卡信息","settings-page":"设置",
+  "appearance-page":"外观","accent-page":"强调色","diagnostics-page":"诊断与验证",
+  "diagnostic-data-page":"完整诊断数据","operation-data-page":"操作结果"};
+const pageRoutes = {home:"","sim-page":"sim","settings-page":"settings",
+  "appearance-page":"appearance","accent-page":"accent","diagnostics-page":"diagnostics",
+  "diagnostic-data-page":"diagnostic-data","operation-data-page":"operation-data"};
+const primaryPages = ["home","sim-page","settings-page"];
+const primaryScroll = {home:0,"sim-page":0,"settings-page":0};
+let currentPage = null;
 let skippingStaleDialog = false;
 function routeURL(page, dialog = null) {
   return "#/" + pageRoutes[page] + (dialog ? "?dialog=" + dialog : "");
@@ -216,22 +222,32 @@ function pageFromHash() {
   return Object.keys(pageRoutes).find(page => pageRoutes[page] === route) || "home";
 }
 function rememberScroll() {
-  if (history.state?.turboims) history.replaceState({...history.state,scroll:window.scrollY || 0}, "", location.hash);
+  const scroll = $("page-content").scrollTop || 0;
+  if (primaryPages.includes(currentPage)) primaryScroll[currentPage] = scroll;
+  if (history.state?.turboims) history.replaceState({...history.state,scroll}, "", location.hash);
 }
 function showPage(page, scroll = 0) {
   const changed = currentPage !== page;
   currentPage = page;
+  const primary = primaryPages.includes(page);
   for (const id of Object.keys(pageTitles)) $(id).hidden = id !== page;
-  $("back").hidden = page === "home";
+  $("back").hidden = primary;
+  $("bottom-nav").hidden = !primary;
+  $("page-content").dataset.primary = String(primary);
   $("page-title").textContent = pageTitles[page];
+  for (const id of primaryPages) {
+    const tab = $("tab-"+id);
+    if (id === page) tab.setAttribute("aria-current","page");
+    else tab.removeAttribute("aria-current");
+  }
   if (page === "accent-page") $("custom-hex").value = accent;
-  if (changed && typeof scrollTo === "function") scrollTo(0,scroll);
+  if (changed) $("page-content").scrollTop = scroll;
 }
 function synchronizeHistory() {
   const page = pageFromHash();
   let state = history.state;
   if (!state?.turboims || state.page !== page) {
-    state = {turboims:true,page,scroll:0};
+    state = {turboims:true,page,scroll:primaryScroll[page] || 0};
     history.replaceState(state, "", routeURL(page));
   }
   // Forward navigation must never resurrect an already answered confirmation.
@@ -254,22 +270,29 @@ function synchronizeHistory() {
 function navigate(page) {
   if (!Object.hasOwn(pageTitles,page) || page === currentPage || !$("sheet").hidden) return;
   rememberScroll();
-  history.pushState({turboims:true,page,scroll:0}, "", routeURL(page));
+  const primary = primaryPages.includes(page);
+  const state = {turboims:true,page,scroll:primary ? primaryScroll[page] : 0};
+  // Tabs replace the current root; only child pages create a back destination.
+  if (primary) history.replaceState(state, "", routeURL(page));
+  else history.pushState(state, "", routeURL(page));
   synchronizeHistory();
 }
 window.addEventListener("popstate", synchronizeHistory);
 window.addEventListener("hashchange", synchronizeHistory);
 history.scrollRestoration = "manual";
-// No artificial entry at the root: the host can exit when its back stack is empty.
+// Deep links begin at their owning root, without adding an artificial exit step.
 const initialPage = pageFromHash();
 if (!history.state?.turboims) {
-  history.replaceState({turboims:true,page:"home",scroll:0}, "", routeURL("home"));
-  if (["accent-page"].includes(initialPage)) navigate("appearance-page");
+  const root = primaryPages.includes(initialPage) ? initialPage : "settings-page";
+  history.replaceState({turboims:true,page:root,scroll:0}, "", routeURL(root));
+  synchronizeHistory();
+  if (initialPage === "accent-page") navigate("appearance-page");
   if (["diagnostic-data-page","operation-data-page"].includes(initialPage)) navigate("diagnostics-page");
-  if (initialPage !== "home") navigate(initialPage);
+  if (initialPage !== root) navigate(initialPage);
 } else {
   synchronizeHistory();
 }
+for (const id of primaryPages) $("tab-"+id).onclick = () => navigate(id);
 $("open-appearance").onclick = () => navigate("appearance-page");
 $("open-diagnostics").onclick = () => navigate("diagnostics-page");
 $("open-diagnostic-data").onclick = () => navigate("diagnostic-data-page");
@@ -421,7 +444,7 @@ function renderDiagnosticSummary(result) {
 async function operation(work, progress = "正在处理…", trigger = null) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll("button,input,select").forEach(x => { if (x.id !== "back") x.disabled = true; });
+  document.querySelectorAll("button,input,select").forEach(x => { if (x.id !== "back" && !primaryPages.some(id => x.id === "tab-"+id)) x.disabled = true; });
   document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","true"));
   const label = trigger?.querySelector(".action-label") || trigger;
   const originalLabel = label?.textContent;
