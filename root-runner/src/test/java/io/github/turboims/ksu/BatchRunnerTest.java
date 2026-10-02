@@ -37,6 +37,14 @@ public class BatchRunnerTest {
         assertEquals(1, f.writes);
         assertEquals(1, f.second.writes);
     }
+    @Test public void readbackFailureHasDistinctPhaseAndStopsAutoWrite() {
+        Fake f = new Fake();
+        f.drop = true;
+        BatchRunner.Report report = f.run(false);
+        assertEquals("verification_failed", report.phase);
+        assertTrue(report.requiresManualRetry);
+        assertTrue(report.entries.get(0).error instanceof Engine.VerificationException);
+    }
     @Test public void firstSimFailureDoesNotPreventSecondSimApply() {
         Fake f=new Fake();f.failedId=FIRST.id;BatchRunner.Report r=f.run(false);
         assertFalse(r.ok);assertEquals("error",r.phase);assertTrue(r.requiresManualRetry);

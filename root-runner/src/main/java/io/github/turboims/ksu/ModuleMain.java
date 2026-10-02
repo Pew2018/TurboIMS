@@ -133,7 +133,9 @@ public final class ModuleMain {
             JSONObject row = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                     .put("selected", entry.selected);
             if (entry.error != null) {
-                row.put("phase", "error").put("changed", false).put("write_state_unknown", !preview)
+                row.put("phase", entry.error instanceof Engine.VerificationException
+                        ? "verification_failed" : "error")
+                        .put("changed", false).put("write_state_unknown", !preview)
                         .put("error", String.valueOf(entry.error.getMessage()))
                         .put("type", entry.error.getClass().getName())
                         .put("unsupported", new JSONArray()).put("conflicts", new JSONArray());

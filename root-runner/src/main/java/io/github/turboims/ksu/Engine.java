@@ -6,6 +6,9 @@ import java.util.*;
 public final class Engine {
     public static final String MARKER = "turboims_ksu_session_string";
     public static final String LOADED = "carrier_config_applied_bool";
+    public static final class VerificationException extends IllegalStateException {
+        public VerificationException(String message) { super(message); }
+    }
     public interface Store {
         Snapshot load(int subId) throws Exception;
         void save(int subId, Snapshot snapshot) throws Exception;
@@ -147,7 +150,7 @@ public final class Engine {
                     }
                 if (verified) break;
             }
-            if (!verified) throw new IllegalStateException(
+            if (!verified) throw new VerificationException(
                     "CarrierConfig read-back mismatch for subId=" + sub.id);
         }
         if (ours || !payload.isEmpty())

@@ -27,7 +27,7 @@ public final class BatchRunner {
                              Engine engine, boolean preview, boolean restore) {
         List<Entry> entries = new ArrayList<>();
         boolean selected = false, waiting = false, conflict = false, unsupported = false;
-        boolean failed = false, changed = false, verified = false, lost = false;
+        boolean failed = false, verificationFailed = false, changed = false, verified = false, lost = false;
         for (CarrierBackend.Subscription sub : subscriptions) {
             boolean target = !restore && config.selects(sub.slot);
             selected |= target;
@@ -45,12 +45,14 @@ public final class BatchRunner {
                                 && r.unsupported.isEmpty() && r.conflicts.isEmpty());
             } catch (Exception error) {
                 failed = true;
+                verificationFailed |= error instanceof Engine.VerificationException;
                 entries.add(new Entry(sub, target, null, error));
             }
         }
         if (config.enabled && !selected && !restore) waiting = true;
         boolean ok = !(waiting || conflict || unsupported || failed);
-        String phase = failed ? "error" : lost ? "ownership_lost" : conflict ? "conflict"
+        String phase = verificationFailed ? "verification_failed" : failed ? "error"
+                : lost ? "ownership_lost" : conflict ? "conflict"
                 : waiting ? "waiting" : unsupported ? "partial" : preview ? "probe"
                 : config.enabled && !restore ? "active" : "paused";
         return new Report(entries, ok, changed, verified, failed || lost, phase);

@@ -481,17 +481,19 @@ function render(result, replaceForm = false) {
     ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
     waiting:["等待 SIM 卡","请等待 SIM 卡和运营商配置加载。"],
     retry_timeout:["等待超时","SIM 卡或运营商配置尚未就绪，已停止本次尝试。"],
+    verification_failed:["验证失败","写入后读取的值不一致，自动写入已停止。"],
     conflict:["存在配置冲突","冲突项已保留，请查看诊断与验证。"],
     not_started:["尚未开始工作","安装后请重启设备，再运行检测。"],
     error:["操作失败","请查看诊断与验证中的详细原因。"]
   };
   const warning = ["waiting","retry_timeout","conflict","partial"].includes(phase);
-  const danger = ["error","ownership_lost"].includes(phase) || !!result.blocked;
+  const danger = ["error","verification_failed","ownership_lost"].includes(phase) || !!result.blocked;
   const tone = danger ? "danger" : warning || (phase === "active" && !state.write_readback_verified)
     ? "warning" : ["active","verified","probe"].includes(phase) ? "success" : "neutral";
   const [title,detail] = texts[phase] || ["状态待确认","请查看诊断与验证。"];
   message(title, danger, tone, detail);
-  if (result.blocked) message("自动应用已停止", true, "danger", "存在需要手动处理的问题，请查看诊断与验证。");
+  if (result.blocked) message(phase === "verification_failed" ? "验证失败" : "自动应用已停止",
+    true, "danger", "已停止自动写入，请查看诊断与验证。");
   // The one-shot worker exiting after a verified apply is normal.
   const subscriptions = state.subscriptions;
   const slots = Array.isArray(subscriptions)
@@ -522,7 +524,7 @@ function renderDiagnosticSummary(result) {
   const phases = {active:state.write_readback_verified ? "覆盖验证通过" : "当前配置无需写入",
     verified:"覆盖验证通过",probe:"只读检测完成",paused:"已暂停",partial:"部分支持",
     waiting:"等待 SIM 配置",retry_timeout:"等待超时",conflict:"存在第三方冲突",ownership_lost:"覆盖标记丢失",
-    not_started:"尚未启动",error:"执行失败"};
+    not_started:"尚未启动",verification_failed:"写入验证失败",error:"执行失败"};
   const rows = [
     ["状态", result.blocked ? "自动写入已停止" : phases[state.phase] || state.phase || "未知"],
     ["KernelSU", result.uid === undefined ? "未取得 UID" : "UID " + result.uid],

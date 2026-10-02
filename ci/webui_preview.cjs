@@ -10,12 +10,17 @@ let browser;
   page.on("pageerror",error=>errors.push(String(error)));
   await page.addInitScript(() => {
     window.bridgeCalls = [];
-    const config={schema:1,enabled:false,selection:"all",interval_seconds:30,features:{
+    let config={schema:1,enabled:false,periodic_check_enabled:false,selection:"all",interval_seconds:1800,features:{
       volte:"on",vowifi:"on",vt:"on",vonr:"on",cross_sim:"on",ut:"on","5g_nr":"on"
     }};
     window.ksu={exec(command,options,callback){
-      const action=command.split(" ").at(-1);
+      const action=command.split(" ")[2];
       window.bridgeCalls.push(action);
+      if (action === "save") {
+        config = JSON.parse(atob(command.split(" ").at(-1).slice(1,-1)));
+        window[callback](0,JSON.stringify({ok:true,saved:true,config}),"");
+        return;
+      }
       const result={ok:true,sdk:36,device:"husky",uid:0,selinux_context:"u:r:ksu:s0",config,
         session:"f9cdf384-ce76-4872-8cdc-62d580ad3971",
         status:{phase:"paused",binder:{carrier_config:true,override_method:
@@ -23,7 +28,7 @@ let browser;
           subscriptions:[
             {slot:0,sub_id:1,phase:"paused",unsupported:[]},
             {slot:1,sub_id:2,phase:"paused",unsupported:[]}
-          ]},watcher:{alive:true}};
+          ]},watcher:{alive:false,mode:"completed"}};
       if (action === "probe") {
         result.phase = "probe"; result.binder = result.status.binder;
         result.subscriptions = result.status.subscriptions.map(sub => ({...sub,phase:"probe"}));
@@ -60,7 +65,7 @@ let browser;
   await page.locator("#tab-sim-page").click();
   await visible("sim-page");
   assert.equal(await page.locator("#sim-page").innerHTML(),"");
-  assert.equal(await page.locator("#page-title").innerText(),"SIM 卡信息");
+  assert.equal(await page.locator("#page-title").innerText(),"TurboIMS Next");
   assert.equal(await page.locator("#back").isHidden(),true);
   await capture("sim-empty");
   await page.locator("#tab-settings-page").click();
@@ -120,10 +125,16 @@ let browser;
   await touchEvent("touchEnd");
   assert.equal(await page.locator("#volte").inputValue(),"off");
   assert.equal(await row.locator(".switch-hit .tap-ripple").count(),1);
-  await row.locator(".feature-reset").click();
+  await page.locator("#tab-settings-page").click();
+  await page.locator("#reset-features").click();
+  await visible("sheet");
+  await page.locator("#sheet-content .option").first().click();
+  await page.locator("#sheet").waitFor({state:"hidden"});
+  await page.locator("#tab-home").click();
+  await row.scrollIntoViewIfNeeded();
+  bounds = await row.boundingBox();
   assert.equal(await page.locator("#volte").inputValue(),"default");
   assert.equal(await toggle.getAttribute("aria-checked"),"false");
-  assert.equal(await row.locator(".feature-state").innerText(),"使用原值");
   await page.waitForFunction(()=>!document.querySelector(".tap-ripple"));
   const sx = Math.round(bounds.x+30), sy = Math.round(bounds.y+32);
   await touchEvent("touchStart",sx,sy);
@@ -150,6 +161,9 @@ let browser;
   await page.waitForFunction(()=>!document.getElementById("refresh").disabled);
   assert.equal(await page.locator("#probe").innerText(),"检测设备");
   assert.equal(await page.locator("#refresh").innerText(),"刷新");
+  assert.equal(await page.locator("#interval-choice").isDisabled(),true);
+  await page.locator("#periodic-check").check();
+  await page.waitForFunction(()=>!document.getElementById("interval-choice").disabled);
   await page.locator("#interval-choice").click();
   await capture("interval-dialog");
   await close();
@@ -181,6 +195,7 @@ let browser;
   await page.locator("#tab-home").click();
 
   await page.locator("#enabled").check();
+  const callsBeforeApply = await page.evaluate(()=>window.bridgeCalls.length);
   await page.locator("#apply").click();
   await visible("sheet");
   await capture("confirmation");
@@ -189,7 +204,7 @@ let browser;
   await page.locator("#sheet").waitFor({state:"hidden"});
   await page.waitForFunction(()=>document.getElementById("message").textContent.includes("取消"));
   assert.equal(await page.locator("#enabled").isChecked(),true);
-  assert.equal(await page.evaluate(()=>window.bridgeCalls.some(x=>x==="apply" || x.includes("save"))),false);
+  assert.equal(await page.evaluate(before=>window.bridgeCalls.slice(before).some(x=>x==="apply" || x==="save"),callsBeforeApply),false);
   await page.evaluate(()=>history.forward());
   await page.waitForFunction(()=>!history.state.dialog);
   assert.equal(await page.locator("#sheet").isVisible(),false);
