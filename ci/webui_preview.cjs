@@ -73,7 +73,7 @@ let browser;
       const s=getComputedStyle(el);return {bg:s.backgroundColor,fg:s.color,height:s.height,width:s.width};
     });
     const ratio=await page.evaluate(({bg,fg})=>{
-      const lum=value=>{const rgb=value.match(/[\\d.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
+      const lum=value=>{const rgb=value.match(/[0-9.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
       const a=lum(bg),b=lum(fg);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
     },{bg:primary.bg,fg:primary.fg});
     assert.ok(ratio>=4.5,theme+" "+color+" action contrast");
