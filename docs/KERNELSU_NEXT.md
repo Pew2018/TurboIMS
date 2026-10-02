@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-版本：0.1.0-experimental。**构建测试不等于手机上的 CarrierConfig 写入或 IMS 通话已经验证。**
+版本：0.1.1-experimental。**构建测试不等于手机上的 CarrierConfig 写入或 IMS 通话已经验证。**
 初始验证设备是 Pixel 8 Pro / husky / Android 16 / SDK 36 / SELinux Enforcing。
 安装器接受 arm64、SDK 33–36；其他组合的兼容性尚未实测，SDK 37+ 明确拒绝，避免静默误用。
 
@@ -13,8 +13,10 @@
 
 ## 安装与首次验证
 
-1. 下载 Actions 的 TurboIMS-Next-0.1.0-experimental artifact。解压下载的 artifact ZIP，
-   在 KernelSU Next 中安装其中的 **TurboIMS-Next-0.1.0-experimental.zip**，不要安装外层 artifact ZIP。
+1. 下载成功 Actions 中的 **FLASHABLE-TurboIMS-Next-0.1.1-experimental.zip**。
+   在 KernelSU Next 直接选择此下载文件安装，**无需解压，不存在内层模块 ZIP**。
+   必须等待 Verify actual downloadable ZIP and installer 检查通过。
+   旧 0.1.0 的外层 artifact 和 test-reports ZIP 不是模块，不可直接安装。
 2. 重启，打开模块 WebUI，点击“只读检测”。首次安装 enabled=false，不会主动覆盖 IMS 配置。
 3. 确认返回 uid=0、系统 Binder 可读取、活跃 SIM 和 carrier_config_applied_bool=true。
    只读检测不会测试 MODIFY_PHONE_STATE 写入权限，成功不等于可以写入。
@@ -162,3 +164,23 @@ CI 是离线与编译验证，不是设备 Binder/SELinux/IMS 测试。
   as previous_status and is not presented as a current successful application.
 - These checks do not prove IMS registration, carrier provisioning or call capability.
   Root Binder/SELinux behavior still requires device validation.
+
+
+## 安装包格式与下载回归检查
+
+KernelSU Next 在运行 customize.sh 前会读取 ZIP 根目录的 module.prop。
+因此，含有另一个模块 ZIP 的 Actions 外层包会在安装脚本执行前失败。
+0.1.1 改为将平铺的模块文件目录上传给 upload-artifact，让 GitHub 生成的下载 ZIP
+本身就是模块。只保留一个 FLASHABLE 下载成果，测试报告改为写入工作流摘要。
+
+打包检查同时覆盖根目录必需文件、元数据、LF 换行、路径安全、DEX 入口、runner
+SHA-256，并拒绝嵌套 ZIP。独立 CI job 用 GitHub API 下载用户实际得到的归档，
+再次验证结构并在 BusyBox 下模拟安装脚本的参数检查、摘要验证、文件权限及升级保留配置。
+artifact 不保留 Unix 权限，安装脚本会重新设置 runner=0444 和脚本=0755；
+不要求为此添加 META-INF 或 install.sh。
+
+依据：
+- https://github.com/KernelSU-Next/KernelSU-Next/blob/dev/userspace/ksud/src/module.rs
+- https://github.com/KernelSU-Next/KernelSU-Next/blob/dev/userspace/ksud/src/installer.sh
+- https://kernelsu.org/guide/module.html
+- https://github.com/actions/upload-artifact/tree/v4

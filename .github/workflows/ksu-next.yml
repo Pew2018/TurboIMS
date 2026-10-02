@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: ksu-next-${{ github.ref }}
   cancel-in-progress: true
@@ -15,6 +16,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_name: ${{ steps.package.outputs.artifact_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -31,28 +35,51 @@ jobs:
           node-version: "22"
       - name: Install Android SDK
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - name: Validate module scripts and offline WebUI
+      - name: Validate module scripts, packaging guards and offline WebUI
         run: |
           shellcheck -S warning -e SC2154 module/*.sh
           for script in module/*.sh; do bash -n "$script"; done
           node --check module/webroot/app.js
           node --test ci/test_webui.cjs
+          python3 -m unittest discover -s ci -p 'test_package_module.py' -v
       - name: Build and test standalone root runner
         run: ./gradlew -p root-runner --no-daemon testReleaseUnitTest assembleRelease
-      - name: Package single module ZIP
+      - name: Package flat module payload and canonical ZIP
+        id: package
         run: python3 ci/package_module.py
-      - name: Upload installable module
+      - name: Upload directly flashable ZIP contents
+        id: upload
         uses: actions/upload-artifact@v4
         with:
-          name: TurboIMS-Next-0.1.0-experimental
-          path: dist/*
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: dist/flashable/
           if-no-files-found: error
-      - name: Upload unit-test reports
+          compression-level: 6
+          retention-days: 30
+      - name: Summarize Java test results
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: TurboIMS-Next-test-reports
-          path: |
-            root-runner/build/reports/tests/
-            root-runner/build/test-results/
-          if-no-files-found: ignore
+        run: python3 ci/summarize_tests.py
+  verify-download:
+    name: Verify actual downloadable ZIP and installer
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install BusyBox for installer smoke
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y busybox
+      - name: Download the exact artifact ZIP offered to users
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TURBOIMS_ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
+        run: gh api "repos/${GH_REPO}/actions/artifacts/${TURBOIMS_ARTIFACT_ID}/zip" > "$RUNNER_TEMP/turboims-downloaded.zip"
+      - name: Validate actual archive and run installation smoke
+        env:
+          TURBOIMS_ARTIFACT_NAME: ${{ needs.build.outputs.artifact_name }}
+        run: |
+          python3 ci/verify_module.py "$RUNNER_TEMP/turboims-downloaded.zip"
+          python3 ci/smoke_install.py "$RUNNER_TEMP/turboims-downloaded.zip"
+          python3 ci/summarize_download.py "$RUNNER_TEMP/turboims-downloaded.zip"
