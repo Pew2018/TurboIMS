@@ -253,8 +253,13 @@ function showAppearance() {
   // Leave standard controls on the selected accent. Tone only the toolbar surface
   // and its status-bar companion for a quieter, connected system chrome.
   const surfaceRgb = dark ? [18,18,18] : [255,255,255];
-  const toolbarRgb = accentToolbar ? rgb.map(value => value * .92) : surfaceRgb;
-  const statusRgb = accentToolbar ? rgb.map(value => value * .82) : surfaceRgb;
+  // Classic Material separates primary chrome from control accents. This blend
+  // is our restrained palette derivation, not a prescribed Android algorithm.
+  const neutral = rgb[0]*.2126 + rgb[1]*.7152 + rgb[2]*.0722;
+  const toolbarRgb = accentToolbar
+    ? rgb.map(value => Math.round((value*.55 + neutral*.45) * (dark ? .72 : .82)))
+    : surfaceRgb;
+  const statusRgb = accentToolbar ? toolbarRgb.map(value => Math.round(value*.86)) : surfaceRgb;
   const toolbarColor = accentToolbar ? colorHex(toolbarRgb) : chromeColor;
   const statusColor = accentToolbar ? colorHex(statusRgb) : chromeColor;
   root.style.setProperty("--toolbar-tint",toolbarColor);
@@ -786,9 +791,9 @@ function render(result, replaceForm = false) {
   const texts = {
     probe:["检测完成","仅完成只读检测，尚未验证配置写入。"],
     active:state.write_readback_verified
-      ? ["IMS 配置已应用","已完成写入验证，通话功能仍需运营商支持。"]
+      ? ["IMS 配置已应用","已验证，通话仍需运营商支持。"]
       : ["无需重新写入","当前配置未发生变化，尚未确认写入结果。"],
-    verified:["IMS 配置已验证","已完成写入验证，通话功能仍需运营商支持。"],
+    verified:["IMS 配置已验证","已验证，通话仍需运营商支持。"],
     paused:["自动应用已停止","当前不会自动更新 IMS 配置。"],
     partial:["部分配置未应用","部分配置项不受支持，请查看逐卡结果。"],
     ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
@@ -907,4 +912,12 @@ $("export").onclick = () => operation(async () => {
   render(result);
   $("diagnostic-notice").textContent = "诊断已生成，可查看完整数据并复制。";
 });
-operation(async () => render(await TurboBridge.call("status"), true));
+function revealInitialUI() {
+  clearTimeout(window.turboStartupTimer);
+  document.documentElement.dataset.loading = "false";
+}
+// Bound the loading screen only; a slow bridge keeps controls disabled until
+// operation() settles. Never fabricate configuration or trigger an extra call.
+const initialViewDeadline = setTimeout(revealInitialUI, 6000);
+operation(async () => render(await TurboBridge.call("status"), true))
+  .finally(() => { clearTimeout(initialViewDeadline); revealInitialUI(); });

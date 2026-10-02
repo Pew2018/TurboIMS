@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hans">
+<html lang="zh-Hans" data-loading="true">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -9,6 +9,7 @@
   <meta id="navigation-bar-color" name="navigation-bar-color" content="#ffffff">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; connect-src 'none'; img-src 'self' data:">
   <title>TurboIMS Next</title>
+  <script src="startup.js"></script>
   <link rel="stylesheet" href="style.css">
   <script src="bridge.js" defer></script>
   <script src="feedback.js" defer></script>
@@ -16,24 +17,25 @@
 </head>
 <body>
 <header class="toolbar"><div class="toolbar-inner"><button id="back" class="back" type="button" aria-label="返回" hidden></button><h1 id="page-title">TurboIMS Next</h1></div></header>
+<div id="startup-view" role="status" aria-live="polite"><span id="startup-message">正在加载…</span><div class="startup-line" aria-hidden="true"></div></div>
 <div id="page-content" data-primary="true">
 <main id="home" class="page">
   <section class="pref-group" aria-labelledby="settings-heading">
     <h2 id="settings-heading" class="category">自动配置</h2>
-    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>开机自动应用</strong><small>开机后等待 SIM 就绪，应用并验证一次</small></span><span class="switch-hit"><input id="enabled" type="checkbox" role="switch"></span></label>
-    <div class="setting-row"><span class="row-copy"><strong>应用到</strong><small>选择要应用配置的 SIM 卡</small></span><button id="selection-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="selection" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="all">所有活跃 SIM 卡</option><option value="slot:0">SIM 卡 1</option><option value="slot:1">SIM 卡 2</option></select></div>
-    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>定时检查与修复</strong><small>定期核对配置，仅在安全且不一致时修复</small></span><span class="switch-hit"><input id="periodic-check" type="checkbox" role="switch"></span></label>
-    <div id="interval-row" class="setting-row"><span class="row-copy"><strong>检查间隔</strong><small>仅在定时检查开启时生效</small></span><button id="interval-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="interval" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="600">每 10 分钟</option><option value="1800">每 30 分钟</option><option value="3600">每 1 小时</option><option value="7200">每 2 小时</option></select></div>
-    <p class="hint preference-footer">默认开机后应用一次。关闭定时检查不会移除已生效的配置。</p>
+    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>开机自动应用</strong><small>开机后应用一次</small></span><span class="switch-hit"><input id="enabled" type="checkbox" role="switch"></span></label>
+    <div class="setting-row"><span class="row-copy"><strong>应用到</strong><small>选择目标 SIM 卡</small></span><button id="selection-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="selection" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="all">所有活跃 SIM 卡</option><option value="slot:0">SIM 卡 1</option><option value="slot:1">SIM 卡 2</option></select></div>
+    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>定时检查与修复</strong><small>定期检查，安全修复差异</small></span><span class="switch-hit"><input id="periodic-check" type="checkbox" role="switch"></span></label>
+    <div id="interval-row" class="setting-row"><span class="row-copy"><strong>检查间隔</strong><small>开启定时检查后生效</small></span><button id="interval-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="interval" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="600">每 10 分钟</option><option value="1800">每 30 分钟</option><option value="3600">每 1 小时</option><option value="7200">每 2 小时</option></select></div>
+    <p class="hint preference-footer">关闭定时检查仍保留已应用配置。</p>
   </section>
   <section class="pref-group" aria-label="IMS 功能">
-    <h2 class="category">IMS 功能</h2><div id="features"></div><p class="hint preference-footer">开关用于强制开启或关闭；恢复单项原值可在设置中操作。</p>
+    <h2 class="category">IMS 功能</h2><div id="features"></div><p class="hint preference-footer">单项恢复请前往设置。</p>
   </section>
   <section class="pref-group" aria-label="操作">
     <h2 class="category">操作</h2>
-    <button id="apply" class="pref-action primary-action" type="button"><span>应用 IMS 配置<small>保存更改并立即应用</small></span></button>
-    <button id="restore" class="pref-action" type="button"><span>停止并恢复<small>停止自动应用并恢复修改前的配置</small></span></button>
-    <p class="hint preference-footer">仅恢复模块保存的原值；冲突项会保留。</p>
+    <button id="apply" class="pref-action primary-action" type="button"><span>应用配置</span></button>
+    <button id="restore" class="pref-action primary-action" type="button"><span>停止并恢复</span></button>
+    <p class="hint preference-footer">停止自动应用并恢复原值，保留冲突项。</p>
   </section>
   <section class="pref-group device-status-group" aria-labelledby="device-heading">
     <h2 id="device-heading" class="category">设备状态</h2>
@@ -44,20 +46,20 @@
 <main id="sim-page" class="page" hidden>
   <section class="pref-group" aria-labelledby="sim-heading">
     <h2 id="sim-heading" class="category">SIM 卡选择</h2>
-    <div class="setting-row"><span class="row-copy"><strong>目标 SIM 卡</strong><small>配置按 SIM 卡分别保存</small></span><button id="sim-slot-choice" class="choice" type="button" aria-haspopup="dialog">未检测到 SIM</button></div>
+    <div class="setting-row"><span class="row-copy"><strong>目标 SIM 卡</strong><small>每张 SIM 卡单独保存</small></span><button id="sim-slot-choice" class="choice" type="button" aria-haspopup="dialog">未检测到 SIM</button></div>
     <h3 class="category subcategory">当前覆盖</h3>
     <div id="sim-current" class="sim-summary" role="status"></div>
   </section>
   <section class="pref-group" aria-labelledby="sim-override-heading">
     <h2 id="sim-override-heading" class="category">覆盖信息</h2>
-    <div class="setting-row"><span class="row-copy"><strong>国家或地区</strong><small id="sim-country-summary">修改应用读取的 SIM 国家或地区</small></span><button id="sim-country-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
-    <button id="sim-edit-country" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义国家码</strong><small>手动指定两位 ISO 国家或地区代码</small></span><span id="sim-custom-country-value" class="sim-pref-value">未设置</span></button>
-    <div class="setting-row"><span class="row-copy"><strong>运营商名称</strong><small id="sim-carrier-summary">修改系统读取的运营商名称</small></span><button id="sim-carrier-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
-    <button id="sim-edit-carrier" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义运营商名称</strong><small>手动覆盖上方运营商名称</small></span><span id="sim-custom-carrier-value" class="sim-pref-value">未设置</span></button>
+    <div class="setting-row"><span class="row-copy"><strong>国家或地区</strong><small id="sim-country-summary">设置系统读取的国家或地区</small></span><button id="sim-country-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
+    <button id="sim-edit-country" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义国家码</strong><small>填写两位字母代码</small></span><span id="sim-custom-country-value" class="sim-pref-value">未设置</span></button>
+    <div class="setting-row"><span class="row-copy"><strong>运营商名称</strong><small id="sim-carrier-summary">设置系统读取的名称</small></span><button id="sim-carrier-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
+    <button id="sim-edit-carrier" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义运营商名称</strong><small>优先使用自定义名称</small></span><span id="sim-custom-carrier-value" class="sim-pref-value">未设置</span></button>
     <h3 class="category subcategory">操作</h3>
-    <button id="sim-save" class="pref-action primary-action" type="button"><span>应用 SIM 信息<small>保存更改并立即应用 SIM 信息</small></span></button>
-    <button id="sim-restore" class="pref-action" type="button"><span>恢复 SIM 原始信息<small>移除本模块记录的 SIM 信息覆盖</small></span></button>
-    <p class="hint preference-footer">只修改系统读取的 SIM 信息，不改变网络注册或运营商服务。重启后按已保存设置处理。</p>
+    <button id="sim-save" class="pref-action primary-action" type="button"><span>应用信息</span></button>
+    <button id="sim-restore" class="pref-action primary-action" type="button"><span>恢复原信息</span></button>
+    <p class="hint preference-footer">仅修改系统读取的信息，不改变运营商服务。已保存配置会在重启后重新应用。</p>
   </section>
 </main>
 <main id="settings-page" class="page" hidden>
@@ -67,17 +69,17 @@
   </section>
   <section class="pref-group" aria-label="工具">
     <h2 class="category">工具</h2>
-    <button id="open-diagnostics" class="pref-action" type="button"><span>诊断与验证<small>查看详细状态与诊断数据</small></span><span class="chevron" aria-hidden="true"></span></button>
-    <button id="reset-features" class="pref-action" type="button"><span>恢复 IMS 单项原值<small>选择要恢复的功能，之后应用配置生效</small></span></button>
+    <button id="open-diagnostics" class="pref-action" type="button"><span>诊断与验证<small>运行状态与诊断数据</small></span><span class="chevron" aria-hidden="true"></span></button>
+    <button id="reset-features" class="pref-action" type="button"><span>恢复 IMS 单项原值<small>选择功能后，回到 IMS 应用</small></span></button>
   </section>
 </main>
 <main id="appearance-page" class="page" hidden>
   <section class="pref-group" aria-label="外观">
     <h2 class="category">外观</h2>
-    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>分组卡片</strong><small>用浅色背景区分设置分组</small></span><span class="switch-hit"><input id="card-groups" type="checkbox" role="switch"></span></label>
+    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>分组卡片</strong><small>用卡片区分分组</small></span><span class="switch-hit"><input id="card-groups" type="checkbox" role="switch"></span></label>
     <div class="setting-row"><span class="row-copy"><strong>显示模式</strong><small>跟随系统、浅色或深色</small></span><button id="theme-choice" class="choice" type="button" aria-haspopup="dialog"></button></div>
     <div class="setting-row"><span class="row-copy"><strong>强调色</strong><small>预设颜色或自定义 HEX</small></span><button id="accent-choice" class="choice page-choice" type="button" aria-label="进入强调色设置"><span id="accent-swatch" class="mini-swatch" aria-hidden="true"></span><span id="accent-label"></span></button></div>
-    <button id="accent-scope-choice" class="pref-action" type="button"><span>强调色应用范围<small>选择强调色可影响的界面区域</small></span><span class="chevron" aria-hidden="true"></span></button>
+    <button id="accent-scope-choice" class="pref-action" type="button"><span>强调色应用范围<small>设置额外着色区域</small></span><span class="chevron" aria-hidden="true"></span></button>
     <p class="hint preference-footer">外观设置只影响 WebUI，不会改变 IMS 配置。</p>
   </section>
 </main>
@@ -99,8 +101,8 @@
     <h2 id="accent-scope-heading" class="category">强调色应用范围</h2>
     <p class="hint">标准控件始终使用强调色；以下选项只控制额外的界面区域。</p>
     <h3 class="category subcategory">扩展区域</h3>
-    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>顶栏背景</strong><small>使用强调色作为顶部工具栏背景</small></span><span class="switch-hit"><input id="accent-toolbar" type="checkbox" role="switch"></span></label>
-    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>分组标题</strong><small>为设备状态、自动配置等分组标题着色</small></span><span class="switch-hit"><input id="accent-section-labels" type="checkbox" role="switch"></span></label>
+    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>顶栏背景</strong><small>使用柔和的同色系背景</small></span><span class="switch-hit"><input id="accent-toolbar" type="checkbox" role="switch"></span></label>
+    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>分组标题</strong><small>为分组标题着色</small></span><span class="switch-hit"><input id="accent-section-labels" type="checkbox" role="switch"></span></label>
     <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>导航与返回图标</strong><small>顶栏未着色时使用强调色</small></span><span class="switch-hit"><input id="accent-navigation-icons" type="checkbox" role="switch"></span></label>
   </section>
 </main>

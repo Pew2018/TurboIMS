@@ -1,7 +1,7 @@
 name: Preview OnePlus WebUI
 on:
   push:
-    branches: ["feature/oneplus-webui"]
+    branches: ["feature/oneplus-webui", "feature/sim-preference-editors-accent-scope"]
     paths: ["module/webroot/**", "ci/webui_preview.cjs", ".github/workflows/webui-preview.yml"]
   workflow_dispatch:
 permissions:

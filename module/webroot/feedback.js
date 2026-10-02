@@ -58,7 +58,7 @@
     },{passive:true});
   }
   function bind(root=document) {
-    const selector=".bottom-tab,.switch-hit,.text-action,.choice,.option,.swatch-item,.sim-edit-row,.feature-reset,.dialog-cancel,.back,[data-ripple='control']";
+    const selector=".bottom-tab,.switch-hit,.text-action,.choice,.option,.swatch-item,.sim-edit-row,.feature-reset,.primary-action,.dialog-cancel,.back,[data-ripple='control']";
     if (root.matches?.(selector)) bindRipple(root);
     root.querySelectorAll?.(selector).forEach(bindRipple);
   }

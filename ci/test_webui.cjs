@@ -35,7 +35,7 @@ test("malformed runner output is an error",async()=>{
 });
 test("WebUI has offline assets and no CDN dependencies",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
-  for(const file of ["bridge.js","feedback.js","app.js","style.css"])
+  for(const file of ["startup.js","bridge.js","feedback.js","app.js","style.css"])
     assert.ok(fs.existsSync(path.join(__dirname,"../module/webroot",file)));
   assert.ok(!/https?:\/\/|<iframe/i.test(html));
   for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh","sim-edit-country","sim-edit-carrier","accent-scope-choice","accent-toolbar","accent-section-labels","accent-navigation-icons","card-groups"])
@@ -47,7 +47,7 @@ test("default config is deliberately paused",()=>{
   assert.equal(config.interval_seconds,1800);assert.equal(Object.keys(config.features).length,7);
 });
 
-async function appHarness() {
+async function appHarness(options = {}) {
   const vm=require("node:vm");
   function element() {
     const el = {children:[], options:[], value:"", textContent:"", className:"", dataset:{}, style:{setProperty(){}},
@@ -94,6 +94,7 @@ async function appHarness() {
     window, history, location,
     document:doc,
     TurboBridge:{call:async(action,payload)=>{calls.push([action,payload]);
+      if(action==="status" && options.initialStatus) return options.initialStatus;
       if(action==="save")return {ok:true,config:JSON.parse(Buffer.from(payload,"base64").toString()),phase:"saved"};
       return {phase:"not_started"};}},
     localStorage:{getItem:key=>storageMap.get(key)||null,setItem:(key,value)=>storageMap.set(key,value)},
@@ -520,4 +521,49 @@ test("appearance refinements are opt-in and preserve current actions",()=>{
   assert.ok(css.includes(':root[data-card-groups="true"] .pref-group'));
   assert.match(css,/system-navigation-bg/);
   assert.ok(html.indexOf('id="device-heading"') > html.indexOf('id="apply"'));
+});
+
+test("initial view stays clean until status succeeds or fails",async()=>{
+  for (const fail of [false,true]) {
+    let resolve,reject;
+    const pending=new Promise((yes,no)=>{resolve=yes;reject=no;});
+    const {doc,elements,calls}=await appHarness({initialStatus:pending});
+    assert.notEqual(doc.documentElement.dataset.loading,"false");
+    assert.deepEqual(calls.map(([action])=>action),["status"]);
+    if(fail)reject(new Error("bridge unavailable"));
+    else resolve({phase:"not_started"});
+    await new Promise(yes=>setImmediate(yes));
+    assert.equal(doc.documentElement.dataset.loading,"false");
+    assert.equal(elements.get("apply").disabled,false);
+    assert.deepEqual(calls.map(([action])=>action),["status"]);
+  }
+});
+test("operation buttons use short single-line labels and retain separate actions",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  for(const [id,label] of Object.entries({apply:"应用配置",restore:"停止并恢复","sim-save":"应用信息","sim-restore":"恢复原信息"})){
+    const button=html.match(new RegExp('<button id="'+id+'"[^>]*>([\\s\\S]*?)</button>'))[0];
+    assert.ok(button.includes("primary-action"));
+    assert.ok(button.includes(label));
+    assert.doesNotMatch(button,/<small/);
+    assert.ok(label.length>=4 && label.length<=5);
+  }
+});
+test("toolbar palette is independent, readable and updates with accent",async()=>{
+  const {context,doc}=await appHarness();
+  for(const color of ["#42A5F5","#E6A545","#7DC22F","#FFFFFF","#000000","#123456"]){
+    context.testAccent=color;
+    require("node:vm").runInContext('accent=testAccent; accentToolbar=true; showAppearance();',context);
+    const properties=doc.documentElement.style.properties;
+    assert.equal(properties["--accent"],color);
+    const toolbar=properties["--toolbar-tint"];
+    if(color!=="#000000")assert.notEqual(toolbar,color);
+    const rgb=[1,3,5].map(i=>parseInt(toolbar.slice(i,i+2),16)/255)
+      .map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4);
+    const luminance=rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;
+    const foreground=properties["--toolbar-foreground"];
+    const fc=16/255;
+    const fg=foreground==="#ffffff"?1:((fc+.055)/1.055)**2.4;
+    const contrast=(Math.max(luminance,fg)+.05)/(Math.min(luminance,fg)+.05);
+    assert.ok(contrast>=4.5,color+" toolbar contrast "+contrast);
+  }
 });
