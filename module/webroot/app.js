@@ -216,6 +216,13 @@ async function loadUi() {
   }
 }
 $("themeMode").onchange = () => setUi({ ...ui, theme_mode: $("themeMode").value }, true);
+$("enabled").onchange = () => {
+  const text = $("enabled").checked ? "已选择启用自动适配，请点击保存并应用。" : "已选择停用自动适配，请点击保存并应用。";
+  message(text, false);
+  showToast(text, false);
+};
+$("selection").onchange = () => showToast("应用范围已修改，请点击保存并应用。", false);
+$("interval").onchange = () => showToast("检查间隔已修改，请点击保存并应用。", false);
 $("accentText").onchange = () => {
   const value = $("accentText").value.trim().toUpperCase();
   if (!validAccent(value)) { message("强调色必须是 #RRGGBB 格式。", true); return; }
