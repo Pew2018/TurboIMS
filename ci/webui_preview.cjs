@@ -95,6 +95,8 @@ let browser;
     assert.equal(a.y,b.y);assert.equal(a.width,b.width);assert.equal(a.height,b.height);
     assert.equal(b.x-a.x-a.width,12);
   }
+  await page.locator("#tab-settings-page").click();
+  await page.locator("#settings-page").waitFor({state:"visible"});
   assert.equal(await page.locator("#sim-page #device-heading").count(),0);
   assert.equal(await page.locator("#home #device-heading").count(),0);
   assert.equal(await page.locator("#settings-page #device-heading").innerText(),"设备状态（IMS）");
