@@ -11,15 +11,26 @@ const features = [
 const $ = id => document.getElementById(id);
 let busy = false;
 const optionLabels = { default:"恢复原值", on:"开启覆盖", off:"关闭覆盖" };
-const presets = ["#2196F3","#009688","#4CAF50","#F44336","#FF9800","#9C27B0","#00BCD4","#3F51B5","#E91E63","#607D8B","#FF5722","#8BC34A"];
+const onePlusColors = [
+  ["OnePlus Blue","#42A5F5"],["Golden","#CC6F4E"],
+  ["Lemon Yellow","#E6A545"],["Grass Green","#7DC22F"],
+  ["Charm Purple","#9575CD"],["Sky Blue","#26C6DA"],
+  ["Vigour Red","#F06292"],["Fashion Pink","#BA68C8"]
+];
+const materialColors = [
+  ["Blue","#2196F3"],["Teal","#009688"],["Green","#4CAF50"],
+  ["Red","#F44336"],["Orange","#FF9800"],["Purple","#9C27B0"],
+  ["Cyan","#00BCD4"],["Indigo","#3F51B5"],["Pink","#E91E63"],
+  ["Blue Grey","#607D8B"],["Deep Orange","#FF5722"],["Light Green","#8BC34A"]
+];
 const storage = {
   read(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch (_) { return fallback; } },
   write(key, value) { try { localStorage.setItem(key, value); } catch (_) {} }
 };
 let themeMode = storage.read("turboims-theme", "system");
 if (!["system","light","dark"].includes(themeMode)) themeMode = "system";
-let accent = storage.read("turboims-accent", "#009688").toUpperCase();
-if (!/^#[0-9A-F]{6}$/.test(accent)) accent = "#009688";
+let accent = storage.read("turboims-accent", "#42A5F5").toUpperCase();
+if (!/^#[0-9A-F]{6}$/.test(accent)) accent = "#42A5F5";
 const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
 function showAppearance() {
   const dark = themeMode === "dark" || (themeMode === "system" && !!media?.matches);
@@ -30,7 +41,11 @@ function showAppearance() {
   document.documentElement.style.setProperty("--accent-text",
     luminance[0]*.2126 + luminance[1]*.7152 + luminance[2]*.0722 > .18 ? "#101010" : "#ffffff");
   $("theme-choice").textContent = {system:"跟随系统",light:"浅色模式",dark:"深色模式"}[themeMode];
-  $("accent-label").textContent = accent;
+  const chosen = [...onePlusColors,...materialColors].find(([,hex]) => hex === accent);
+  $("accent-label").textContent = chosen ? chosen[0] : accent;
+  const blend = (x,y,t) => Math.round(x*(1-t)+y*t);
+  const ink = rgb.map(x => blend(x,dark ? 255 : 0,dark ? .20 : .36));
+  document.documentElement.style.setProperty("--accent-ink", "rgb(" + ink.join(",") + ")");
 }
 if (media) {
   if (media.addEventListener) media.addEventListener("change", showAppearance);
@@ -99,29 +114,42 @@ function choiceFor(select, button) {
 }
 async function ask(title, description) {
   const answer = openSheet(title, description);
-  $("sheet-actions").append(
-    actionButton("取消", () => dismissSheet(false), true),
-    actionButton("继续", () => dismissSheet(true))
-  );
+  $("sheet-actions").append(actionButton("确认", () => dismissSheet(true)));
   return answer;
 }
 $("theme-choice").onclick = () => choose("显示模式", "WebUI 外观设置不会修改 IMS 配置。", [
   ["system","跟随系统"],["light","浅色模式"],["dark","深色模式"]
 ], themeMode, value => { themeMode = value; storage.write("turboims-theme",value); showAppearance(); });
 $("accent-choice").onclick = () => {
-  openSheet("主题强调色", "选择预设颜色，或输入六位 HEX 颜色。");
-  const grid = document.createElement("div"); grid.className = "swatches";
-  for (const color of presets) {
-    const swatch = document.createElement("button");
-    swatch.type = "button"; swatch.className = "swatch";
-    swatch.style.setProperty("--swatch",color);
-    swatch.setAttribute("aria-label",color);
-    swatch.setAttribute("aria-pressed",String(color === accent));
-    swatch.onclick = () => { accent=color; storage.write("turboims-accent",accent); showAppearance(); dismissSheet(true); };
-    grid.append(swatch);
+  openSheet("强调色", "选择经典 OnePlus 颜色、Material 颜色或自定义 HEX。");
+  function group(title, colors) {
+    const heading = document.createElement("h3"); heading.className = "swatch-title";
+    heading.textContent = title;
+    const grid = document.createElement("div"); grid.className = "swatches";
+    for (const [name,color] of colors) {
+      const item = document.createElement("button"); item.type = "button";
+      item.className = "swatch-item";
+      item.setAttribute("aria-label",name + " " + color);
+      item.setAttribute("aria-pressed",String(color === accent));
+      const square = document.createElement("span"); square.className = "swatch";
+      square.style.setProperty("--swatch",color);
+      const rgb = [1,3,5].map(i => parseInt(color.slice(i,i+2),16));
+      const light = (rgb[0]*299+rgb[1]*587+rgb[2]*114)/1000;
+      square.style.setProperty("--swatch-text",light > 145 ? "#171717" : "#ffffff");
+      const label = document.createElement("span"); label.textContent = name;
+      item.append(square,label);
+      item.onclick = () => {
+        accent=color; storage.write("turboims-accent",accent);
+        showAppearance(); dismissSheet(true);
+      };
+      grid.append(item);
+    }
+    $("sheet-content").append(heading,grid);
   }
+  group("OnePlus Classic",onePlusColors);
+  group("Material Colors",materialColors);
   const label = document.createElement("label"); label.className = "hex-label";
-  label.textContent = "自定义颜色";
+  label.textContent = "自定义 HEX";
   const input = document.createElement("input"); input.className = "hex-field";
   input.type = "text"; input.inputMode = "text"; input.maxLength = 7;
   input.autocomplete = "off"; input.spellcheck = false; input.value = accent;
@@ -129,17 +157,27 @@ $("accent-choice").onclick = () => {
   label.append(input);
   const error = document.createElement("p"); error.className = "field-error";
   error.setAttribute("role","alert");
-  $("sheet-content").append(grid,label,error);
+  $("sheet-content").append(label,error);
   const save = () => {
     let value = input.value.trim().toUpperCase();
     if (/^[0-9A-F]{6}$/.test(value)) value = "#" + value;
-    if (!/^#[0-9A-F]{6}$/.test(value)) { error.textContent = "请输入六位 HEX 颜色，例如 #2196F3。"; return; }
-    accent=value; storage.write("turboims-accent",accent); showAppearance(); dismissSheet(true);
+    if (!/^#[0-9A-F]{6}$/.test(value)) { error.textContent = "请输入六位 HEX 颜色，例如 #42A5F5。"; return; }
+    accent=value; storage.write("turboims-accent",accent);
+    showAppearance(); dismissSheet(true);
   };
   input.onkeydown = e => { if (e.key === "Enter") save(); };
-  $("sheet-actions").append(actionButton("取消", () => dismissSheet(false), true),actionButton("应用颜色",save));
+  $("sheet-actions").append(actionButton("应用颜色",save));
 };
 showAppearance();
+function navigate(page) {
+  for (const id of ["home","appearance-page","diagnostics-page"]) $(id).hidden = id !== page;
+  $("back").hidden = page === "home";
+  $("page-title").textContent = {home:"TurboIMS Next","appearance-page":"外观","diagnostics-page":"诊断与验证"}[page];
+  if (typeof scrollTo === "function") scrollTo(0,0);
+}
+$("open-appearance").onclick = () => navigate("appearance-page");
+$("open-diagnostics").onclick = () => navigate("diagnostics-page");
+$("back").onclick = () => navigate("home");
 for (const [id,title] of [["selection","应用范围"],["interval","检查间隔"]]) {
   const button = $(id+"-choice"); button.dataset.title = title;
   choiceFor($(id),button);
@@ -252,7 +290,7 @@ $("restore").onclick = async () => {
 };
 $("export").onclick = () => operation(async () => {
   const result = await TurboBridge.call("export");
-  $("diagnostics").value = JSON.stringify(result, null, 2);
+  $("diagnostics").textContent = JSON.stringify(result, null, 2);
   message("诊断已生成，可在下方全选复制。");
 });
 operation(async () => render(await TurboBridge.call("status"), true));

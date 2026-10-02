@@ -57,7 +57,7 @@ async function appHarness() {
   }
   const elements=new Map();
   const doc={activeElement:null, body:{style:{}},
-    documentElement:{dataset:{},style:{setProperty() {}}},
+    documentElement:{dataset:{},style:{properties:{},setProperty(name,value) { this.properties[name]=value; }}},
     addEventListener() {}, createElement:element, querySelectorAll:()=>[],
     getElementById(id) {
       if(!elements.has(id)) {
@@ -107,9 +107,38 @@ test("cancelled apply does not save or apply",async()=>{
   const {elements,calls,doc}=await appHarness();
   doc.getElementById("enabled").checked=true;
   const click=elements.get("apply").onclick();
-  elements.get("sheet-actions").children[0].onclick();
+  elements.get("sheet-close").onclick();
   await click;
   assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+test("OnePlus Blue is default and Classic presets are separate",async()=>{
+  const {elements,doc,calls}=await appHarness();
+  assert.equal(doc.documentElement.style.properties["--accent"],"#42A5F5");
+  assert.equal(elements.get("accent-label").textContent,"OnePlus Blue");
+  assert.equal(doc.documentElement.dataset.theme,"light");
+  elements.get("accent-choice").onclick();
+  const content=elements.get("sheet-content").children;
+  assert.equal(content[0].textContent,"OnePlus Classic");
+  assert.equal(content[1].children.length,8);
+  assert.equal(content[2].textContent,"Material Colors");
+  assert.ok(content[3].children.length>=2);
+  content[1].children[1].onclick();
+  assert.equal(doc.documentElement.style.properties["--accent"],"#CC6F4E");
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+test("secondary pages preserve status and show diagnostics as selectable text",async()=>{
+  const {elements,doc,calls}=await appHarness();
+  elements.get("open-appearance").onclick();
+  assert.equal(elements.get("home").hidden,true);
+  assert.equal(elements.get("appearance-page").hidden,false);
+  assert.equal(elements.get("page-title").textContent,"外观");
+  elements.get("back").onclick();
+  assert.equal(elements.get("home").hidden,false);
+  elements.get("open-diagnostics").onclick();
+  await elements.get("export").onclick();
+  assert.match(elements.get("diagnostics").textContent,/not_started/);
+  assert.ok(calls.some(([action])=>action==="export"));
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8"),/<textarea\b/i);
 });
 test("partial support is a visible warning instead of complete success",async()=>{
   const {context,elements}=await appHarness();
