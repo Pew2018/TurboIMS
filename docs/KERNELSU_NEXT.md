@@ -111,6 +111,19 @@ CLI 操作：probe / status / get-config / apply / restore / export。
 probe 为只读，restore 会关闭开机自动应用与定时检查，并尽力恢复自己的修改。
 save 接收严格校验的 base64 JSON，不接受任意 Shell 内容。
 
+## SIM 卡信息
+
+“SIM 卡信息”页面复刻 Nrfr 的核心能力，并接入同一套 root runner：
+
+- 按当前活跃卡槽分别保存 SIM 国家码和运营商名称覆盖；
+- 提供国家/地区预设、自定义两位国家码、运营商名称预设和自定义名称；
+- “保存并应用”只写入选中卡槽的 SIM 信息，并进行读回验证；
+- “恢复原始信息”只恢复本模块记录的 SIM 信息，不传空配置，也不清除 IMS 覆盖；
+- SIM 配置保存在 `config.json`，开机等待 SIM 与 CarrierConfig 就绪后有限重试一次；
+- 国家码和运营商名称覆盖使用非持久 CarrierConfig，重启后由模块重新应用。
+
+SIM 信息覆盖和 IMS 覆盖共享同一张卡的快照、冲突检测和恢复引擎。当前配置应用成功只代表 CarrierConfig 读回一致，不代表运营商一定允许 VoLTE、VoWiFi、VoNR 或漫游服务。
+
 ## WebUI
 
 无 CDN、无 npm 运行时依赖。使用 KernelSU Next 的 ksu.exec(cmd, options, callbackName) 异步接口；
