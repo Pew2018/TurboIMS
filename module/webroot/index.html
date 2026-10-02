@@ -11,15 +11,15 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-<header class="toolbar"><div class="toolbar-inner"><button id="back" class="back" type="button" aria-label="返回" hidden>‹</button><h1 id="page-title">TurboIMS Next</h1></div></header>
+<header class="toolbar"><div class="toolbar-inner"><button id="back" class="back" type="button" aria-label="返回" hidden></button><h1 id="page-title">TurboIMS Next</h1></div></header>
 <main id="home" class="page">
   <section class="pref-group" aria-labelledby="device-heading">
     <h2 id="device-heading" class="category">设备状态</h2>
-    <div class="status-row"><span class="status-indicator" aria-hidden="true"></span><div><p id="message" role="status" aria-live="polite">正在读取状态…</p><p id="device" class="summary"></p></div></div>
+    <div class="status-row"><span id="status-indicator" class="status-indicator" aria-hidden="true"></span><div><p id="message" role="status" aria-live="polite">正在读取状态…</p><p id="device" class="summary"></p></div></div>
     <div id="sims" class="sim-list"></div>
     <p class="hint">检测成功只表示读通路可用。只有写入并读回验证成功才表示覆盖已生效；IMS 注册和通话仍需运营商支持。</p>
-    <button id="probe" class="pref-action" type="button"><span>只读检测</span><span class="chevron" aria-hidden="true">›</span></button>
-    <button id="refresh" class="pref-action" type="button"><span>刷新状态</span><span class="chevron" aria-hidden="true">›</span></button>
+    <button id="probe" class="pref-action" type="button"><span>只读检测</span><span class="chevron" aria-hidden="true"></span></button>
+    <button id="refresh" class="pref-action" type="button"><span>刷新状态</span><span class="chevron" aria-hidden="true"></span></button>
   </section>
   <section class="pref-group" aria-labelledby="settings-heading">
     <h2 id="settings-heading" class="category">自动适配</h2>
@@ -28,12 +28,13 @@
     <div class="setting-row"><span class="row-copy"><strong>检查间隔</strong><small>后台自动检查的频率</small></span><button id="interval-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="interval" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="15">15 秒</option><option value="30">30 秒（默认）</option><option value="60">60 秒</option><option value="120">120 秒</option><option value="300">5 分钟</option></select></div>
     <h3 class="category subcategory">IMS 功能覆盖</h3><div id="features"></div>
     <p class="hint">“恢复原值”只恢复本模块修改前记录的有效值，可能包含其他工具的设置。遇到第三方冲突时不会覆盖冲突键。</p>
-    <div class="apply-actions"><button id="apply" class="primary-action" type="button">保存并应用</button><button id="restore" class="text-action" type="button">暂停并恢复原值</button></div>
+    <button id="apply" class="pref-action" type="button"><span>保存并应用<small>写入当前配置并执行验证</small></span><span class="chevron" aria-hidden="true"></span></button>
+    <button id="restore" class="pref-action" type="button"><span>暂停并恢复原值<small>停止自动适配并恢复本模块记录的值</small></span><span class="chevron" aria-hidden="true"></span></button>
   </section>
   <section class="pref-group" aria-labelledby="more-heading">
     <h2 id="more-heading" class="category">更多</h2>
-    <button id="open-appearance" class="pref-action" type="button"><span>外观<small>显示模式与强调色</small></span><span class="chevron" aria-hidden="true">›</span></button>
-    <button id="open-diagnostics" class="pref-action" type="button"><span>诊断与验证<small>查看运行结果并导出诊断</small></span><span class="chevron" aria-hidden="true">›</span></button>
+    <button id="open-appearance" class="pref-action" type="button"><span>外观<small>显示模式与强调色</small></span><span class="chevron" aria-hidden="true"></span></button>
+    <button id="open-diagnostics" class="pref-action" type="button"><span>诊断与验证<small>查看运行结果并导出诊断</small></span><span class="chevron" aria-hidden="true"></span></button>
   </section>
   <p class="footer-note">首次安装默认为暂停。启用后才写入；停用模块并重启可清除非持久覆盖。</p>
 </main>
@@ -41,16 +42,28 @@
   <section class="pref-group" aria-label="外观">
     <h2 class="category">外观</h2>
     <div class="setting-row"><span class="row-copy"><strong>显示模式</strong><small>跟随系统、浅色或深色</small></span><button id="theme-choice" class="choice" type="button" aria-haspopup="dialog"></button></div>
-    <div class="setting-row"><span class="row-copy"><strong>强调色</strong><small>OnePlus Classic / Material / 自定义</small></span><button id="accent-choice" class="choice" type="button" aria-haspopup="dialog"><span id="accent-swatch" class="mini-swatch" aria-hidden="true"></span><span id="accent-label"></span></button></div>
+    <div class="setting-row"><span class="row-copy"><strong>强调色</strong><small>OnePlus Classic / Material / 自定义</small></span><button id="accent-choice" class="choice" type="button" aria-label="进入强调色设置"><span id="accent-swatch" class="mini-swatch" aria-hidden="true"></span><span id="accent-label"></span></button></div>
   </section>
   <p class="footer-note">外观设置只影响 WebUI，不会改变 IMS 配置。</p>
+</main>
+<main id="accent-page" class="page" hidden>
+  <section class="pref-group" aria-label="强调色">
+    <h2 class="category">OnePlus Classic</h2>
+    <div id="oneplus-colors" class="swatches"></div>
+    <h2 class="category color-category">Material Colors</h2>
+    <div id="material-colors" class="swatches"></div>
+    <h2 class="category color-category">自定义颜色</h2>
+    <label class="hex-label" for="custom-hex">HEX</label>
+    <div class="hex-row"><input id="custom-hex" class="hex-field" type="text" inputmode="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="#42A5F5" aria-describedby="hex-error"><button id="apply-hex" class="text-action" type="button">应用</button></div>
+    <p id="hex-error" class="field-error" role="alert"></p>
+  </section>
 </main>
 <main id="diagnostics-page" class="page" hidden>
   <section class="pref-group" aria-labelledby="diagnostics-heading">
     <h2 id="diagnostics-heading" class="category">诊断与验证</h2>
-    <button id="export" class="pref-action" type="button"><span>生成诊断<small>读取当前状态与执行器日志</small></span><span class="chevron" aria-hidden="true">›</span></button>
+    <button id="export" class="pref-action" type="button"><span>生成诊断<small>读取当前状态与执行器日志</small></span><span class="chevron" aria-hidden="true"></span></button>
     <p class="hint">不采集电话号码、IMSI 或 ICCID。不修改系统分区、不关闭 SELinux、不清空整张 SIM 的覆盖配置。</p>
-    <h3 class="category subcategory">诊断结果</h3>
+    <div class="category-line"><h3 class="category subcategory">诊断结果</h3></div>
     <pre id="diagnostics" class="log-view" tabindex="0" aria-label="诊断 JSON">生成诊断后，结果显示在这里，可长按选择复制。</pre>
     <details><summary>最近一次操作的完整结果</summary><pre id="details" class="log-view">暂无</pre></details>
   </section>

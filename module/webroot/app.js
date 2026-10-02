@@ -17,6 +17,7 @@ const onePlusColors = [
   ["Charm Purple","#9575CD"],["Sky Blue","#26C6DA"],
   ["Vigour Red","#F06292"],["Fashion Pink","#BA68C8"]
 ];
+const swatchButtons = [];
 const materialColors = [
   ["Blue","#2196F3"],["Teal","#009688"],["Green","#4CAF50"],
   ["Red","#F44336"],["Orange","#FF9800"],["Purple","#9C27B0"],
@@ -37,12 +38,14 @@ function showAppearance() {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   document.documentElement.style.setProperty("--accent", accent);
   const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
+  document.documentElement.style.setProperty("--accent-track", "rgba(" + rgb.join(",") + ",.45)");
   const luminance = rgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
   document.documentElement.style.setProperty("--accent-text",
     luminance[0]*.2126 + luminance[1]*.7152 + luminance[2]*.0722 > .18 ? "#101010" : "#ffffff");
   $("theme-choice").textContent = {system:"跟随系统",light:"浅色模式",dark:"深色模式"}[themeMode];
   const chosen = [...onePlusColors,...materialColors].find(([,hex]) => hex === accent);
   $("accent-label").textContent = chosen ? chosen[0] : accent;
+  for (const [button,color] of swatchButtons) button.setAttribute("aria-pressed",String(color === accent));
   const blend = (x,y,t) => Math.round(x*(1-t)+y*t);
   const ink = rgb.map(x => blend(x,dark ? 255 : 0,dark ? .20 : .36));
   document.documentElement.style.setProperty("--accent-ink", "rgb(" + ink.join(",") + ")");
@@ -120,64 +123,52 @@ async function ask(title, description) {
 $("theme-choice").onclick = () => choose("显示模式", "WebUI 外观设置不会修改 IMS 配置。", [
   ["system","跟随系统"],["light","浅色模式"],["dark","深色模式"]
 ], themeMode, value => { themeMode = value; storage.write("turboims-theme",value); showAppearance(); });
-$("accent-choice").onclick = () => {
-  openSheet("强调色", "选择经典 OnePlus 颜色、Material 颜色或自定义 HEX。");
-  function group(title, colors) {
-    const heading = document.createElement("h3"); heading.className = "swatch-title";
-    heading.textContent = title;
-    const grid = document.createElement("div"); grid.className = "swatches";
-    for (const [name,color] of colors) {
-      const item = document.createElement("button"); item.type = "button";
-      item.className = "swatch-item";
-      item.setAttribute("aria-label",name + " " + color);
-      item.setAttribute("aria-pressed",String(color === accent));
-      const square = document.createElement("span"); square.className = "swatch";
-      square.style.setProperty("--swatch",color);
-      const rgb = [1,3,5].map(i => parseInt(color.slice(i,i+2),16));
-      const light = (rgb[0]*299+rgb[1]*587+rgb[2]*114)/1000;
-      square.style.setProperty("--swatch-text",light > 145 ? "#171717" : "#ffffff");
-      const label = document.createElement("span"); label.textContent = name;
-      item.append(square,label);
-      item.onclick = () => {
-        accent=color; storage.write("turboims-accent",accent);
-        showAppearance(); dismissSheet(true);
-      };
-      grid.append(item);
-    }
-    $("sheet-content").append(heading,grid);
+function setAccent(value) {
+  accent = value;
+  storage.write("turboims-accent",accent);
+  $("custom-hex").value = accent;
+  $("hex-error").textContent = "";
+  showAppearance();
+}
+function buildColors(target, colors) {
+  for (const [name,color] of colors) {
+    const item = document.createElement("button"); item.type = "button";
+    item.className = "swatch-item";
+    item.setAttribute("aria-label",name + " " + color);
+    const square = document.createElement("span"); square.className = "swatch";
+    square.style.setProperty("--swatch",color);
+    const label = document.createElement("span"); label.textContent = name;
+    item.append(square,label);
+    item.onclick = () => setAccent(color);
+    target.append(item);
+    swatchButtons.push([item,color]);
   }
-  group("OnePlus Classic",onePlusColors);
-  group("Material Colors",materialColors);
-  const label = document.createElement("label"); label.className = "hex-label";
-  label.textContent = "自定义 HEX";
-  const input = document.createElement("input"); input.className = "hex-field";
-  input.type = "text"; input.inputMode = "text"; input.maxLength = 7;
-  input.autocomplete = "off"; input.spellcheck = false; input.value = accent;
-  input.setAttribute("aria-label","自定义 HEX 颜色");
-  label.append(input);
-  const error = document.createElement("p"); error.className = "field-error";
-  error.setAttribute("role","alert");
-  $("sheet-content").append(label,error);
-  const save = () => {
-    let value = input.value.trim().toUpperCase();
-    if (/^[0-9A-F]{6}$/.test(value)) value = "#" + value;
-    if (!/^#[0-9A-F]{6}$/.test(value)) { error.textContent = "请输入六位 HEX 颜色，例如 #42A5F5。"; return; }
-    accent=value; storage.write("turboims-accent",accent);
-    showAppearance(); dismissSheet(true);
-  };
-  input.onkeydown = e => { if (e.key === "Enter") save(); };
-  $("sheet-actions").append(actionButton("应用颜色",save));
-};
+}
+buildColors($("oneplus-colors"),onePlusColors);
+buildColors($("material-colors"),materialColors);
+$("accent-choice").onclick = () => navigate("accent-page");
+function applyCustomColor() {
+  let value = $("custom-hex").value.trim().toUpperCase();
+  if (/^[0-9A-F]{6}$/.test(value)) value = "#" + value;
+  if (!/^#[0-9A-F]{6}$/.test(value)) {
+    $("hex-error").textContent = "请输入六位 HEX 颜色，例如 #42A5F5。";
+    return;
+  }
+  setAccent(value);
+}
+$("apply-hex").onclick = applyCustomColor;
+$("custom-hex").onkeydown = event => { if (event.key === "Enter") applyCustomColor(); };
 showAppearance();
 function navigate(page) {
-  for (const id of ["home","appearance-page","diagnostics-page"]) $(id).hidden = id !== page;
+  for (const id of ["home","appearance-page","accent-page","diagnostics-page"]) $(id).hidden = id !== page;
   $("back").hidden = page === "home";
-  $("page-title").textContent = {home:"TurboIMS Next","appearance-page":"外观","diagnostics-page":"诊断与验证"}[page];
+  $("page-title").textContent = {home:"TurboIMS Next","appearance-page":"外观","accent-page":"强调色","diagnostics-page":"诊断与验证"}[page];
+  if (page === "accent-page") $("custom-hex").value = accent;
   if (typeof scrollTo === "function") scrollTo(0,0);
 }
 $("open-appearance").onclick = () => navigate("appearance-page");
 $("open-diagnostics").onclick = () => navigate("diagnostics-page");
-$("back").onclick = () => navigate("home");
+$("back").onclick = () => navigate($("accent-page").hidden ? "home" : "appearance-page");
 for (const [id,title] of [["selection","应用范围"],["interval","检查间隔"]]) {
   const button = $(id+"-choice"); button.dataset.title = title;
   choiceFor($(id),button);
@@ -202,8 +193,9 @@ for (const [key, title, description] of features) {
   choiceFor(select,button);
 }
 
-function message(text, error = false) {
+function message(text, error = false, tone = error ? "danger" : "neutral") {
   $("message").textContent = text; $("message").className = error ? "error" : "";
+  $("status-indicator").dataset.tone = tone;
 }
 function form(config) {
   $("enabled").checked = config.enabled;
@@ -241,7 +233,11 @@ function render(result, replaceForm = false) {
     waiting:"等待活跃 SIM 和运营商配置加载。", conflict:"检测到第三方配置冲突，冲突键未覆盖。",
     not_started:"执行器尚未启动；安装后请重启，再进行只读检测。",
     error:"执行失败：" + (state.error || "请查看下方各 SIM 的错误") };
-  message(texts[phase] || phase, !!result.blocked || ["error","conflict","partial","ownership_lost"].includes(phase));
+  const warning = ["waiting","conflict","partial"].includes(phase);
+  const danger = ["error","ownership_lost"].includes(phase) || !!result.blocked;
+  const tone = danger ? "danger" : warning || (phase === "active" && !state.write_readback_verified)
+    ? "warning" : phase === "active" && state.write_readback_verified ? "success" : "neutral";
+  message(texts[phase] || phase, danger || ["conflict","partial"].includes(phase), tone);
   if (result.blocked) message("自动写入已停止：" + (result.blocked.error || result.blocked.phase || "请查看逐卡诊断"), true);
   if (result.watcher && !result.watcher.alive)
     message("后台适配进程未运行。请重启并导出诊断。", true);

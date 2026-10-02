@@ -112,20 +112,38 @@ test("cancelled apply does not save or apply",async()=>{
   await click;
   assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
-test("OnePlus Blue is default and Classic presets are separate",async()=>{
+test("OnePlus Blue defaults to a separate Classic color page",async()=>{
   const {elements,doc,calls}=await appHarness();
   assert.equal(doc.documentElement.style.properties["--accent"],"#42A5F5");
   assert.equal(elements.get("accent-label").textContent,"OnePlus Blue");
-  assert.equal(doc.documentElement.dataset.theme,"light");
+  elements.get("open-appearance").onclick();
   elements.get("accent-choice").onclick();
-  const content=elements.get("sheet-content").children;
-  assert.equal(content[0].textContent,"OnePlus Classic");
-  assert.equal(content[1].children.length,8);
-  assert.equal(content[2].textContent,"Material Colors");
-  assert.ok(content[3].children.length>=2);
-  content[1].children[1].onclick();
+  assert.equal(elements.get("accent-page").hidden,false);
+  assert.equal(elements.get("page-title").textContent,"强调色");
+  assert.equal(elements.get("oneplus-colors").children.length,8);
+  assert.ok(elements.get("material-colors").children.length>=2);
+  elements.get("oneplus-colors").children[1].onclick();
   assert.equal(doc.documentElement.style.properties["--accent"],"#CC6F4E");
+  elements.get("custom-hex").value="bad";
+  elements.get("apply-hex").onclick();
+  assert.match(elements.get("hex-error").textContent,/六位 HEX/);
+  elements.get("custom-hex").value="#123456";
+  elements.get("apply-hex").onclick();
+  assert.equal(doc.documentElement.style.properties["--accent"],"#123456");
+  elements.get("back").onclick();
+  assert.equal(elements.get("appearance-page").hidden,false);
   assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+test("IMS config semantics survive preference presentation",async()=>{
+  const {context,doc}=await appHarness();
+  context.form({enabled:true,selection:"slot:1",interval_seconds:60,
+    features:{volte:"off",vowifi:"on",vt:"default",vonr:"on",cross_sim:"off",ut:"default","5g_nr":"on"}});
+  const config=context.configFromForm();
+  assert.equal(config.enabled,true);
+  assert.equal(config.selection,"slot:1");
+  assert.equal(config.interval_seconds,60);
+  assert.equal(config.features.volte,"off");
+  assert.equal(config.features.vt,"default");
 });
 test("secondary pages preserve status and show diagnostics as selectable text",async()=>{
   const {elements,doc,calls}=await appHarness();
@@ -146,6 +164,7 @@ test("partial support is a visible warning instead of complete success",async()=
   context.render({ok:false,phase:"partial",subscriptions:[]});
   assert.match(elements.get("message").textContent,/部分配置键/);
   assert.equal(elements.get("message").className,"error");
+  assert.equal(elements.get("status-indicator").dataset.tone,"warning");
 });
 test("per-SIM errors and unconfirmed writes remain visible",async()=>{
   const {context,elements}=await appHarness();
@@ -161,5 +180,6 @@ test("aggregate blocked result has a readable reason",async()=>{
   const {context,elements}=await appHarness();
   context.render({status:{phase:"error"},blocked:{phase:"ownership_lost"}});
   assert.match(elements.get("message").textContent,/ownership_lost/);
+  assert.equal(elements.get("status-indicator").dataset.tone,"danger");
   assert.doesNotMatch(elements.get("message").textContent,/undefined/);
 });
