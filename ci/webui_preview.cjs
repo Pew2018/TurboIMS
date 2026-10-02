@@ -37,9 +37,11 @@ const fs = require("node:fs");
   const close=async()=>{ await page.locator("#sheet-close").click(); await page.locator("#sheet").waitFor({state:"hidden"}); };
   const back=async id=>{ await page.locator("#back").click(); await visible(id); };
   const systemBack=async id=>{ await page.evaluate(()=>history.back()); await visible(id); };
-  const capture=async name=>{
+  const capture=async (name, feedback=false)=>{
     await page.waitForFunction(()=>document.getElementById("sheet").getAnimations().every(animation=>animation.playState !== "running"));
-    return page.screenshot({path:"preview/"+name+".png",fullPage:await page.locator("#sheet").isHidden()});
+    if (!feedback) await page.waitForFunction(()=>!document.querySelector(".touch-ripple"));
+    // Content now scrolls internally; capture the phone viewport, not offscreen DOM bounds.
+    return page.screenshot({path:"preview/"+name+".png",fullPage:false});
   };
   await page.goto("http://127.0.0.1:8765/",{waitUntil:"networkidle"});
   const rootLength=await page.evaluate(()=>history.length);
@@ -87,7 +89,7 @@ const fs = require("node:fs");
   const tabOrigin=await page.locator("#tab-sim-page .touch-ripple").evaluate(el=>Number(el.dataset.x));
   assert.ok(Math.abs(tabOrigin-(tabX-tabBounds.x))<2);
   await page.waitForTimeout(90);
-  await capture("bottom-nav-ripple");
+  await capture("bottom-nav-ripple",true);
   await touchEvent("touchEnd");
   await visible("sim-page");
   await page.locator("#tab-home").click();
