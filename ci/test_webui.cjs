@@ -502,7 +502,7 @@ test("system bar background opts into KernelSU insets without touching core",()=
   assert.match(style,/--inset-top:var\(--safe-area-inset-top/);
   assert.match(style,/--inset-bottom:var\(--safe-area-inset-bottom/);
   assert.match(style,/body::before/);
-  assert.match(app,/--system-bar-bg/);
+  assert.match(app,/--system-status-bg/);
 });
 
 test("appearance refinements are opt-in and preserve current actions",()=>{
