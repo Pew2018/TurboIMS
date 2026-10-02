@@ -9,10 +9,6 @@ public final class AndroidCarrierBackend implements CarrierBackend {
     private final Class<?> serviceManager, carrierType, subType;
     private final Method reader, writer, activeIds, slotIndex;
     private final String[] requestedKeys;
-    private static final Set<String> PERSISTENT_SIM_KEYS = Set.of(
-            "sim_country_iso_override_string",
-            "carrier_name_override_bool",
-            "carrier_name_string");
 
     public AndroidCarrierBackend() throws Exception {
         serviceManager = Class.forName("android.os.ServiceManager");
@@ -88,35 +84,19 @@ public final class AndroidCarrierBackend implements CarrierBackend {
 
     @Override public void override(int subId, Map<String, Object> values) throws Exception {
         if (values.isEmpty()) return;
-        Map<String, Object> transientValues = new LinkedHashMap<>();
-        Map<String, Object> persistentValues = new LinkedHashMap<>();
+        PersistableBundle bundle = new PersistableBundle();
         for (var entry : values.entrySet()) {
             String key = entry.getKey(); Object value = entry.getValue();
             if (!FeatureConfig.knownKeys().contains(key) && !key.equals(Engine.MARKER))
                 throw new IllegalArgumentException("Refusing unknown override key");
-            if (PERSISTENT_SIM_KEYS.contains(key)) persistentValues.put(key, value);
-            else transientValues.put(key, value);
-        }
-        if (!transientValues.isEmpty())
-            writeBundle(subId, transientValues, false);
-        if (!persistentValues.isEmpty())
-            writeBundle(subId, persistentValues, true);
-    }
-
-    private void writeBundle(int subId, Map<String, Object> values, boolean persistent)
-            throws Exception {
-        PersistableBundle bundle = new PersistableBundle();
-        for (var entry : values.entrySet()) {
-            String key = entry.getKey(); Object value = entry.getValue();
             if (value instanceof Boolean) bundle.putBoolean(key, (boolean) value);
             else if (value instanceof Integer) bundle.putInt(key, (int) value);
             else if (value instanceof int[]) bundle.putIntArray(key, (int[]) value);
-            else if (value instanceof String && (key.equals(Engine.MARKER)
-                    || key.equals("sim_country_iso_override_string")
-                    || key.equals("carrier_name_string")))
+            else if (value instanceof String && (key.equals(Engine.MARKER) || key.equals("sim_country_iso_override_string") || key.equals("carrier_name_string")))
                 bundle.putString(key, (String) value);
             else throw new IllegalArgumentException("Unsupported value type: " + key);
         }
-        invoke(writer, service("carrier_config", carrierType), subId, bundle, persistent);
+        // Keep all writes nonpersistent. NEVER pass null (would erase others' overrides).
+        invoke(writer, service("carrier_config", carrierType), subId, bundle, false);
     }
 }
