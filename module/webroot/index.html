@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; connect-src 'none'; img-src 'self' data:">
   <title>TurboIMS Next</title>
   <link rel="stylesheet" href="style.css">
@@ -11,27 +11,31 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-<header><h1>TurboIMS Next</h1><p>独立 KernelSU 模块 · 实验版 0.1.1</p></header>
+<header class="topbar"><div class="topbar-inner"><span class="brand-mark" aria-hidden="true">T</span><div><h1>TurboIMS Next</h1><p>KernelSU Next · IMS 控制</p></div></div></header>
 <main>
   <section aria-labelledby="device-heading">
-    <h2 id="device-heading">设备状态</h2>
-    <p id="message" role="status" aria-live="polite">正在读取状态…</p>
-    <p id="device" class="muted"></p>
-    <div id="sims"></div>
+    <div class="section-heading"><span class="eyebrow">概览 / OVERVIEW</span><h2 id="device-heading">设备状态</h2></div>
+    <div class="status-block"><span class="status-dot" aria-hidden="true"></span><p id="message" role="status" aria-live="polite">正在读取状态…</p></div>
+    <p id="device" class="muted device-line"></p><div id="sims"></div>
     <p class="notice">检测成功只表示读通路可用。只有“写入并读回验证成功”才表示覆盖已生效；IMS 注册和通话仍需运营商支持。</p>
     <div class="actions"><button id="probe" type="button">只读检测</button><button id="refresh" type="button" class="secondary">刷新状态</button></div>
   </section>
   <section aria-labelledby="settings-heading">
-    <h2 id="settings-heading">自动适配设置</h2>
-    <label class="master"><span><strong>启用自动适配</strong><small>保存后，在开机和 SIM / CarrierConfig 变化后检查设置</small></span><input id="enabled" type="checkbox" role="switch"></label>
-    <label class="field">应用范围<select id="selection"><option value="all">所有活跃 SIM</option><option value="slot:0">SIM 卡槽 1</option><option value="slot:1">SIM 卡槽 2</option></select></label>
-    <label class="field">检查间隔<select id="interval"><option value="15">15 秒</option><option value="30">30 秒（默认）</option><option value="60">60 秒</option><option value="120">120 秒</option><option value="300">5 分钟</option></select></label>
-    <div id="features"></div>
-    <p class="muted">“恢复原值”仅恢复本模块修改前记录的有效值，可能包含其他工具已有的设置，并不保证是运营商默认。检测到第三方冲突时不覆盖冲突键。</p>
+    <div class="section-heading"><span class="eyebrow">控制 / CONTROL</span><h2 id="settings-heading">自动适配设置</h2></div>
+    <label class="setting-row"><span class="row-copy"><strong>启用自动适配</strong><small>保存后，在开机和 SIM / CarrierConfig 变化后检查设置</small></span><input id="enabled" type="checkbox" role="switch"></label>
+    <div class="setting-row"><span class="row-copy"><strong>应用范围</strong><small>选择要调整的活跃 SIM</small></span><button id="selection-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="selection" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="all">所有活跃 SIM</option><option value="slot:0">SIM 卡槽 1</option><option value="slot:1">SIM 卡槽 2</option></select></div>
+    <div class="setting-row"><span class="row-copy"><strong>检查间隔</strong><small>后台自动检查的频率</small></span><button id="interval-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="interval" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="15">15 秒</option><option value="30">30 秒（默认）</option><option value="60">60 秒</option><option value="120">120 秒</option><option value="300">5 分钟</option></select></div>
+    <div class="group-label">IMS 功能覆盖</div><div id="features"></div>
+    <p class="muted help">“恢复原值”仅恢复本模块修改前记录的有效值，可能包含其他工具已有的设置，并不保证是运营商默认。检测到第三方冲突时不覆盖冲突键。</p>
     <div class="actions"><button id="apply" type="button">保存并应用</button><button id="restore" type="button" class="secondary">暂停并恢复原值</button></div>
   </section>
+  <section aria-labelledby="appearance-heading">
+    <div class="section-heading"><span class="eyebrow">外观 / APPEARANCE</span><h2 id="appearance-heading">界面外观</h2></div>
+    <div class="setting-row"><span class="row-copy"><strong>显示模式</strong><small>只调整 WebUI 的外观</small></span><button id="theme-choice" class="choice" type="button" aria-haspopup="dialog"></button></div>
+    <div class="setting-row"><span class="row-copy"><strong>主题强调色</strong><small>用于开关、选择与主要操作</small></span><button id="accent-choice" class="choice accent-choice" type="button" aria-haspopup="dialog"><span id="accent-swatch" class="mini-swatch" aria-hidden="true"></span><span id="accent-label"></span></button></div>
+  </section>
   <section aria-labelledby="diagnostics-heading">
-    <h2 id="diagnostics-heading">诊断与验证</h2>
+    <div class="section-heading"><span class="eyebrow">验证 / DIAGNOSTICS</span><h2 id="diagnostics-heading">诊断与验证</h2></div>
     <p class="muted">不采集电话号码、IMSI 或 ICCID。不修改系统分区、不关闭 SELinux、不清空整张 SIM 的覆盖配置。</p>
     <button id="export" type="button" class="secondary">生成诊断</button>
     <label for="diagnostics" class="sr-only">诊断 JSON</label><textarea id="diagnostics" readonly rows="10" placeholder="生成的诊断会显示在这里，可全选复制。"></textarea>
@@ -39,5 +43,11 @@
   </section>
   <footer>首次安装默认为暂停。设置启用后才写入。停用模块并重启可清除其非持久覆盖。</footer>
 </main>
+<div id="sheet" class="sheet-backdrop" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-describedby="sheet-description">
+    <div class="sheet-handle" aria-hidden="true"></div><div class="sheet-heading"><h2 id="sheet-title"></h2><button id="sheet-close" class="icon-button" type="button" aria-label="关闭">×</button></div>
+    <p id="sheet-description" class="muted"></p><div id="sheet-content"></div><div id="sheet-actions" class="actions"></div>
+  </div>
+</div>
 </body>
 </html>

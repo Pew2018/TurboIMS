@@ -49,22 +49,68 @@ test("default config is deliberately paused",()=>{
 async function appHarness() {
   const vm=require("node:vm");
   function element() {
-    return { children:[], options:[], value:"", textContent:"", className:"",
-      append(...items) { this.children.push(...items);this.options.push(...items); },
+    return {children:[], options:[], value:"", textContent:"", className:"", dataset:{}, style:{setProperty(){}},
+      hidden:false, isConnected:true, checked:false,
+      append(...items) { this.children.push(...items); this.options.push(...items); },
       replaceChildren(...items) { this.children=[...items]; },
-      setAttribute() {} };
+      setAttribute() {}, focus() {}, querySelectorAll:()=>[] };
   }
   const elements=new Map();
+  const doc={activeElement:null, body:{style:{}},
+    documentElement:{dataset:{},style:{setProperty() {}}},
+    addEventListener() {}, createElement:element, querySelectorAll:()=>[],
+    getElementById(id) {
+      if(!elements.has(id)) {
+        const el=element();
+        if(id==="sheet")el.hidden=true;
+        if(id==="selection")el.options=[{value:"all",textContent:"所有活跃 SIM"},{value:"slot:0",textContent:"SIM 卡槽 1"},{value:"slot:1",textContent:"SIM 卡槽 2"}];
+        if(id==="interval")el.options=[15,30,60,120,300].map(x=>({value:String(x),textContent:x+" 秒"}));
+        elements.set(id,el);
+      }
+      return elements.get(id);
+    }};
+  const calls=[];
   const context=vm.createContext({
-    document:{createElement:element,querySelectorAll:()=>[],
-      getElementById(id) { if(!elements.has(id))elements.set(id,element());return elements.get(id); }},
-    TurboBridge:{call:async()=>({phase:"not_started"})},
-    confirm:()=>true, btoa:s=>Buffer.from(s).toString("base64")
+    document:doc,
+    TurboBridge:{call:async(action,payload)=>{calls.push([action,payload]);return {phase:"not_started"};}},
+    localStorage:{getItem:()=>null,setItem(){}},
+    matchMedia:()=>({matches:false,addEventListener(){}}),
+    btoa:s=>Buffer.from(s).toString("base64")
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8"),context);
   await Promise.resolve();await Promise.resolve();
-  return {context,elements};
+  return {context,elements,calls,doc};
 }
+test("native dialogs and visible browser pickers are absent",()=>{
+  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  assert.doesNotMatch(app,/\\b(?:confirm|alert|prompt)\\s*\\(/);
+  assert.match(html,/id="sheet"/);
+  for(const id of ["selection","interval"]) {
+    assert.match(html,new RegExp('id="'+id+'" class="visually-hidden"'));
+    assert.match(html,new RegExp('id="'+id+'-choice"'));
+  }
+  for(const color of ["#2196F3","#009688"]) assert.ok(app.includes(color));
+});
+test("choice and appearance changes never call the privileged bridge",async()=>{
+  const {elements,calls,doc}=await appHarness();
+  elements.get("selection-choice").onclick();
+  const options=elements.get("sheet-content").children;
+  options[1].onclick();
+  assert.equal(elements.get("selection").value,"slot:0");
+  elements.get("theme-choice").onclick();
+  elements.get("sheet-content").children[2].onclick();
+  assert.equal(doc.documentElement.dataset.theme,"dark");
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+test("cancelled apply does not save or apply",async()=>{
+  const {elements,calls}=await appHarness();
+  elements.get("enabled").checked=true;
+  const click=elements.get("apply").onclick();
+  elements.get("sheet-actions").children[0].onclick();
+  await click;
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
 test("partial support is a visible warning instead of complete success",async()=>{
   const {context,elements}=await appHarness();
   context.render({ok:false,phase:"partial",subscriptions:[]});
