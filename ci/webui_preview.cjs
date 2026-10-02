@@ -100,6 +100,16 @@ let browser;
   assert.equal(await page.locator("#settings-page #device-heading").innerText(),"设备状态（IMS）");
   await page.locator("#tab-home").click();
 
+  for(const cards of [false,true])for(const width of [280,320,393]){
+    await page.setViewportSize({width,height:852});
+    await page.evaluate(cards=>{cardGroups=cards;showAppearance();},cards);
+    const a=await page.locator("#apply").boundingBox(),b=await page.locator("#restore").boundingBox();
+    assert.equal(a.width,b.width);assert.equal(a.height,b.height);
+    if(width===280)assert.ok(b.y>a.y);else assert.equal(a.y,b.y);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  }
+  await page.setViewportSize({width:393,height:852});
+  await page.evaluate(()=>{cardGroups=false;showAppearance();});
   const switchHit=page.locator("#enabled").locator("..");
   assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"1");
   assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el,"::after").backgroundColor),"rgb(238, 238, 238)");
