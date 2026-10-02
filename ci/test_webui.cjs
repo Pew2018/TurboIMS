@@ -74,7 +74,7 @@ test("partial support is a visible warning instead of complete success",async()=
   const {context,elements}=await appHarness();
   context.render({ok:false,phase:"partial",subscriptions:[]});
   assert.match(elements.get("message").textContent,/部分配置键/);
-  assert.equal(elements.get("message").className,"error");
+  assert.match(elements.get("message").className,/\berror\b/);
 });
 test("per-SIM errors and unconfirmed writes remain visible",async()=>{
   const {context,elements}=await appHarness();
@@ -84,7 +84,7 @@ test("per-SIM errors and unconfirmed writes remain visible",async()=>{
   ]});
   const rows=elements.get("sims").children;
   assert.equal(rows.length,2);assert.match(rows[0].textContent,/Binder denied/);
-  assert.match(rows[0].textContent,/未确认/);assert.match(rows[1].textContent,/verified/);
+  assert.match(rows[0].textContent,/未确认/);assert.match(rows[1].textContent,/已验证/);
 });
 test("aggregate blocked result has a readable reason",async()=>{
   const {context,elements}=await appHarness();
