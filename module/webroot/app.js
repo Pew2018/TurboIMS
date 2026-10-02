@@ -54,7 +54,7 @@ if (media) {
   if (media.addEventListener) media.addEventListener("change", showAppearance);
   else if (media.addListener) media.addListener(showAppearance);
 }
-function dismissSheet(value = false) {
+function finishSheet(value = false) {
   if ($("sheet").hidden) return;
   $("sheet").hidden = true;
   document.body.style.overflow = "";
@@ -64,10 +64,26 @@ function dismissSheet(value = false) {
   sheetFocus = null;
   if (resolve) resolve(value);
 }
+// Dismiss through the same history entry consumed by Android/WebView back.
+function dismissSheet(value = false) {
+  if ($("sheet").hidden || sheetClosing) return;
+  sheetClosing = true;
+  sheetAnswer = value;
+  history.back();
+}
+let sheetClosing = false;
+let sheetAnswer = false;
+let sheetHistoryToken = null;
+let sheetSequence = 0;
 let sheetResolve = null;
 let sheetFocus = null;
 function openSheet(title, description) {
-  if (!$("sheet").hidden) dismissSheet(false);
+  if (!$("sheet").hidden) return Promise.resolve(false);
+  rememberScroll();
+  sheetClosing = false;
+  sheetAnswer = false;
+  sheetHistoryToken = ++sheetSequence;
+  history.pushState({turboims:true,page:currentPage,dialog:sheetHistoryToken,scroll:window.scrollY || 0}, "", routeURL(currentPage, sheetHistoryToken));
   sheetFocus = document.activeElement;
   $("sheet-title").textContent = title;
   $("sheet-description").textContent = description || "";
@@ -111,6 +127,7 @@ function choose(title, description, values, current, onSelect) {
 function choiceFor(select, button) {
   const option = [...select.options].find(x => x.value === select.value);
   button.textContent = option?.textContent || select.value;
+  button.setAttribute("aria-label", (button.dataset.title || "选择设置") + "，" + button.textContent);
   button.onclick = () => choose(button.dataset.title || "选择设置", "", [...select.options].map(x => [x.value,x.textContent]), select.value, value => {
     select.value = value; choiceFor(select,button);
   });
@@ -159,16 +176,87 @@ function applyCustomColor() {
 $("apply-hex").onclick = applyCustomColor;
 $("custom-hex").onkeydown = event => { if (event.key === "Enter") applyCustomColor(); };
 showAppearance();
-function navigate(page) {
-  for (const id of ["home","appearance-page","accent-page","diagnostics-page"]) $(id).hidden = id !== page;
+const pageTitles = {home:"TurboIMS Next","appearance-page":"外观","accent-page":"强调色",
+  "diagnostics-page":"诊断与验证","diagnostic-data-page":"完整诊断数据","operation-data-page":"操作结果"};
+const pageRoutes = {home:"", "appearance-page":"appearance", "accent-page":"accent",
+  "diagnostics-page":"diagnostics", "diagnostic-data-page":"diagnostic-data", "operation-data-page":"operation-data"};
+let currentPage = "home";
+let skippingStaleDialog = false;
+function routeURL(page, dialog = null) {
+  return "#/" + pageRoutes[page] + (dialog ? "?dialog=" + dialog : "");
+}
+function pageFromHash() {
+  const route = location.hash.replace(/^#\/?/, "").split("?")[0];
+  return Object.keys(pageRoutes).find(page => pageRoutes[page] === route) || "home";
+}
+function rememberScroll() {
+  if (history.state?.turboims) history.replaceState({...history.state,scroll:window.scrollY || 0}, "", location.hash);
+}
+function showPage(page, scroll = 0) {
+  const changed = currentPage !== page;
+  currentPage = page;
+  for (const id of Object.keys(pageTitles)) $(id).hidden = id !== page;
   $("back").hidden = page === "home";
-  $("page-title").textContent = {home:"TurboIMS Next","appearance-page":"外观","accent-page":"强调色","diagnostics-page":"诊断与验证"}[page];
+  $("page-title").textContent = pageTitles[page];
   if (page === "accent-page") $("custom-hex").value = accent;
-  if (typeof scrollTo === "function") scrollTo(0,0);
+  if (changed && typeof scrollTo === "function") scrollTo(0,scroll);
+}
+function synchronizeHistory() {
+  const page = pageFromHash();
+  let state = history.state;
+  if (!state?.turboims || state.page !== page) {
+    state = {turboims:true,page,scroll:0};
+    history.replaceState(state, "", routeURL(page));
+  }
+  // Forward navigation must never resurrect an already answered confirmation.
+  if (state.dialog && (state.dialog !== sheetHistoryToken || $("sheet").hidden)) {
+    if (!skippingStaleDialog) {
+      skippingStaleDialog = true;
+      history.back();
+    }
+    return;
+  }
+  skippingStaleDialog = false;
+  if (!state.dialog && !$("sheet").hidden) {
+    const answer = sheetClosing ? sheetAnswer : false;
+    sheetHistoryToken = null;
+    sheetClosing = false;
+    finishSheet(answer);
+  }
+  showPage(page, state.scroll || 0);
+}
+function navigate(page) {
+  if (!Object.hasOwn(pageTitles,page) || page === currentPage || !$("sheet").hidden) return;
+  rememberScroll();
+  history.pushState({turboims:true,page,scroll:0}, "", routeURL(page));
+  synchronizeHistory();
+}
+window.addEventListener("popstate", synchronizeHistory);
+window.addEventListener("hashchange", synchronizeHistory);
+history.scrollRestoration = "manual";
+// No artificial entry at the root: the host can exit when its back stack is empty.
+const initialPage = pageFromHash();
+if (!history.state?.turboims) {
+  history.replaceState({turboims:true,page:"home",scroll:0}, "", routeURL("home"));
+  if (["accent-page"].includes(initialPage)) navigate("appearance-page");
+  if (["diagnostic-data-page","operation-data-page"].includes(initialPage)) navigate("diagnostics-page");
+  if (initialPage !== "home") navigate(initialPage);
+} else {
+  if (history.state.dialog) history.replaceState({...history.state,dialog:null}, "", routeURL(initialPage));
+  synchronizeHistory();
 }
 $("open-appearance").onclick = () => navigate("appearance-page");
 $("open-diagnostics").onclick = () => navigate("diagnostics-page");
-$("back").onclick = () => navigate($("accent-page").hidden ? "home" : "appearance-page");
+$("open-diagnostic-data").onclick = () => navigate("diagnostic-data-page");
+$("open-operation-data").onclick = () => navigate("operation-data-page");
+$("back").onclick = () => history.back();
+function clickablePreference(button) {
+  const row = button.closest(".setting-row,.feature");
+  if (row) row.onclick = event => {
+    if (!busy && !event.target.closest("button,input,select")) button.click();
+  };
+}
+for (const id of ["selection-choice","interval-choice","theme-choice","accent-choice"]) clickablePreference($(id));
 for (const [id,title] of [["selection","应用范围"],["interval","检查间隔"]]) {
   const button = $(id+"-choice"); button.dataset.title = title;
   choiceFor($(id),button);
@@ -191,6 +279,7 @@ for (const [key, title, description] of features) {
   button.dataset.title = title; button.setAttribute("aria-haspopup","dialog");
   row.append(text,button,select); $("features").append(row);
   choiceFor(select,button);
+  clickablePreference(button);
 }
 
 function message(text, error = false, tone = error ? "danger" : "neutral") {
@@ -222,8 +311,7 @@ function configFromForm() {
 function render(result, replaceForm = false) {
   $("details").textContent = JSON.stringify(result, null, 2);
   if (replaceForm && result.config) form(result.config);
-  $("device").textContent = result.sdk ?
-    "设备 " + result.device + " · SDK " + result.sdk + " · UID " + result.uid : "";
+
   const state = result.status || result;
   const phase = state.phase || "not_started";
   const texts = { probe:"只读检测完成；尚未验证写入权限。",
@@ -232,7 +320,7 @@ function render(result, replaceForm = false) {
     ownership_lost:"覆盖标记丢失且配置尚未恢复；已停止自动写入，请导出诊断。",
     waiting:"等待活跃 SIM 和运营商配置加载。", conflict:"检测到第三方配置冲突，冲突键未覆盖。",
     not_started:"执行器尚未启动；安装后请重启，再进行只读检测。",
-    error:"执行失败：" + (state.error || "请查看下方各 SIM 的错误") };
+    error:"执行失败：" + (state.error || "请查看诊断与验证中的逐卡错误") };
   const warning = ["waiting","conflict","partial"].includes(phase);
   const danger = ["error","ownership_lost"].includes(phase) || !!result.blocked;
   const tone = danger ? "danger" : warning || (phase === "active" && !state.write_readback_verified)
@@ -241,21 +329,55 @@ function render(result, replaceForm = false) {
   if (result.blocked) message("自动写入已停止：" + (result.blocked.error || result.blocked.phase || "请查看逐卡诊断"), true);
   if (result.watcher && !result.watcher.alive)
     message("后台适配进程未运行。请重启并导出诊断。", true);
+  $("device").textContent = phase === "active" && state.write_readback_verified
+    ? "当前覆盖配置已生效" : "详细结果请查看诊断与验证";
+  renderDiagnosticSummary(result);
+  renderSimResults(result);
+}
+function renderSimResults(result) {
+  const state = result.status || result;
   $("sims").replaceChildren();
   for (const sub of state.subscriptions || []) {
     const line = document.createElement("div"); line.className = "sim";
     line.textContent = "SIM 卡槽 " + (sub.slot + 1) + " · subId " + sub.sub_id +
       " · " + sub.phase
-      + (sub.unsupported.length ? " · 跳过不支持的键 " + sub.unsupported.length + " 个" : "")
+      + (sub.unsupported?.length ? " · 跳过不支持的键 " + sub.unsupported.length + " 个" : "")
       + (sub.error ? " · " + sub.error : "")
       + (sub.write_state_unknown ? " · 此卡写入结果未确认" : "");
     $("sims").append(line);
   }
 }
+function renderDiagnosticSummary(result) {
+  const state = result.status || result;
+  const binder = result.binder || state.binder;
+  const phases = {active:state.write_readback_verified ? "覆盖验证通过" : "当前配置无需写入",
+    verified:"覆盖验证通过",probe:"只读检测完成",paused:"已暂停",partial:"部分支持",
+    waiting:"等待 SIM 配置",conflict:"存在第三方冲突",ownership_lost:"覆盖标记丢失",
+    not_started:"尚未启动",error:"执行失败"};
+  const rows = [
+    ["状态", result.blocked ? "自动写入已停止" : phases[state.phase] || state.phase || "未知"],
+    ["KernelSU", result.uid === undefined ? "未取得 UID" : "UID " + result.uid],
+    ["SELinux", result.selinux_context || state.selinux_context || "未取得"],
+    ["设备", result.device || state.device || "未取得"],
+    ["SDK", result.sdk ?? state.sdk ?? "未取得"],
+    ["Watcher", result.watcher ? (result.watcher.alive ? "运行中" : "未运行") : "未取得"],
+    ["CarrierConfig", binder?.carrier_config === true ? "读通路可用" :
+      binder?.carrier_config === false ? "不可用" : "尚未检测"]
+  ];
+  if (state.error || result.error) rows.push(["错误",state.error || result.error]);
+  if (result.blocked) rows.push(["停止原因",result.blocked.error || result.blocked.phase || "查看完整数据"]);
+  $("diagnostic-summary").replaceChildren();
+  for (const [title,value] of rows) {
+    const row = document.createElement("div"); row.className = "diagnostic-item";
+    const term = document.createElement("dt"); term.textContent = title;
+    const detail = document.createElement("dd"); detail.textContent = String(value);
+    row.append(term,detail); $("diagnostic-summary").append(row);
+  }
+}
 async function operation(work) {
   if (busy) return;
   busy = true;
-  document.querySelectorAll("button,input,select").forEach(x => x.disabled = true);
+  document.querySelectorAll("button,input,select").forEach(x => { if (x.id !== "back") x.disabled = true; });
   message("正在执行，请稍候…");
   try { await work(); }
   catch (error) {
@@ -287,6 +409,8 @@ $("restore").onclick = async () => {
 $("export").onclick = () => operation(async () => {
   const result = await TurboBridge.call("export");
   $("diagnostics").textContent = JSON.stringify(result, null, 2);
-  message("诊断已生成，可在下方全选复制。");
+  renderDiagnosticSummary(result);
+  renderSimResults(result);
+  $("diagnostic-notice").textContent = "诊断已生成，完整数据可进入下方页面查看和复制。";
 });
 operation(async () => render(await TurboBridge.call("status"), true));

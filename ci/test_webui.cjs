@@ -53,7 +53,7 @@ async function appHarness() {
       hidden:false, isConnected:true, checked:false,
       append(...items) { this.children.push(...items); this.options.push(...items); },
       replaceChildren(...items) { this.children=[...items]; },
-      setAttribute() {}, focus() {}, querySelectorAll:()=>[] };
+      setAttribute() {}, focus() {}, closest:()=>null, querySelectorAll:()=>[] };
   }
   const elements=new Map();
   const doc={activeElement:null, body:{style:{}},
@@ -70,7 +70,24 @@ async function appHarness() {
       return elements.get(id);
     }};
   const calls=[];
+  const listeners = new Map();
+  const location = {hash:""};
+  const stack = [{state:null,url:""}];
+  let index = 0;
+  const history = {
+    get state() { return stack[index].state; },
+    get length() { return stack.length; },
+    replaceState(state, _, url) { stack[index] = {state,url}; location.hash = url; },
+    pushState(state, _, url) { stack.splice(index+1); stack.push({state,url}); index++; location.hash = url; },
+    back() { if (index) { index--; location.hash=stack[index].url; dispatch("popstate"); dispatch("hashchange"); } },
+    forward() { if (index < stack.length-1) { index++; location.hash=stack[index].url; dispatch("popstate"); dispatch("hashchange"); } }
+  };
+  function dispatch(name) { for (const callback of listeners.get(name) || []) callback(); }
+  const window = {scrollY:0,addEventListener(name,callback) {
+    if (!listeners.has(name)) listeners.set(name,[]); listeners.get(name).push(callback);
+  }};
   const context=vm.createContext({
+    window, history, location,
     document:doc,
     TurboBridge:{call:async(action,payload)=>{calls.push([action,payload]);return {phase:"not_started"};}},
     localStorage:{getItem:()=>null,setItem(){}},
@@ -80,7 +97,7 @@ async function appHarness() {
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8"),context);
   await Promise.resolve();await Promise.resolve();
   await new Promise(resolve=>setImmediate(resolve));
-  return {context,elements,calls,doc};
+  return {context,elements,calls,doc,history,location};
 }
 test("native dialogs and visible browser pickers are absent",()=>{
   const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
@@ -182,4 +199,62 @@ test("aggregate blocked result has a readable reason",async()=>{
   assert.match(elements.get("message").textContent,/ownership_lost/);
   assert.equal(elements.get("status-indicator").dataset.tone,"danger");
   assert.doesNotMatch(elements.get("message").textContent,/undefined/);
+});
+
+test("history returns nested pages one level at a time without a duplicate root",async()=>{
+  const {elements,history,location,calls}=await appHarness();
+  assert.equal(history.length,1);
+  elements.get("open-appearance").onclick();
+  elements.get("accent-choice").onclick();
+  assert.equal(location.hash,"#/accent");
+  assert.equal(history.length,3);
+  history.back();
+  assert.equal(elements.get("appearance-page").hidden,false);
+  history.back();
+  assert.equal(elements.get("home").hidden,false);
+  assert.equal(history.state.page,"home");
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+test("system back cancels confirmation first and never saves config",async()=>{
+  const {elements,doc,history,calls}=await appHarness();
+  doc.getElementById("enabled").checked=true;
+  const pending=elements.get("apply").onclick();
+  assert.equal(elements.get("sheet").hidden,false);
+  assert.ok(history.state.dialog);
+  history.back();
+  await pending;
+  assert.equal(elements.get("sheet").hidden,true);
+  assert.equal(history.state.page,"home");
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
+  history.forward();
+  assert.equal(elements.get("sheet").hidden,true);
+  assert.equal(history.state.dialog,undefined);
+});
+test("dialog back retains appearance and unsaved IMS selections",async()=>{
+  const {elements,history,doc,calls}=await appHarness();
+  doc.getElementById("volte").value="off";
+  elements.get("open-appearance").onclick();
+  elements.get("theme-choice").onclick();
+  history.back();
+  assert.equal(elements.get("appearance-page").hidden,false);
+  assert.equal(elements.get("sheet").hidden,true);
+  assert.equal(doc.getElementById("volte").value,"off");
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+test("diagnostic summary never invents success for missing capabilities",async()=>{
+  const {context,elements}=await appHarness();
+  context.renderDiagnosticSummary({phase:"probe",uid:0});
+  const rows=elements.get("diagnostic-summary").children;
+  assert.equal(rows[0].children[1].textContent,"只读检测完成");
+  assert.equal(rows[5].children[1].textContent,"未取得");
+  assert.equal(rows[6].children[1].textContent,"尚未检测");
+});
+test("normal homepage excludes technical per-SIM data and only page links have chevrons",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  const home=html.split('<main id="home"')[1].split('</main>')[0];
+  assert.doesNotMatch(home,/id="sims"|subId|SDK|UID/);
+  for (const id of ["probe","refresh","apply","restore","export"]) {
+    const button=html.match(new RegExp('<button id="'+id+'"[^]*?</button>'))[0];
+    assert.doesNotMatch(button,/chevron/);
+  }
 });
