@@ -86,15 +86,15 @@ function simSyncForm() {
   $("sim-custom-country-value").textContent = draft.country_custom || "未设置";
   $("sim-custom-carrier-value").textContent = draft.carrier_custom || "未设置";
   $("sim-country-summary").textContent = draft.country_custom
-    ? (draft.country_preset ? "自定义值 " + draft.country_custom + " 覆盖上方预设" : "已手动指定国家或地区代码")
-    : "修改应用读取的 SIM 国家或地区";
+    ? (draft.country_preset ? "自定义值 " + draft.country_custom + " 覆盖上方预设" : "使用自定义国家码")
+    : "设置系统读取的国家或地区";
   $("sim-carrier-summary").textContent = draft.carrier_custom
-    ? (draft.carrier_preset ? "自定义名称覆盖上方预设" : "已手动指定运营商名称")
-    : "修改系统读取的运营商名称";
+    ? (draft.carrier_preset ? "自定义名称覆盖上方预设" : "使用自定义名称")
+    : "设置系统读取的名称";
   const row = simSlots.find(x => x.slot === selectedSimSlot);
   $("sim-current").replaceChildren();
   if (!row) {
-    $("sim-current").textContent = "请先运行检测，读取当前活跃 SIM。";
+    $("sim-current").textContent = "请先检测设备。";
     return;
   }
   const title = document.createElement("strong");
@@ -151,7 +151,7 @@ function simEditCountry() {
 }
 function simEditCarrier() {
   const draft = simEditorProfile(selectedSimSlot);
-  editTextPreference("自定义运营商名称","输入要向系统报告的运营商名称。留空时使用上方选择的运营商。",
+  editTextPreference("自定义运营商名称","留空使用预设名称。",
     draft.carrier_custom,value => value.length <= 128,
     value => simSetCustom("carrier_custom",value.trim()),
     draft.carrier_custom !== "", "名称不能超过 128 个字符");
@@ -282,7 +282,9 @@ function showAppearance() {
   const toolbarWhiteContrast = 1.05 / (toolbarRelative + .05);
   const toolbarDarkContrast = (toolbarRelative + .05) / .05;
   document.documentElement.style.setProperty("--toolbar-foreground",
-    toolbarDarkContrast >= toolbarWhiteContrast ? "#101010" : "#ffffff");
+    toolbarDarkContrast >= toolbarWhiteContrast
+      ? ((toolbarRelative+.05)/(.0051815167+.05) >= 4.5 ? "#101010" : "#000000")
+      : "#ffffff");
   $("theme-choice").textContent = {system:"跟随系统",light:"浅色模式",dark:"深色模式"}[themeMode];
   const chosen = [...onePlusColors,...materialColors].find(([,hex]) => hex === accent);
   $("accent-label").textContent = chosen ? chosen[0] : accent;
@@ -891,7 +893,7 @@ $("probe").onclick = () => operation(async () => render(await TurboBridge.call("
 $("refresh").onclick = () => operation(async () => render(await TurboBridge.call("status")), "正在刷新…", $("refresh"));
 $("apply").onclick = async () => {
   const config = configFromForm();
-  if (!await ask("应用 IMS 配置？", "将更新所选 SIM 卡的 IMS 配置。能否使用通话功能仍取决于运营商支持。")) {
+  if (!await ask("应用 IMS 配置？", "应用到所选 SIM 卡。通话仍需运营商支持。")) {
     message("已取消", false, "neutral", "当前设置未保存。"); return;
   }
   operation(async () => {
@@ -901,7 +903,7 @@ $("apply").onclick = async () => {
   });
 };
 $("restore").onclick = async () => {
-  if (!await ask("停止并恢复？", "停止自动应用，恢复本模块记录的原值。与其他工具冲突的项目会保留。")) {
+  if (!await ask("停止并恢复？", "停止自动应用并恢复原值，保留冲突项。")) {
     message("已取消", false, "neutral", "自动配置和已应用的设置未改变。"); return;
   }
   operation(async () => render(await TurboBridge.call("restore"), true));

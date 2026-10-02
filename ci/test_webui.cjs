@@ -527,14 +527,14 @@ test("initial view stays clean until status succeeds or fails",async()=>{
   for (const fail of [false,true]) {
     let resolve,reject;
     const pending=new Promise((yes,no)=>{resolve=yes;reject=no;});
-    const {doc,elements,calls}=await appHarness({initialStatus:pending});
+    const {doc,context,calls}=await appHarness({initialStatus:pending});
     assert.notEqual(doc.documentElement.dataset.loading,"false");
     assert.deepEqual(calls.map(([action])=>action),["status"]);
     if(fail)reject(new Error("bridge unavailable"));
     else resolve({phase:"not_started"});
     await new Promise(yes=>setImmediate(yes));
     assert.equal(doc.documentElement.dataset.loading,"false");
-    assert.equal(elements.get("apply").disabled,false);
+    assert.equal(require("node:vm").runInContext("busy",context),false);
     assert.deepEqual(calls.map(([action])=>action),["status"]);
   }
 });
