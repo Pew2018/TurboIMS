@@ -408,6 +408,12 @@ test("IMS rows have only switches; Settings retains individual DEFAULT",async()=
   assert.equal(doc.getElementById("volte").value,"off");
   assert.equal(context.configFromForm().features.vt,"default");
 });
+test("unrelated operations preserve the disabled interval state",async()=>{
+  const {elements}=await appHarness();
+  assert.equal(elements.get("interval-choice").disabled,true);
+  await elements.get("probe").onclick();
+  assert.equal(elements.get("interval-choice").disabled,true);
+});
 test("schedule switch saves immediately and interval is disabled when off",async()=>{
   const {context,elements,calls,doc}=await appHarness();
   const config={enabled:true,periodic_check_enabled:false,selection:"all",interval_seconds:1800,

@@ -564,6 +564,7 @@ async function operation(work, progress = "正在处理…", trigger = null) {
     if (label) label.textContent = originalLabel;
     busy = false;
     document.querySelectorAll("button,input,select").forEach(x => x.disabled = false);
+    updatePeriodicControl();
     document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","false"));
   }
 }
