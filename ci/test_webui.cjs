@@ -360,3 +360,12 @@ test("SIM is empty and existing tools belong exclusively to Settings",()=>{
   assert.equal((nav.match(/<svg /g)||[]).length,3);
   assert.match(nav,/tab-home[^]*tab-sim-page[^]*tab-settings-page/);
 });
+
+test("touch feedback uses a scroll-safe slop and suppresses cancelled clicks",()=>{
+  const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
+  assert.match(feedback,/TOUCH_SLOP = 14/);
+  assert.match(feedback,/MOUSE_SLOP = 8/);
+  assert.match(feedback,/Capture this before row handlers/);
+  const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  assert.match(style,/\[data-feedback="row"\][^}]*touch-action: pan-y/);
+});

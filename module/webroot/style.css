@@ -115,6 +115,9 @@ details .log-view { margin-top:12px; }
 .status-actions { display:flex; align-items:center; gap:8px; margin:0 -12px 4px; }
 #sim-summary { margin-top:5px; font-size:12px; }
 .setting-row[data-feedback],.feature[data-feedback],label.setting-row { cursor:pointer; }
+[data-feedback="row"],label.setting-row,.bottom-tab,.text-action,.pref-action,.choice,.option,.swatch-item {
+  touch-action: pan-y;
+}
 .touch-surface { position:relative; overflow:hidden; isolation:isolate; touch-action:pan-y; -webkit-tap-highlight-color:transparent; }
 .touch-surface > :not(.touch-ripple) { position:relative; z-index:1; }
 .touch-ripple { position:absolute; z-index:0; border-radius:50%; background:rgb(var(--ripple-rgb)); opacity:var(--ripple-opacity); transform:scale(0); pointer-events:none; }
