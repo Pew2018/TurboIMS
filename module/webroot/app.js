@@ -28,7 +28,7 @@ function showAppearance() {
   const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
   const luminance = rgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
   document.documentElement.style.setProperty("--accent-text",
-    luminance[0]*.2126 + luminance[1]*.7152 + luminance[2]*.0722 > .39 ? "#172124" : "#ffffff");
+    luminance[0]*.2126 + luminance[1]*.7152 + luminance[2]*.0722 > .18 ? "#101010" : "#ffffff");
   $("theme-choice").textContent = {system:"跟随系统",light:"浅色模式",dark:"深色模式"}[themeMode];
   $("accent-label").textContent = accent;
 }

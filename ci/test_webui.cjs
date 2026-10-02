@@ -84,7 +84,7 @@ async function appHarness() {
 test("native dialogs and visible browser pickers are absent",()=>{
   const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
-  assert.doesNotMatch(app,/\\b(?:confirm|alert|prompt)\\s*\\(/);
+  assert.doesNotMatch(app,/\b(?:confirm|alert|prompt)\s*\(/);
   assert.match(html,/id="sheet"/);
   for(const id of ["selection","interval"]) {
     assert.match(html,new RegExp('id="'+id+'" class="visually-hidden"'));
