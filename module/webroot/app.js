@@ -9,6 +9,14 @@ const features = [
   ["5g_nr", "5G NR", "NSA / SA 网络与信号阈值"]
 ];
 const $ = id => document.getElementById(id);
+// KernelSU Next can draw this page behind the system bars; its injected CSS supplies
+// actual insets. The manager, not WebUI meta tags, still owns system icon colors.
+if (location.hostname === "mui.kernelsu.org" && window.ksu?.enableInsets) {
+  const insets = document.createElement("link");
+  insets.rel = "stylesheet";
+  insets.href = "/internal/insets.css";
+  document.head.append(insets);
+}
 let busy = false;
 const optionLabels = { default:"恢复原值", on:"开启", off:"关闭" };
 const onePlusColors = [
@@ -130,7 +138,8 @@ function actionButton(title, onClick, secondary = false) {
   const button = document.createElement("button");
   button.type = "button"; button.textContent = title;
   if (secondary) button.className = "secondary";
-  button.onclick = onClick; return button;
+  button.onclick = onClick; button.dataset.ripple = "control";
+  window.TouchFeedback?.bind(button); return button;
 }
 function choose(title, description, values, current, onSelect) {
   if (!$("sheet").hidden) return;
@@ -156,6 +165,7 @@ function choose(title, description, values, current, onSelect) {
       onSelect(value); dismissSheet(true);
     };
     $("sheet-content").append(button);
+    window.TouchFeedback?.bind(button);
   }
 }
 function choiceFor(select, button) {
@@ -192,6 +202,7 @@ function buildColors(target, colors) {
     item.append(square,label);
     item.onclick = () => setAccent(color);
     target.append(item);
+    window.TouchFeedback?.bind(item);
     swatchButtons.push([item,color]);
   }
 }
@@ -318,20 +329,24 @@ for (const [id,title] of [["selection","应用到"],["interval","检查频率"]]
   const button = $(id+"-choice"); button.dataset.title = title;
   choiceFor($(id),button);
 }
-function syncFeatureSwitch(select, toggle) {
+const featureControls = new Map();
+// Persisted IMS modes are DEFAULT / ON / OFF. The visual switch has only
+// ON / OFF positions; DEFAULT is kept separately as "use original value".
+function syncFeatureSwitch(select, toggle, status, reset) {
   const state = select.value;
   toggle.checked = state === "on";
-  toggle.indeterminate = state === "default";
   toggle.dataset.state = state;
-  toggle.setAttribute("aria-checked", state === "default" ? "mixed" : String(toggle.checked));
+  toggle.setAttribute("aria-checked", String(toggle.checked));
   toggle.setAttribute("aria-label", toggle.dataset.title + "，" +
-    (state === "default" ? "恢复原值" : state === "on" ? "开启" : "关闭"));
+    (state === "default" ? "使用原值，点击强制开启" : state === "on" ? "强制开启" : "强制关闭"));
+  status.textContent = state === "default" ? "使用原值" : "";
+  status.hidden = state !== "default";
+  reset.hidden = state === "default";
 }
-function cycleFeature(select, toggle) {
+function setFeatureMode(select, toggle, status, reset, mode) {
   if (busy) return;
-  const next = {default:"on",on:"off",off:"default"}[select.value] || "default";
-  select.value = next;
-  syncFeatureSwitch(select,toggle);
+  select.value = mode;
+  syncFeatureSwitch(select,toggle,status,reset);
 }
 for (const [key, title, description] of features) {
   const row = document.createElement("div"); row.className = "feature";
@@ -346,22 +361,39 @@ for (const [key, title, description] of features) {
     const option = document.createElement("option"); option.value = value;
     option.textContent = label; select.append(option);
   }
+  select.value = "default";
+  const controls = document.createElement("span"); controls.className = "feature-controls";
+  const switchHit = document.createElement("span"); switchHit.className = "switch-hit";
+  switchHit.dataset.ripple = "control";
   const toggle = document.createElement("input");
   toggle.type = "checkbox"; toggle.id = key + "-switch";
   toggle.className = "feature-switch"; toggle.setAttribute("role","switch");
   toggle.dataset.title = title;
-  toggle.onclick = event => {
-    event.preventDefault();
-    cycleFeature(select,toggle);
+  toggle.onchange = () => setFeatureMode(select,toggle,status,reset,toggle.checked ? "on" : "off");
+  switchHit.append(toggle);
+  const status = document.createElement("span"); status.id = key + "-state"; status.className = "feature-state";
+  const reset = document.createElement("button");
+  reset.type = "button"; reset.id = key + "-reset"; reset.className = "feature-reset";
+  reset.textContent = "恢复原值";
+  reset.setAttribute("aria-label", title + "，恢复原值");
+  reset.dataset.ripple = "control";
+  reset.onclick = event => {
+    event.stopPropagation();
+    setFeatureMode(select,toggle,status,reset,"default");
   };
+  controls.append(switchHit,status,reset);
   row.dataset.feedback = "row";
   row.setAttribute("aria-disabled","false");
   row.onclick = event => {
-    if (!busy && !event.target.closest("button,input,select")) cycleFeature(select,toggle);
+    if (!busy && !event.target.closest("button,input,select"))
+      setFeatureMode(select,toggle,status,reset,select.value === "on" ? "off" : "on");
   };
-  row.append(text,toggle,select);
+  row.append(text,controls,select);
   $("features").append(row);
-  syncFeatureSwitch(select,toggle);
+  featureControls.set(key,{toggle,status,reset});
+  window.TouchFeedback?.bind(switchHit);
+  window.TouchFeedback?.bind(reset);
+  syncFeatureSwitch(select,toggle,status,reset);
 }
 
 function message(text, error = false, tone = error ? "danger" : "neutral", detail = "") {
@@ -388,7 +420,8 @@ function form(config) {
   choiceFor($("interval"),$("interval-choice"));
   for (const [key] of features) {
     $(key).value = config.features[key] || "default";
-    syncFeatureSwitch($(key),$(key+"-switch"));
+    const {toggle,status,reset} = featureControls.get(key);
+    syncFeatureSwitch($(key),toggle,status,reset);
   }
 }
 function configFromForm() {

@@ -5,6 +5,9 @@
   --dialog-padding:18px; --dialog-option-height:48px; --touch-target:48px;
   --switch-duration:160ms; --dialog-enter-duration:160ms; --dialog-exit-duration:100ms;
   --pressed-opacity:.045; --press-rgb:26,66,98;
+  --ripple-opacity:.14; --ripple-duration:360ms;
+  --inset-top:var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --inset-bottom:var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
   color-scheme:light;
   --accent:#42A5F5; --accent-ink:#24618f;
   --background:#ffffff; --surface:#ffffff; --ink:#212121; --muted:#757575;
@@ -13,12 +16,19 @@
 }
 :root[data-theme="dark"] {
   color-scheme:dark;
-  --pressed-opacity:.07;
+  --pressed-opacity:.07; --ripple-opacity:.18;
   --background:#121212; --surface:#212121; --ink:rgba(255,255,255,.87); --muted:rgba(255,255,255,.60);
   --divider:rgba(255,255,255,.07); --toolbar:#121212; --track:#777777; --log:#1e1e1e;
   --danger:#ffb4ab; --scrim:rgba(0,0,0,.48);
 }
-* { box-sizing:border-box; }
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+/* WebView must not substitute its blue tap overlay for our restrained controls. */
+html,body,button,label,input,select,summary,[data-feedback],[data-ripple],.setting-row,.feature,.pref-action,.bottom-tab {
+  -webkit-tap-highlight-color:transparent;
+  -webkit-touch-callout:none;
+}
+::selection { background:transparent; }
+.log-view::selection,.diagnostic-summary ::selection,.sim-list ::selection,input[type="text"]::selection { background:rgba(var(--press-rgb),.22); }
 body { user-select:none; -webkit-user-select:none; }
 input[type="text"] { user-select:text; -webkit-user-select:text; }
 [hidden] { display:none !important; }
@@ -26,12 +36,12 @@ html { background:var(--background); }
 body { margin:0; color:var(--ink); background:var(--background); font:14px/1.4 Roboto,"Noto Sans",system-ui,sans-serif; }
 button,input { font:inherit; -webkit-tap-highlight-color:transparent; }
 button { cursor:pointer; }
-.toolbar { height:calc(var(--appbar-height) + env(safe-area-inset-top)); padding-top:env(safe-area-inset-top); background:var(--toolbar); border-bottom:1px solid var(--divider); }
+.toolbar { height:calc(var(--appbar-height) + var(--inset-top)); padding-top:var(--inset-top); background:var(--toolbar); border-bottom:1px solid var(--divider); }
 .toolbar-inner { max-width:620px; height:var(--appbar-height); margin:auto; display:flex; align-items:center; padding:0 var(--page-padding); gap:14px; }
 h1 { margin:0; font-size:20px; font-weight:400; line-height:1; }
 .back { width:var(--touch-target); height:var(--touch-target); flex:none; margin-inline:-14px; padding:0; border:0; background:none; color:var(--ink); text-align:left; }
 .back::before { content:""; display:block; width:11px; height:11px; margin-left:18px; border-left:2px solid currentColor; border-bottom:2px solid currentColor; transform:rotate(45deg); }
-.page { width:100%; max-width:620px; margin:auto; padding-bottom:calc(32px + env(safe-area-inset-bottom)); }
+.page { width:100%; max-width:620px; margin:auto; padding-bottom:calc(32px + var(--inset-bottom)); }
 .pref-group { margin:0; padding:0 24px; }
 .pref-group + .pref-group { margin-top:var(--section-gap); border-top:1px solid var(--divider); padding-top:4px; }
 .category { margin:0; padding:16px 0 6px; font-size:var(--section-label-size); line-height:1.25; font-weight:400; color:var(--muted); }
@@ -117,17 +127,28 @@ details .log-view { margin-top:12px; }
 [data-feedback="row"],label.setting-row,.bottom-tab,.text-action,.pref-action,.choice,.option,.swatch-item {
   touch-action: manipulation;
 }
-/* Fast native press feedback. It does not allocate or animate a transient node. */
-.setting-row:active:not([aria-disabled="true"]),
-.feature:active:not([aria-disabled="true"]),
-.pref-action:active:not(:disabled),
-.text-action:active:not(:disabled),
-.choice:active:not(:disabled),
-.option:active:not(:disabled),
-.swatch-item:active:not(:disabled),
-.bottom-tab:active:not(:disabled) {
-  background-color:rgba(var(--press-rgb),var(--pressed-opacity));
+/* Ordinary rows stay visually quiet during a scroll. Confirmed taps are drawn
+   only inside compact controls and the bottom navigation. */
+[data-ripple="control"],.bottom-tab { position:relative; overflow:hidden; isolation:isolate; }
+.tap-ripple { position:absolute; z-index:1; border-radius:50%; pointer-events:none;
+  background:var(--accent); opacity:0; transform:scale(0);
+  will-change:transform,opacity;
+  animation:tap-ripple var(--ripple-duration) ease-out forwards; }
+@keyframes tap-ripple {
+  0% { opacity:var(--ripple-opacity); transform:scale(0); }
+  55% { opacity:var(--ripple-opacity); }
+  100% { opacity:0; transform:scale(1); }
 }
+.switch-hit { width:48px; height:48px; display:grid; place-items:center; flex:none; }
+.switch-hit input { z-index:2; }
+.feature-controls { flex:none; display:flex; align-items:center; justify-content:flex-end; gap:2px; }
+.feature-state { color:var(--muted); font-size:11px; white-space:nowrap; }
+.feature-reset { position:relative; display:block; min-width:68px; min-height:48px;
+  padding:8px 4px; border:0; border-radius:0;
+  background:transparent; color:var(--accent-ink); text-align:center; font-size:11px; }
+.feature { min-height:68px; }
+.feature .row-copy { padding-right:4px; }
+@media(prefers-reduced-motion:reduce) { .tap-ripple { animation:none; display:none; } }
 /* Root destinations share a scroll viewport above the fixed classic navigation. */
 html { height:100%; overscroll-behavior:none; }
 body { height:100%; min-height:100vh; min-height:100svh; display:flex; flex-direction:column; overflow:hidden; }
@@ -137,8 +158,8 @@ body { height:100%; min-height:100vh; min-height:100svh; display:flex; flex-dire
   flex:1; min-height:0; overflow:auto; overscroll-behavior-y:contain;
   touch-action:pan-y; contain:layout paint;
 }
-#page-content[data-primary="true"] { margin-bottom:calc(var(--bottom-nav-height) + env(safe-area-inset-bottom)); }
-.bottom-nav { position:fixed; inset:auto 0 0; z-index:2; padding-bottom:env(safe-area-inset-bottom); background:var(--toolbar); border-top:1px solid var(--divider); }
+#page-content[data-primary="true"] { margin-bottom:calc(var(--bottom-nav-height) + var(--inset-bottom)); }
+.bottom-nav { position:fixed; inset:auto 0 0; z-index:2; padding-bottom:var(--inset-bottom); background:var(--toolbar); border-top:1px solid var(--divider); }
 .bottom-nav-inner { display:flex; max-width:620px; height:var(--bottom-nav-height); margin:auto; }
 .bottom-tab { flex:1; min-width:0; height:var(--bottom-nav-height); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; padding:4px 0; border:0; border-radius:0; background:transparent; color:var(--muted); font-size:12px; font-weight:400; line-height:1.2; }
 .bottom-tab svg { width:24px; height:24px; flex:none; fill:currentColor; }
@@ -150,8 +171,4 @@ body { height:100%; min-height:100vh; min-height:100svh; display:flex; flex-dire
   -webkit-overflow-scrolling: touch;
   scroll-behavior: auto;
 }
-input[role="switch"]:indeterminate::after {
-  transform:translateX(6px);
-  background:#eeeeee;
-  border-color:#aaaaaa;
-}
+

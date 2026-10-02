@@ -12,7 +12,54 @@
     for (const animation of dialogAnimations.get(backdrop) || []) animation.cancel();
     dialogAnimations.delete(backdrop);
   }
+  // Attach only to compact controls; rows and the scrolling viewport do not
+  // observe pointer movement or allocate visual nodes.
+  const bound = new WeakSet();
+  const pending = new WeakMap();
+  function bindRipple(surface) {
+    if (!surface || bound.has(surface)) return;
+    bound.add(surface);
+    surface.dataset.ripple = "control";
+    surface.addEventListener("pointerdown", event => {
+      if (!event.isPrimary || event.button !== 0 || surface.disabled ||
+          surface.closest('[aria-disabled="true"]')) return;
+      pending.set(surface,{
+        id:event.pointerId,x:event.clientX,y:event.clientY,
+        scroll:document.getElementById("page-content")?.scrollTop || 0
+      });
+    },{passive:true});
+    surface.addEventListener("pointercancel",()=>pending.delete(surface),{passive:true});
+    surface.addEventListener("pointerup",event => {
+      const tap = pending.get(surface);
+      pending.delete(surface);
+      if (!tap || tap.id !== event.pointerId || surface.disabled ||
+          surface.closest('[aria-disabled="true"]')) return;
+      const slop = event.pointerType === "mouse" ? 8 : 10;
+      const scroll = document.getElementById("page-content")?.scrollTop || 0;
+      if (Math.hypot(event.clientX-tap.x,event.clientY-tap.y)>slop ||
+          Math.abs(scroll-tap.scroll)>2 ||
+          matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const rect = surface.getBoundingClientRect();
+      const x=event.clientX-rect.left,y=event.clientY-rect.top;
+      const radius=Math.hypot(Math.max(x,rect.width-x),Math.max(y,rect.height-y));
+      const circle=document.createElement("span");
+      circle.className="tap-ripple";
+      circle.style.width=circle.style.height=radius*2+"px";
+      circle.style.left=x-radius+"px";
+      circle.style.top=y-radius+"px";
+      circle.setAttribute("aria-hidden","true");
+      circle.addEventListener("animationend",()=>circle.remove(),{once:true});
+      surface.append(circle);
+    },{passive:true});
+  }
+  function bind(root=document) {
+    const selector=".bottom-tab,.switch-hit,.text-action,.choice,.option,.swatch-item,.feature-reset,.dialog-cancel,.back,[data-ripple='control']";
+    if (root.matches?.(selector)) bindRipple(root);
+    root.querySelectorAll?.(selector).forEach(bindRipple);
+  }
+  bind();
   window.TouchFeedback = {
+    bind,
     openDialog(backdrop) {
       cancelDialogAnimations(backdrop);
       delete backdrop.dataset.closing;

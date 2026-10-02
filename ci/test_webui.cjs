@@ -49,11 +49,13 @@ test("default config is deliberately paused",()=>{
 async function appHarness() {
   const vm=require("node:vm");
   function element() {
-    return {children:[], options:[], value:"", textContent:"", className:"", dataset:{}, style:{setProperty(){}},
+    const el = {children:[], options:[], value:"", textContent:"", className:"", dataset:{}, style:{setProperty(){}},
       hidden:false, isConnected:true, checked:false, scrollTop:0,
       append(...items) { this.children.push(...items); this.options.push(...items); },
       replaceChildren(...items) { this.children=[...items]; },
       attributes:{}, setAttribute(key,value) { this.attributes[key]=value; }, removeAttribute(key) { delete this.attributes[key]; }, focus() {}, closest:()=>null, querySelector:()=>null, querySelectorAll:()=>[] };
+    Object.defineProperty(el,"id",{get() { return this._id; },set(id) { this._id=id; elements.set(id,this); }});
+    return el;
   }
   const elements=new Map();
   const doc={activeElement:null, body:{style:{}},
@@ -361,13 +363,14 @@ test("SIM is empty and existing tools belong exclusively to Settings",()=>{
   assert.match(nav,/tab-home[^]*tab-sim-page[^]*tab-settings-page/);
 });
 
-test("touch feedback keeps scrolling free of transient effects",()=>{
+test("scroll rows have no blue WebView tap overlay and no ripple listeners",()=>{
   const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
-  assert.doesNotMatch(feedback,/pointerdown|pointermove|pointerup|pointercancel|ripple/i);
-  assert.match(feedback,/window\.TouchFeedback/);
+  assert.doesNotMatch(feedback,/document\.addEventListener\("pointer|pointermove/);
+  assert.match(feedback,/Math\.abs\(scroll-tap\.scroll\)>2/);
+  assert.match(feedback,/pointercancel/);
   const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
-  assert.doesNotMatch(style,/\.touch-ripple|\.touch-surface|feedback-pressed|--ripple-/);
-  assert.match(style,/touch-action: manipulation/);
+  assert.match(style,/\* \{ box-sizing:border-box; -webkit-tap-highlight-color:transparent;/);
+  assert.doesNotMatch(style,/\.feature:active|\.setting-row:active/);
   assert.match(style,/-webkit-overflow-scrolling: touch/);
 });
 
@@ -379,18 +382,50 @@ test("dark mode publishes matching WebView chrome colors",()=>{
   assert.match(app,/chromeColor = dark \? "#121212" : "#ffffff"/);
   assert.match(app,/navigation-bar-color/);
 });
-test("IMS feature preferences are switch controls without feature dialogs",()=>{
+test("IMS switches expose only two visual states and preserve per-feature DEFAULT",async()=>{
+  const {context,elements,doc}=await appHarness();
   const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
-  assert.match(app,/className = "feature-switch"/);
-  assert.match(app,/setAttribute\("role","switch"\)/);
-  assert.match(app,/cycleFeature\(select,toggle\)/);
-  assert.doesNotMatch(app,/button\.id = key\+"-choice"/);
+  assert.match(app,/Persisted IMS modes are DEFAULT \/ ON \/ OFF/);
+  assert.doesNotMatch(app,/indeterminate|cycleFeature/);
+  const rows=elements.get("features").children;
+  assert.equal(rows.length,7);
+  const first=rows[0],controls=first.children[1],switchHit=controls.children[0],
+    toggle=switchHit.children[0],status=controls.children[1],reset=controls.children[2];
+  assert.equal(doc.getElementById("volte").value,"default");
+  assert.equal(toggle.checked,false);
+  assert.equal(toggle.attributes["aria-checked"],"false");
+  assert.equal(status.textContent,"使用原值");
+  toggle.checked=true;
+  toggle.onchange();
+  assert.equal(doc.getElementById("volte").value,"on");
+  assert.equal(reset.hidden,false);
+  toggle.checked=false;
+  toggle.onchange();
+  assert.equal(doc.getElementById("volte").value,"off");
+  assert.equal(toggle.attributes["aria-checked"],"false");
+  reset.onclick({stopPropagation(){}});
+  assert.equal(doc.getElementById("volte").value,"default");
+  assert.equal(status.hidden,false);
+  context.form({enabled:false,selection:"all",interval_seconds:30,
+    features:{volte:"off",vowifi:"on",vt:"default",vonr:"on",cross_sim:"off",ut:"default","5g_nr":"on"}});
+  assert.equal(doc.getElementById("volte").value,"off");
+  assert.equal(context.configFromForm().features.vt,"default");
 });
-test("touch feedback has no document interception or ripple allocation",()=>{
+test("compact controls retain confirmed tap ripples without global tracking",()=>{
   const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
-  assert.doesNotMatch(feedback,/pointerdown|pointermove|pointerup|pointercancel|ripple/i);
-  assert.match(feedback,/openDialog\(backdrop\)/);
+  assert.match(feedback,/\.bottom-tab,\.switch-hit,\.text-action,\.choice/);
+  assert.match(feedback,/surface\.addEventListener\("pointerup"/);
+  assert.match(feedback,/Math\.hypot\(event\.clientX-tap\.x,event\.clientY-tap\.y\)>slop/);
+  assert.doesNotMatch(feedback,/document\.addEventListener\("pointer|pointermove/);
   const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
-  assert.doesNotMatch(style,/\.touch-ripple|\.touch-surface|feedback-pressed|--ripple-/);
-  assert.match(style,/:active:not/);
+  assert.match(style,/@keyframes tap-ripple/);
+  assert.match(style,/\.tap-ripple/);
+});
+test("system bar background opts into KernelSU insets without touching core",()=>{
+  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+  const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  assert.match(app,/location\.hostname === "mui\.kernelsu\.org"/);
+  assert.match(app,/insets\.href = "\/internal\/insets\.css"/);
+  assert.match(style,/--inset-top:var\(--safe-area-inset-top/);
+  assert.match(style,/--inset-bottom:var\(--safe-area-inset-bottom/);
 });

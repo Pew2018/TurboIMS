@@ -86,9 +86,9 @@ const fs = require("node:fs");
   const tabX=Math.round(tabBounds.x+20),tabY=Math.round(tabBounds.y+20);
   await touchEvent("touchStart",tabX,tabY);
   await page.waitForTimeout(40);
-  assert.equal(await page.locator(".touch-ripple").count(),0);
+  assert.equal(await page.locator(".tap-ripple").count(),0);
   await touchEvent("touchEnd");
-  await page.waitForTimeout(120);
+  assert.equal(await page.locator("#tab-sim-page .tap-ripple").count(),1);
   await capture("bottom-nav-pressed");
   await visible("sim-page");
   await page.locator("#tab-home").click();
@@ -98,26 +98,38 @@ const fs = require("node:fs");
   let bounds = await row.boundingBox();
   const tx = Math.round(bounds.x+18), ty = Math.round(bounds.y+24);
   await touchEvent("touchStart",tx,ty);
-  // A touch that may become a scroll must not create a ripple on pointerdown.
+  // The broad row stays quiet, even before a tap can become a scroll.
   await page.waitForTimeout(40);
-  assert.equal(await row.locator(".touch-ripple").count(),0);
+  assert.equal(await row.locator(".tap-ripple").count(),0);
   await page.screenshot({path:"preview/preference-pressed.png"});
   await touchEvent("touchEnd");
   await page.waitForTimeout(220);
   await page.screenshot({path:"preview/preference-after-tap.png"});
   await page.waitForTimeout(220);
-  // IMS feature rows are switches; a tap changes state without opening a dialog.
+  // The row updates a two-state switch; restoring DEFAULT is a separate action.
   assert.equal(await page.locator("#sheet").isVisible(),false);
-  await row.click();
   assert.equal(await toggle.getAttribute("aria-checked"),"false");
   assert.equal(await page.locator("#volte").inputValue(),"off");
+  await row.click();
+  assert.equal(await toggle.getAttribute("aria-checked"),"true");
+  assert.equal(await page.locator("#volte").inputValue(),"on");
+  const switchBounds=await row.locator(".switch-hit").boundingBox();
+  const cx=Math.round(switchBounds.x+switchBounds.width/2),cy=Math.round(switchBounds.y+switchBounds.height/2);
+  await touchEvent("touchStart",cx,cy);
+  await touchEvent("touchEnd");
+  assert.equal(await page.locator("#volte").inputValue(),"off");
+  assert.equal(await row.locator(".switch-hit .tap-ripple").count(),1);
+  await row.locator(".feature-reset").click();
+  assert.equal(await page.locator("#volte").inputValue(),"default");
+  assert.equal(await toggle.getAttribute("aria-checked"),"false");
+  assert.equal(await row.locator(".feature-state").innerText(),"使用原值");
   const sx = Math.round(bounds.x+30), sy = Math.round(bounds.y+32);
   await touchEvent("touchStart",sx,sy);
   await touchEvent("touchMove",sx,sy-45);
   await touchEvent("touchEnd");
   await page.waitForTimeout(300);
   assert.equal(await page.locator("#sheet").isVisible(),false);
-  assert.equal(await page.locator(".touch-ripple").count(),0);
+  assert.equal(await page.locator(".tap-ripple").count(),0);
   await page.locator("#selection-choice").click();
   await capture("sim-dialog");
   await close();
@@ -126,7 +138,7 @@ const fs = require("node:fs");
   assert.equal(await page.locator("#probe").isDisabled(),true);
   assert.equal(await page.locator("#probe").innerText(),"正在检测…");
   await page.dispatchEvent("#refresh","pointerdown",{button:0,isPrimary:true,pointerId:999,clientX:10,clientY:10});
-  assert.equal(await page.locator(".touch-ripple").count(),0);
+  assert.equal(await page.locator(".tap-ripple").count(),0);
   await page.waitForFunction(()=>!document.getElementById("probe").disabled);
   assert.equal(await page.locator("#message").innerText(),"检测完成");
   assert.match(await page.locator("#device").innerText(),/只读检测.*尚未验证/);
@@ -270,7 +282,7 @@ const fs = require("node:fs");
   await fresh.locator("#sheet-content .option").nth(0).click();
   await fresh.locator("#sheet").waitFor({state:"hidden"});
   await fresh.waitForFunction(()=>document.documentElement.dataset.theme === "light");
-  assert.equal(await fresh.locator(".touch-ripple").count(),0);
+  assert.equal(await fresh.locator(".tap-ripple").count(),0);
   await fresh.locator("#back").click();
   await fresh.locator("#settings-page").waitFor({state:"visible"});
   assert.equal(await fresh.locator("#tab-settings-page").evaluate(el=>getComputedStyle(el).color),"rgb(18, 52, 86)");
@@ -282,7 +294,7 @@ const fs = require("node:fs");
   // Touch feedback is intentionally native press-only; scrolling never creates transient nodes.
   fs.writeFileSync("preview/verification.json",JSON.stringify({passed:true,rootLength,
     checked:["root tabs without history growth","empty SIM root","IMS scroll and form retention","bottom row clearance","accent navigation","nested history","dialog cancellation","stale confirmation forward","reload","hashchange","full-row choice",
-      "diagnostic summary","unbroken horizontal JSON","text selection","dark theme","320px viewport","no transient touch nodes","scroll keeps native press state","disabled feedback",
+      "diagnostic summary","unbroken horizontal JSON","text selection","dark theme","320px viewport","scoped compact ripples","quiet scroll rows","two-state IMS with independent restore",
       "real probe semantics","system theme changes","custom accent","reduced motion"],
     limitation:"Native Android 16 gesture dispatch and predictive animation require device verification."},null,2));
   if(errors.length) throw new Error(errors.join("\n"));
