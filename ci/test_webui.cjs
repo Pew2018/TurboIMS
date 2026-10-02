@@ -79,6 +79,7 @@ async function appHarness() {
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8"),context);
   await Promise.resolve();await Promise.resolve();
+  await new Promise(resolve=>setImmediate(resolve));
   return {context,elements,calls,doc};
 }
 test("native dialogs and visible browser pickers are absent",()=>{
@@ -136,7 +137,7 @@ test("secondary pages preserve status and show diagnostics as selectable text",a
   assert.equal(elements.get("home").hidden,false);
   elements.get("open-diagnostics").onclick();
   await elements.get("export").onclick();
-  assert.match(elements.get("diagnostics").textContent,/not_started/);
+  assert.match(doc.getElementById("diagnostics").textContent,/not_started/);
   assert.ok(calls.some(([action])=>action==="export"));
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8"),/<textarea\b/i);
 });
