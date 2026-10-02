@@ -1,0 +1,32 @@
+name: Preview OnePlus WebUI
+on:
+  push:
+    branches: ["feature/oneplus-webui"]
+    paths: ["module/webroot/**", "ci/webui_preview.cjs", ".github/workflows/webui-preview.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  screenshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install remote browser
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install chromium
+      - name: Capture mobile UI
+        run: |
+          python3 -m http.server 8765 --directory module/webroot > "$RUNNER_TEMP/webui-server.log" 2>&1 &
+          node ci/webui_preview.cjs
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oneplus-webui-preview
+          path: preview/
+          if-no-files-found: error
