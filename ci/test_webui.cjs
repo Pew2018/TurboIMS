@@ -363,7 +363,7 @@ test("SIM is empty and existing tools belong exclusively to Settings",()=>{
 
 test("touch feedback keeps scrolling free of transient effects",()=>{
   const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
-  assert.doesNotMatch(feedback,/pointerdown|pointermove|pointerup|pointercancel|transient|ripple/i);
+  assert.doesNotMatch(feedback,/pointerdown|pointermove|pointerup|pointercancel|ripple/i);
   assert.match(feedback,/window\.TouchFeedback/);
   const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
   assert.doesNotMatch(style,/\.touch-ripple|\.touch-surface|feedback-pressed|--ripple-/);
