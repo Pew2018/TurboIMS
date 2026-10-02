@@ -421,6 +421,7 @@ $("sim-custom-country").oninput = event => {
   const value = event.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0,2);
   event.target.value = value;
   if (value.length === 2) simSetProfile(p => p.country_iso = value);
+  else if (value.length === 0) simSetProfile(p => p.country_iso = "");
 };
 $("sim-custom-carrier").oninput = event => simSetProfile(p => p.carrier_name = event.target.value.trim());
 $("sim-save").onclick = simApplyConfig;
