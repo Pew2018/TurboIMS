@@ -110,6 +110,14 @@ let browser;
   }
   await page.setViewportSize({width:393,height:852});
   await page.evaluate(()=>{cardGroups=false;showAppearance();});
+  await page.locator("#apply").scrollIntoViewIfNeeded();
+  const actionBox=await page.locator("#apply").boundingBox();
+  const actionPoint={button:0,isPrimary:true,pointerId:995,clientX:actionBox.x+24,clientY:actionBox.y+24};
+  await page.dispatchEvent("#apply","pointerdown",actionPoint);
+  await page.dispatchEvent("#apply","pointerup",actionPoint);
+  assert.equal(await page.locator("#apply .tap-ripple").evaluate(el=>getComputedStyle(el).position),"absolute");
+  assert.equal((await page.locator("#apply").boundingBox()).width,actionBox.width);
+  await page.waitForFunction(()=>!document.querySelector("#apply .tap-ripple"));
   const switchHit=page.locator("#enabled").locator("..");
   assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"1");
   assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el,"::after").backgroundColor),"rgb(238, 238, 238)");
