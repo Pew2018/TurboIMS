@@ -2,6 +2,8 @@ package io.github.turboims.ksu;
 
 import android.os.IBinder;
 import android.os.PersistableBundle;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.lang.reflect.*;
 import java.util.*;
 
@@ -9,6 +11,8 @@ public final class AndroidCarrierBackend implements CarrierBackend {
     private final Class<?> serviceManager, carrierType, subType;
     private final Method reader, writer, activeIds, slotIndex;
     private final String[] requestedKeys;
+    private static final long SIM_REFRESH_TIMEOUT_MS = 15000L;
+    private static final long SIM_REFRESH_POLL_MS = 250L;
 
     public AndroidCarrierBackend() throws Exception {
         serviceManager = Class.forName("android.os.ServiceManager");
@@ -98,5 +102,57 @@ public final class AndroidCarrierBackend implements CarrierBackend {
         }
         // Keep all writes nonpersistent. NEVER pass null (would erase others' overrides).
         invoke(writer, service("carrier_config", carrierType), subId, bundle, false);
+        awaitSimProperties(subId, values);
+    }
+
+    /**
+     * CarrierConfig broadcasts and Telephony property updates are asynchronous. CarrierConfig
+     * read-back can succeed before the SIM identity exposed to framework clients changes. Wait for
+     * the slot's public SIM properties so status becomes "verified" only after the visible layer
+     * has caught up. This is bounded and skipped for IMS-only writes.
+     */
+    private void awaitSimProperties(int subId, Map<String, Object> values) {
+        String expectedIso = asString(values.get("sim_country_iso_override_string"));
+        String expectedCarrier = asString(values.get("carrier_name_string"));
+        if (expectedIso == null && expectedCarrier == null) return;
+        try {
+            int slot = (int) invoke(slotIndex, service("isub", subType), subId);
+            long deadline = System.currentTimeMillis() + SIM_REFRESH_TIMEOUT_MS;
+            while (System.currentTimeMillis() < deadline) {
+                String actualIso = propertyAtSlot("gsm.sim.operator.iso-country", slot);
+                String actualCarrier = propertyAtSlot("gsm.sim.operator.alpha", slot);
+                boolean isoOk = expectedIso == null || expectedIso.equalsIgnoreCase(actualIso);
+                boolean carrierOk = expectedCarrier == null || expectedCarrier.equals(actualCarrier);
+                if (isoOk && carrierOk) return;
+                Thread.sleep(SIM_REFRESH_POLL_MS);
+            }
+        } catch (Throwable ignored) {
+            // CarrierConfig remains authoritative when vendor properties are unavailable.
+        }
+    }
+
+    private static String asString(Object value) {
+        return value instanceof String && !((String) value).isEmpty() ? (String) value : null;
+    }
+
+    private static String propertyAtSlot(String property, int slot) {
+        try {
+            Process process = new ProcessBuilder("getprop", property)
+                    .redirectErrorStream(true).start();
+            String line;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                line = reader.readLine();
+            }
+            process.waitFor();
+            if (line == null) return "";
+            String value = line.trim();
+            if (value.startsWith("[") && value.endsWith("]"))
+                value = value.substring(1, value.length() - 1);
+            String[] slots = value.split(",", -1);
+            return slot >= 0 && slot < slots.length ? slots[slot].trim() : "";
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 }
