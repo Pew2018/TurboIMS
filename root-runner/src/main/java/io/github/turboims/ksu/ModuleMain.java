@@ -101,7 +101,7 @@ public final class ModuleMain {
         System.exit(code);
     }
 
-    private static JSONObject defaultUi() {
+    private static JSONObject defaultUi() throws JSONException {
         return new JSONObject().put("schema", 1)
                 .put("theme_mode", "system").put("accent", "#009866");
     }
