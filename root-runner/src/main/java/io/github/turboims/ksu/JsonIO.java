@@ -63,7 +63,9 @@ public final class JsonIO implements Engine.Store {
     static FeatureConfig config(JSONObject obj) throws Exception {
         Set<String> keys = new HashSet<>();
         obj.keys().forEachRemaining(keys::add);
-        if (!keys.equals(Set.of("schema", "enabled", "selection", "interval_seconds", "features")))
+        if (!keys.equals(Set.of("schema", "enabled", "selection", "interval_seconds", "features"))
+                && !keys.equals(Set.of("schema", "enabled", "periodic_check_enabled",
+                        "selection", "interval_seconds", "features")))
             throw new IllegalArgumentException("Unexpected configuration fields");
         if (!(obj.get("schema") instanceof Integer) || obj.getInt("schema") != 1)
             throw new IllegalArgumentException("Unsupported config schema");
@@ -82,14 +84,23 @@ public final class JsonIO implements Engine.Store {
                 throw new IllegalArgumentException("Mode must be default, on or off");
             modes.put(name, FeatureConfig.Mode.valueOf(mode.toUpperCase(Locale.ROOT)));
         }
-        return new FeatureConfig(obj.getBoolean("enabled"), obj.getString("selection"),
-                obj.getInt("interval_seconds"), modes);
+        // Older saved configurations had 15..300 second polling. Migrate them to the
+        // new default and leave periodic checks OFF, without changing IMS modes.
+        int interval = obj.getInt("interval_seconds");
+        if (!obj.has("periodic_check_enabled") && interval <= 300) interval = 1800;
+        if (obj.has("periodic_check_enabled")
+                && !(obj.get("periodic_check_enabled") instanceof Boolean))
+            throw new IllegalArgumentException("Invalid periodic check switch");
+        return new FeatureConfig(obj.getBoolean("enabled"),
+                obj.optBoolean("periodic_check_enabled", false), obj.getString("selection"),
+                interval, modes);
     }
     static JSONObject config(FeatureConfig config) throws Exception {
         JSONObject modes = new JSONObject();
         for (String name : FeatureConfig.FEATURES)
             modes.put(name, config.modes.get(name).name().toLowerCase(Locale.ROOT));
         return new JSONObject().put("schema", 1).put("enabled", config.enabled)
+                .put("periodic_check_enabled", config.periodicCheckEnabled)
                 .put("selection", config.selection).put("interval_seconds", config.intervalSeconds)
                 .put("features", modes);
     }

@@ -28,6 +28,15 @@ public class BatchRunnerTest {
                     FeatureConfigTest.config(true,FeatureConfig.Mode.ON),engine(),preview,false);
         }
     }
+    @Test public void matchingConfigurationIsReadButNeverRewritten() {
+        Fake f = new Fake();
+        assertTrue(f.run(false).changed);
+        BatchRunner.Report repeat = f.run(false);
+        assertFalse(repeat.changed);
+        assertTrue(repeat.verified);
+        assertEquals(1, f.writes);
+        assertEquals(1, f.second.writes);
+    }
     @Test public void firstSimFailureDoesNotPreventSecondSimApply() {
         Fake f=new Fake();f.failedId=FIRST.id;BatchRunner.Report r=f.run(false);
         assertFalse(r.ok);assertEquals("error",r.phase);assertTrue(r.requiresManualRetry);

@@ -40,7 +40,9 @@ public final class BatchRunner {
                 lost |= r.phase.equals("ownership_lost");
                 unsupported |= !r.unsupported.isEmpty();
                 changed |= r.changed;
-                verified |= r.phase.equals("verified") || r.phase.equals("restored");
+                verified |= r.phase.equals("verified") || r.phase.equals("restored")
+                        || (!preview && target && r.phase.equals("unchanged")
+                                && r.unsupported.isEmpty() && r.conflicts.isEmpty());
             } catch (Exception error) {
                 failed = true;
                 entries.add(new Entry(sub, target, null, error));

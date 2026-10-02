@@ -125,7 +125,7 @@ function openSheet(title, description) {
   $("sheet-close").focus();
   return new Promise(resolve => { sheetResolve = resolve; });
 }
-$("sheet-close").onclick = () => dismissSheet(false);
+$("sheet-close").onclick = () => setTimeout(() => dismissSheet(false), 150);
 $("sheet").onclick = e => { if (e.target === $("sheet")) dismissSheet(false); };
 document.addEventListener("keydown", e => {
   if ($("sheet").hidden) return;
@@ -166,7 +166,7 @@ function choose(title, description, values, current, onSelect) {
         item.setAttribute("aria-selected", String(selected));
         item.setAttribute("aria-checked", String(selected));
       }
-      onSelect(value); dismissSheet(true);
+      onSelect(value); setTimeout(() => dismissSheet(true), 150);
     };
     $("sheet-content").append(button);
     window.TouchFeedback?.bind(button);
@@ -178,11 +178,12 @@ function choiceFor(select, button) {
   button.setAttribute("aria-label", (button.dataset.title || "选择设置") + "，" + button.textContent);
   button.onclick = () => choose(button.dataset.title || "选择设置", "", [...select.options].map(x => [x.value,x.textContent]), select.value, value => {
     select.value = value; choiceFor(select,button);
+    if (select.id === "interval") saveSchedule();
   });
 }
 async function ask(title, description) {
   const answer = openSheet(title, description);
-  $("sheet-actions").append(actionButton("确认", () => dismissSheet(true)));
+  $("sheet-actions").append(actionButton("确认", () => setTimeout(() => dismissSheet(true), 150)));
   return answer;
 }
 $("theme-choice").onclick = () => choose("显示模式", "", [
@@ -255,7 +256,7 @@ function showPage(page, scroll = 0) {
   $("back").hidden = primary;
   $("bottom-nav").hidden = !primary;
   $("page-content").dataset.primary = String(primary);
-  $("page-title").textContent = pageTitles[page];
+  $("page-title").textContent = "TurboIMS Next";
   for (const id of primaryPages) {
     const tab = $("tab-"+id);
     if (id === page) tab.setAttribute("aria-current","page");
@@ -329,28 +330,25 @@ function clickablePreference(button) {
   };
 }
 for (const id of ["selection-choice","interval-choice","theme-choice","accent-choice"]) clickablePreference($(id));
-for (const [id,title] of [["selection","应用到"],["interval","检查频率"]]) {
+for (const [id,title] of [["selection","应用到"],["interval","检查间隔"]]) {
   const button = $(id+"-choice"); button.dataset.title = title;
   choiceFor($(id),button);
 }
 const featureControls = new Map();
 // Persisted IMS modes are DEFAULT / ON / OFF. The visual switch has only
-// ON / OFF positions; DEFAULT is kept separately as "use original value".
-function syncFeatureSwitch(select, toggle, status, reset) {
+// ON / OFF positions; the individual DEFAULT action lives in Settings.
+function syncFeatureSwitch(select, toggle) {
   const state = select.value;
   toggle.checked = state === "on";
   toggle.dataset.state = state;
   toggle.setAttribute("aria-checked", String(toggle.checked));
   toggle.setAttribute("aria-label", toggle.dataset.title + "，" +
     (state === "default" ? "使用原值，点击强制开启" : state === "on" ? "强制开启" : "强制关闭"));
-  status.textContent = state === "default" ? "使用原值" : "";
-  status.hidden = state !== "default";
-  reset.hidden = state === "default";
 }
-function setFeatureMode(select, toggle, status, reset, mode) {
+function setFeatureMode(select, toggle, mode) {
   if (busy) return;
   select.value = mode;
-  syncFeatureSwitch(select,toggle,status,reset);
+  syncFeatureSwitch(select,toggle);
 }
 for (const [key, title, description] of features) {
   const row = document.createElement("div"); row.className = "feature";
@@ -373,32 +371,33 @@ for (const [key, title, description] of features) {
   toggle.type = "checkbox"; toggle.id = key + "-switch";
   toggle.className = "feature-switch"; toggle.setAttribute("role","switch");
   toggle.dataset.title = title;
-  toggle.onchange = () => setFeatureMode(select,toggle,status,reset,toggle.checked ? "on" : "off");
+  toggle.onchange = () => setFeatureMode(select,toggle,toggle.checked ? "on" : "off");
   switchHit.append(toggle);
-  const status = document.createElement("span"); status.id = key + "-state"; status.className = "feature-state";
-  const reset = document.createElement("button");
-  reset.type = "button"; reset.id = key + "-reset"; reset.className = "feature-reset";
-  reset.textContent = "恢复原值";
-  reset.setAttribute("aria-label", title + "，恢复原值");
-  reset.dataset.ripple = "control";
-  reset.onclick = event => {
-    event.stopPropagation();
-    setFeatureMode(select,toggle,status,reset,"default");
-  };
-  controls.append(switchHit,status,reset);
+  controls.append(switchHit);
   row.dataset.feedback = "row";
   row.setAttribute("aria-disabled","false");
   row.onclick = event => {
     if (!busy && !event.target.closest("button,input,select"))
-      setFeatureMode(select,toggle,status,reset,select.value === "on" ? "off" : "on");
+      setFeatureMode(select,toggle,select.value === "on" ? "off" : "on");
   };
   row.append(text,controls,select);
   $("features").append(row);
-  featureControls.set(key,{toggle,status,reset});
+  featureControls.set(key,{toggle});
   window.TouchFeedback?.bind(switchHit);
-  window.TouchFeedback?.bind(reset);
-  syncFeatureSwitch(select,toggle,status,reset);
+  syncFeatureSwitch(select,toggle);
 }
+$("reset-features").onclick = () => {
+  const available = features.filter(([key]) => $(key).value !== "default");
+  if (!available.length) {
+    message("所有 IMS 功能均使用原值", false, "neutral", "无需调整。"); return;
+  }
+  choose("恢复单项原值", "选择功能，返回 IMS 应用配置后生效。",
+    available.map(([key,title]) => [key,title]), "",
+    key => {
+      setFeatureMode($(key),featureControls.get(key).toggle,"default");
+      message("已选择恢复原值", false, "neutral", "返回 IMS 点击应用配置后生效。");
+    });
+};
 
 function message(text, error = false, tone = error ? "danger" : "neutral", detail = "") {
   $("message").textContent = text;
@@ -407,8 +406,39 @@ function message(text, error = false, tone = error ? "danger" : "neutral", detai
   $("status-indicator").dataset.tone = tone;
   if (currentPage === "diagnostics-page") $("diagnostic-notice").textContent = [text,detail].filter(Boolean).join("，");
 }
+let savedConfig = null;
+function updatePeriodicControl() {
+  const disabled = !$("periodic-check").checked;
+  $("interval-row").setAttribute("aria-disabled",String(disabled));
+  $("interval-choice").disabled = disabled;
+}
+async function saveSchedule() {
+  if (!savedConfig || busy) return;
+  const periodic = $("periodic-check").checked;
+  const interval = Number($("interval").value);
+  try {
+    await operation(async () => {
+      const config = {...savedConfig, periodic_check_enabled:periodic, interval_seconds:interval};
+      const result = await TurboBridge.call("save", btoa(JSON.stringify(config)));
+      savedConfig = result.config;
+      render(await TurboBridge.call("status"));
+    }, "正在更新定时任务…");
+  } finally {
+    // Save errors keep the previous schedule rather than a misleading switch.
+    if (savedConfig) {
+      $("periodic-check").checked = !!savedConfig.periodic_check_enabled;
+      $("interval").value = String(savedConfig.interval_seconds);
+      choiceFor($("interval"),$("interval-choice"));
+      updatePeriodicControl();
+    }
+  }
+}
+$("periodic-check").onchange = () => { updatePeriodicControl(); saveSchedule(); };
 function form(config) {
+  savedConfig = config;
   $("enabled").checked = config.enabled;
+  $("periodic-check").checked = !!config.periodic_check_enabled;
+  updatePeriodicControl();
   if (![...$("selection").options].some(x => x.value === config.selection)) {
     const option = document.createElement("option");
     option.value = config.selection; option.textContent = config.selection; $("selection").append(option);
@@ -424,12 +454,13 @@ function form(config) {
   choiceFor($("interval"),$("interval-choice"));
   for (const [key] of features) {
     $(key).value = config.features[key] || "default";
-    const {toggle,status,reset} = featureControls.get(key);
-    syncFeatureSwitch($(key),toggle,status,reset);
+    const {toggle} = featureControls.get(key);
+    syncFeatureSwitch($(key),toggle);
   }
 }
 function configFromForm() {
-  return { schema:1, enabled:$("enabled").checked, selection:$("selection").value,
+  return { schema:1, enabled:$("enabled").checked,
+    periodic_check_enabled:$("periodic-check").checked, selection:$("selection").value,
     interval_seconds:Number($("interval").value),
     features:Object.fromEntries(features.map(([key]) => [key, $(key).value])) };
 }
@@ -449,19 +480,19 @@ function render(result, replaceForm = false) {
     partial:["部分配置未应用","部分配置项不受支持，请查看逐卡结果。"],
     ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
     waiting:["等待 SIM 卡","请等待 SIM 卡和运营商配置加载。"],
+    retry_timeout:["等待超时","SIM 卡或运营商配置尚未就绪，已停止本次尝试。"],
     conflict:["存在配置冲突","冲突项已保留，请查看诊断与验证。"],
     not_started:["尚未开始工作","安装后请重启设备，再运行检测。"],
     error:["操作失败","请查看诊断与验证中的详细原因。"]
   };
-  const warning = ["waiting","conflict","partial"].includes(phase);
+  const warning = ["waiting","retry_timeout","conflict","partial"].includes(phase);
   const danger = ["error","ownership_lost"].includes(phase) || !!result.blocked;
   const tone = danger ? "danger" : warning || (phase === "active" && !state.write_readback_verified)
     ? "warning" : ["active","verified","probe"].includes(phase) ? "success" : "neutral";
   const [title,detail] = texts[phase] || ["状态待确认","请查看诊断与验证。"];
   message(title, danger, tone, detail);
   if (result.blocked) message("自动应用已停止", true, "danger", "存在需要手动处理的问题，请查看诊断与验证。");
-  if (result.watcher && !result.watcher.alive)
-    message("自动应用未运行", true, "danger", "请重启设备；若问题仍在，请生成诊断。");
+  // The one-shot worker exiting after a verified apply is normal.
   const subscriptions = state.subscriptions;
   const slots = Array.isArray(subscriptions)
     ? [...new Set(subscriptions.filter(sub => Number.isInteger(sub.slot) && sub.slot >= 0).map(sub => sub.slot + 1))]
@@ -490,7 +521,7 @@ function renderDiagnosticSummary(result) {
   const binder = result.binder || state.binder;
   const phases = {active:state.write_readback_verified ? "覆盖验证通过" : "当前配置无需写入",
     verified:"覆盖验证通过",probe:"只读检测完成",paused:"已暂停",partial:"部分支持",
-    waiting:"等待 SIM 配置",conflict:"存在第三方冲突",ownership_lost:"覆盖标记丢失",
+    waiting:"等待 SIM 配置",retry_timeout:"等待超时",conflict:"存在第三方冲突",ownership_lost:"覆盖标记丢失",
     not_started:"尚未启动",error:"执行失败"};
   const rows = [
     ["状态", result.blocked ? "自动写入已停止" : phases[state.phase] || state.phase || "未知"],
@@ -498,7 +529,7 @@ function renderDiagnosticSummary(result) {
     ["SELinux", result.selinux_context || state.selinux_context || "未取得"],
     ["设备", result.device || state.device || "未取得"],
     ["SDK", result.sdk ?? state.sdk ?? "未取得"],
-    ["Watcher", result.watcher ? (result.watcher.alive ? "运行中" : "未运行") : "未取得"],
+    ["后台任务", result.watcher ? (result.watcher.alive ? "运行中" : "已结束") : "尚未启动"],
     ["CarrierConfig", binder?.carrier_config === true ? "读通路可用" :
       binder?.carrier_config === false ? "不可用" : "尚未检测"]
   ];
@@ -538,11 +569,12 @@ $("probe").onclick = () => operation(async () => render(await TurboBridge.call("
 $("refresh").onclick = () => operation(async () => render(await TurboBridge.call("status")), "正在刷新…", $("refresh"));
 $("apply").onclick = async () => {
   const config = configFromForm();
-  if (config.enabled && !await ask("应用 IMS 配置？", "将更新所选 SIM 卡的 IMS 配置。能否使用通话功能仍取决于运营商支持。")) {
+  if (!await ask("应用 IMS 配置？", "将更新所选 SIM 卡的 IMS 配置。能否使用通话功能仍取决于运营商支持。")) {
     message("已取消", false, "neutral", "当前设置未保存。"); return;
   }
   operation(async () => {
-    await TurboBridge.call("save", btoa(JSON.stringify(config)));
+    const saved = await TurboBridge.call("save", btoa(JSON.stringify(config)));
+    savedConfig = saved.config;
     render(await TurboBridge.call("apply"), true);
   });
 };

@@ -3,7 +3,7 @@
 MODDIR=${0%/*}
 umask 077
 case "$1" in
-  probe|status|get-config|apply|restore|export|watch)
+  probe|status|get-config|apply|restore|export|watch|watch-periodic)
     [ "$#" -eq 1 ] || exit 64 ;;
   save)
     [ "$#" -eq 2 ] || exit 64
@@ -15,7 +15,7 @@ esac
   exit 66
 }
 export CLASSPATH="$MODDIR/runner.apk"
-if [ "$1" = "watch" ]; then
+if [ "$1" = "watch" ] || [ "$1" = "watch-periodic" ]; then
   exec /system/bin/app_process64 /system/bin io.github.turboims.ksu.ModuleMain "$MODDIR" "$@"
 fi
 exec /system/bin/timeout 45 /system/bin/app_process64 /system/bin \

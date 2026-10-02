@@ -43,7 +43,8 @@ test("WebUI has offline assets and no CDN dependencies",()=>{
 });
 test("default config is deliberately paused",()=>{
   const config=JSON.parse(fs.readFileSync(path.join(__dirname,"../module/default-config.json"),"utf8"));
-  assert.equal(config.enabled,false);assert.equal(Object.keys(config.features).length,7);
+  assert.equal(config.enabled,false);assert.equal(config.periodic_check_enabled,false);
+  assert.equal(config.interval_seconds,1800);assert.equal(Object.keys(config.features).length,7);
 });
 
 async function appHarness() {
@@ -66,7 +67,7 @@ async function appHarness() {
         const el=element();
         if(id==="sheet")el.hidden=true;
         if(id==="selection")el.options=[{value:"all",textContent:"所有活跃 SIM"},{value:"slot:0",textContent:"SIM 卡槽 1"},{value:"slot:1",textContent:"SIM 卡槽 2"}];
-        if(id==="interval")el.options=[15,30,60,120,300].map(x=>({value:String(x),textContent:x+" 秒"}));
+        if(id==="interval")el.options=[600,1800,3600,7200].map(x=>({value:String(x),textContent:x+" 秒"}));
         elements.set(id,el);
       }
       return elements.get(id);
@@ -91,10 +92,12 @@ async function appHarness() {
   const context=vm.createContext({
     window, history, location,
     document:doc,
-    TurboBridge:{call:async(action,payload)=>{calls.push([action,payload]);return {phase:"not_started"};}},
+    TurboBridge:{call:async(action,payload)=>{calls.push([action,payload]);
+      if(action==="save")return {ok:true,config:JSON.parse(Buffer.from(payload,"base64").toString()),phase:"saved"};
+      return {phase:"not_started"};}},
     localStorage:{getItem:()=>null,setItem(){}},
     matchMedia:()=>({matches:false,addEventListener(){}}),
-    btoa:s=>Buffer.from(s).toString("base64")
+    btoa:s=>Buffer.from(s).toString("base64"), setTimeout
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8"),context);
   await Promise.resolve();await Promise.resolve();
@@ -118,6 +121,7 @@ test("choice and appearance changes never call the privileged bridge",async()=>{
   const options=elements.get("sheet-content").children;
   options[1].onclick();
   assert.equal(elements.get("selection").value,"slot:0");
+  await new Promise(resolve=>setTimeout(resolve,180));
   elements.get("theme-choice").onclick();
   elements.get("sheet-content").children[2].onclick();
   assert.equal(doc.documentElement.dataset.theme,"dark");
@@ -139,7 +143,7 @@ test("OnePlus Blue defaults to a separate Classic color page",async()=>{
   elements.get("open-appearance").onclick();
   elements.get("accent-choice").onclick();
   assert.equal(elements.get("accent-page").hidden,false);
-  assert.equal(elements.get("page-title").textContent,"强调色");
+  assert.equal(elements.get("page-title").textContent,"TurboIMS Next");
   assert.equal(elements.get("oneplus-colors").children.length,8);
   assert.ok(elements.get("material-colors").children.length>=2);
   elements.get("oneplus-colors").children[1].onclick();
@@ -156,12 +160,13 @@ test("OnePlus Blue defaults to a separate Classic color page",async()=>{
 });
 test("IMS config semantics survive preference presentation",async()=>{
   const {context,doc}=await appHarness();
-  context.form({enabled:true,selection:"slot:1",interval_seconds:60,
+  context.form({enabled:true,periodic_check_enabled:true,selection:"slot:1",interval_seconds:3600,
     features:{volte:"off",vowifi:"on",vt:"default",vonr:"on",cross_sim:"off",ut:"default","5g_nr":"on"}});
   const config=context.configFromForm();
   assert.equal(config.enabled,true);
   assert.equal(config.selection,"slot:1");
-  assert.equal(config.interval_seconds,60);
+  assert.equal(config.interval_seconds,3600);
+  assert.equal(config.periodic_check_enabled,true);
   assert.equal(config.features.volte,"off");
   assert.equal(config.features.vt,"default");
 });
@@ -171,7 +176,7 @@ test("secondary pages preserve status and show diagnostics as selectable text",a
   elements.get("open-appearance").onclick();
   assert.equal(elements.get("home").hidden,true);
   assert.equal(elements.get("appearance-page").hidden,false);
-  assert.equal(elements.get("page-title").textContent,"外观");
+  assert.equal(elements.get("page-title").textContent,"TurboIMS Next");
   elements.get("back").onclick();
   assert.equal(elements.get("settings-page").hidden,false);
   elements.get("tab-settings-page").onclick();
@@ -255,7 +260,7 @@ test("diagnostic summary never invents success for missing capabilities",async()
   context.renderDiagnosticSummary({phase:"probe",uid:0});
   const rows=elements.get("diagnostic-summary").children;
   assert.equal(rows[0].children[1].textContent,"只读检测完成");
-  assert.equal(rows[5].children[1].textContent,"未取得");
+  assert.equal(rows[5].children[1].textContent,"尚未启动");
   assert.equal(rows[6].children[1].textContent,"尚未检测");
 });
 test("normal homepage excludes technical per-SIM data and only page links have chevrons",()=>{
@@ -309,7 +314,7 @@ test("probe and refresh keep their original privileged operation semantics",asyn
 
 test("equal root destinations replace history and retain IMS form and scroll",async()=>{
   const {elements,doc,history,calls}=await appHarness();
-  assert.equal(elements.get("page-title").textContent,"IMS");
+  assert.equal(elements.get("page-title").textContent,"TurboIMS Next");
   assert.equal(elements.get("bottom-nav").hidden,false);
   assert.equal(elements.get("back").hidden,true);
   doc.getElementById("enabled").checked=true;
@@ -318,7 +323,7 @@ test("equal root destinations replace history and retain IMS form and scroll",as
   viewport.scrollTop=420;
   elements.get("tab-sim-page").onclick();
   assert.equal(elements.get("sim-page").hidden,false);
-  assert.equal(elements.get("page-title").textContent,"SIM 卡信息");
+  assert.equal(elements.get("page-title").textContent,"TurboIMS Next");
   assert.equal(viewport.scrollTop,0);
   elements.get("tab-settings-page").onclick();
   viewport.scrollTop=30;
@@ -382,38 +387,47 @@ test("dark mode publishes matching WebView chrome colors",()=>{
   assert.match(app,/chromeColor = dark \? "#121212" : "#ffffff"/);
   assert.match(app,/navigation-bar-color/);
 });
-test("IMS switches expose only two visual states and preserve per-feature DEFAULT",async()=>{
+test("IMS rows have only switches; Settings retains individual DEFAULT",async()=>{
   const {context,elements,doc}=await appHarness();
-  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
-  assert.match(app,/Persisted IMS modes are DEFAULT \/ ON \/ OFF/);
-  assert.doesNotMatch(app,/indeterminate|cycleFeature/);
   const rows=elements.get("features").children;
   assert.equal(rows.length,7);
-  const first=rows[0],controls=first.children[1],switchHit=controls.children[0],
-    toggle=switchHit.children[0],status=controls.children[1],reset=controls.children[2];
+  const controls=rows[0].children[1], toggle=controls.children[0].children[0];
+  assert.equal(controls.children.length,1);
   assert.equal(doc.getElementById("volte").value,"default");
-  assert.equal(toggle.checked,false);
-  assert.equal(toggle.attributes["aria-checked"],"false");
-  assert.equal(status.textContent,"使用原值");
-  toggle.checked=true;
-  toggle.onchange();
+  toggle.checked=true;toggle.onchange();
   assert.equal(doc.getElementById("volte").value,"on");
-  assert.equal(reset.hidden,false);
-  toggle.checked=false;
-  toggle.onchange();
+  toggle.checked=false;toggle.onchange();
   assert.equal(doc.getElementById("volte").value,"off");
-  assert.equal(toggle.attributes["aria-checked"],"false");
-  reset.onclick({stopPropagation(){}});
+  elements.get("tab-settings-page").onclick();
+  elements.get("reset-features").onclick();
+  assert.equal(elements.get("sheet-content").children[0].textContent,"VoLTE");
+  elements.get("sheet-content").children[0].onclick();
   assert.equal(doc.getElementById("volte").value,"default");
-  assert.equal(status.hidden,false);
-  context.form({enabled:false,selection:"all",interval_seconds:30,
+  context.form({enabled:false,periodic_check_enabled:false,selection:"all",interval_seconds:1800,
     features:{volte:"off",vowifi:"on",vt:"default",vonr:"on",cross_sim:"off",ut:"default","5g_nr":"on"}});
   assert.equal(doc.getElementById("volte").value,"off");
   assert.equal(context.configFromForm().features.vt,"default");
 });
+test("schedule switch saves immediately and interval is disabled when off",async()=>{
+  const {context,elements,calls,doc}=await appHarness();
+  const config={enabled:true,periodic_check_enabled:false,selection:"all",interval_seconds:1800,
+    features:Object.fromEntries(["volte","vowifi","vt","vonr","cross_sim","ut","5g_nr"].map(key=>[key,"on"]))};
+  context.form(config);
+  assert.equal(elements.get("interval-choice").disabled,true);
+  doc.getElementById("periodic-check").checked=true;
+  await elements.get("periodic-check").onchange();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(elements.get("interval-choice").disabled,false);
+  assert.equal(calls.filter(([action])=>action==="save").length,1);
+  const saved=JSON.parse(Buffer.from(calls.find(([action])=>action==="save")[1],"base64").toString());
+  assert.equal(saved.periodic_check_enabled,true);
+  assert.equal(saved.interval_seconds,1800);
+});
 test("compact controls retain confirmed tap ripples without global tracking",()=>{
   const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
   assert.match(feedback,/\.bottom-tab,\.switch-hit,\.text-action,\.choice/);
+  assert.match(feedback,/\.option,\.swatch-item/);
+  assert.match(feedback,/\.dialog-cancel/);
   assert.match(feedback,/surface\.addEventListener\("pointerup"/);
   assert.match(feedback,/Math\.hypot\(event\.clientX-tap\.x,event\.clientY-tap\.y\)>slop/);
   assert.doesNotMatch(feedback,/document\.addEventListener\("pointer|pointermove/);

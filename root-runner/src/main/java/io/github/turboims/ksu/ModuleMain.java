@@ -1,7 +1,9 @@
 package io.github.turboims.ksu;
 
 import android.os.Build;
+import android.os.FileObserver;
 import android.os.Process;
+import android.os.SystemClock;
 import android.system.Os;
 import org.json.*;
 import org.lsposed.hiddenapibypass.HiddenApiBypass;
@@ -38,7 +40,14 @@ public final class ModuleMain {
                 Os.chmod(JsonIO.CONFIG.toString(), 0600);
             }
             String action = args[1];
-            if (action.equals("watch")) { watch(); return; }
+            if (action.equals("watch") || action.equals("watch-periodic")) {
+                try { watch(action.equals("watch")); }
+                catch (IOException duplicate) {
+                    if (!"Another runner operation is busy".equals(duplicate.getMessage()))
+                        throw duplicate;
+                }
+                return;
+            }
             JSONObject result;
             if (action.equals("status") || action.equals("export")) {
                 result = status();
@@ -57,15 +66,18 @@ public final class ModuleMain {
                                 Base64.getDecoder().decode(args[2]), StandardCharsets.UTF_8));
                         FeatureConfig config = JsonIO.config(incoming);
                         JsonIO.write(JsonIO.CONFIG, JsonIO.config(config));
+                        if (config.periodicCheckEnabled) startWatcher();
                         result = new JSONObject().put("ok", true).put("saved", true)
                                 .put("config", JsonIO.config(config));
                     } else if (Set.of("probe", "apply", "restore").contains(action)) {
                         if (action.equals("restore")) {
                             JSONObject config = JsonIO.read(JsonIO.CONFIG);
                             config.put("enabled", false);
+                            config.put("periodic_check_enabled", false);
                             JsonIO.write(JsonIO.CONFIG, JsonIO.config(JsonIO.config(config)));
                         }
-                        result = runOnce(action.equals("probe"), action.equals("restore"));
+                        result = runOnce(action.equals("probe"), action.equals("restore"),
+                                action.equals("apply"));
                         if (!action.equals("probe")) {
                             JsonIO.write(STATUS, result);
                             if (result.getBoolean("ok")) Files.deleteIfExists(BLOCKED);
@@ -105,12 +117,16 @@ public final class ModuleMain {
                 .put("time_ms", System.currentTimeMillis());
     }
 
-    private static JSONObject runOnce(boolean preview, boolean restore) throws Exception {
+    private static JSONObject runOnce(boolean preview, boolean restore, boolean forceApply) throws Exception {
         FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
+        // Manual apply and scheduled repair are independent from boot auto apply.
+        FeatureConfig effective = forceApply && !restore && !preview
+                ? new FeatureConfig(true, config.periodicCheckEnabled, config.selection,
+                        config.intervalSeconds, config.modes) : config;
         AndroidCarrierBackend backend = backend();
         Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
         List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
-        BatchRunner.Report report = BatchRunner.run(subscriptions, config, engine, preview, restore);
+        BatchRunner.Report report = BatchRunner.run(subscriptions, effective, engine, preview, restore);
         JSONArray results = new JSONArray();
         for (BatchRunner.Entry entry : report.entries) {
             CarrierBackend.Subscription sub = entry.sub;
@@ -165,54 +181,98 @@ public final class ModuleMain {
         return result;
     }
 
-    private static void watch() throws Exception {
-        try (Locked daemon = lock("daemon.lock", false)) {
-            JsonIO.write(JsonIO.STATE.resolve("watcher.json"),
-                    new JSONObject().put("pid", Process.myPid()).put("session", session));
+    private static void startWatcher() throws Exception {
+        // Always launch a candidate. If an old worker is exiting during this save,
+        // the candidate waits for its lock instead of losing the new schedule.
+        Path log = JsonIO.STATE.resolve("launcher.log");
+        new ProcessBuilder("/system/bin/sh", module.resolve("control.sh").toString(), "watch-periodic")
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile()))
+                .redirectError(ProcessBuilder.Redirect.appendTo(log.toFile()))
+                .start();
+    }
+
+    private static JSONObject automaticAttempt() throws Exception {
+        try (Locked operation = lock("operation.lock", true)) {
+            JSONObject result = runOnce(false, false, true);
+            JsonIO.write(STATUS, result);
+            if (result.optBoolean("requires_manual_retry")
+                    || (!result.optBoolean("ok") && !"waiting".equals(result.optString("phase"))))
+                JsonIO.write(BLOCKED, result);
+            return result;
+        }
+    }
+
+    private static JSONObject boundedApply(boolean bootOnly) throws Exception {
+        JSONObject result = AutoApply.untilReady(() -> {
+            FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
+            if (!installedAndEnabled() || (bootOnly && !config.enabled)
+                    || (!bootOnly && !config.periodicCheckEnabled))
+                return identity().put("ok", true).put("phase", "paused");
+            if (Files.exists(BLOCKED)) return JsonIO.read(BLOCKED);
+            return automaticAttempt();
+        }, value -> value.optString("phase"), Thread::sleep);
+        if ("waiting".equals(result.optString("phase"))) {
+            result.put("phase", "retry_timeout").put("ok", false)
+                    .put("requires_manual_retry", false);
+            JsonIO.write(STATUS, result);
+            log("SIM/CarrierConfig readiness retry timed out");
+        }
+        return result;
+    }
+
+    private static void watch(boolean bootPass) throws Exception {
+        try (Locked daemon = lock("daemon.lock", !bootPass)) {
+            Path marker = JsonIO.STATE.resolve("watcher.json");
+            JsonIO.write(marker, new JSONObject().put("pid", Process.myPid())
+                    .put("session", session).put("mode", "running"));
             if (Files.exists(BLOCKED) && !session.equals(JsonIO.read(BLOCKED).optString("session")))
                 Files.delete(BLOCKED);
-            log("Watcher started, sdk=" + Build.VERSION.SDK_INT + ", uid=" + Os.getuid());
-            try {
-                while (installedAndEnabled()) {
-                    int seconds = 30;
-                    try {
-                        FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
-                        seconds = config.intervalSeconds;
-                        if (!Files.exists(BLOCKED)) {
-                            try (Locked operation = lock("operation.lock", true)) {
-                                JSONObject result = runOnce(false, false);
-                                JsonIO.write(STATUS, result);
-                                if (result.optBoolean("requires_manual_retry"))
-                                    JsonIO.write(BLOCKED, result);
-                                if (result.optString("phase").equals("waiting")) seconds = 5;
-                            }
-                        }
-                    } catch (Exception e) {
-                        JSONObject result = error(e);
-                        JsonIO.write(STATUS, result);
-                        log("ERROR " + result.optString("error"));
-                        if (e instanceof SecurityException || e instanceof ReflectiveOperationException
-                                || e instanceof IllegalStateException
-                                || e instanceof IllegalArgumentException) {
-                            // Permission/ABI/verification failures stop automatic writes.
-                            JsonIO.write(BLOCKED, result.put("session", session));
-                        }
-                        seconds = 15;
-                    }
-                    long stamp = Files.getLastModifiedTime(JsonIO.CONFIG).toMillis();
-                    for (int i = 0; i < seconds && installedAndEnabled(); i++) {
-                        Thread.sleep(1000);
-                        if (Files.getLastModifiedTime(JsonIO.CONFIG).toMillis() != stamp) break;
+            log("Automatic task started, sdk=" + Build.VERSION.SDK_INT);
+            final Object changed = new Object();
+            final long[] generation = {0};
+            // Config is atomically replaced; observe the directory's MOVED_TO event.
+            // No one-second file polling or wake lock is held during timed waits.
+            FileObserver observer = new FileObserver(JsonIO.STATE.toString(),
+                    FileObserver.MOVED_TO | FileObserver.CLOSE_WRITE) {
+                @Override public void onEvent(int event, String path) {
+                    if ("config.json".equals(path)) {
+                        synchronized (changed) { generation[0]++; changed.notifyAll(); }
                     }
                 }
+            };
+            observer.startWatching();
+            try {
+                FeatureConfig boot = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
+                if (bootPass && boot.enabled && !Files.exists(BLOCKED)) boundedApply(true);
+                while (installedAndEnabled()) {
+                    long seen;
+                    synchronized (changed) { seen = generation[0]; }
+                    FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
+                    if (!config.periodicCheckEnabled || Files.exists(BLOCKED)) break;
+                    boolean updated;
+                    synchronized (changed) {
+                        long end = SystemClock.elapsedRealtime() + config.intervalSeconds * 1000L;
+                        long remaining;
+                        while (generation[0] == seen
+                                && (remaining = end - SystemClock.elapsedRealtime()) > 0)
+                            changed.wait(remaining);
+                        updated = generation[0] != seen;
+                    }
+                    if (updated) continue; // A saved interval starts a fresh wait.
+                    config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
+                    if (!config.periodicCheckEnabled || Files.exists(BLOCKED)) break;
+                    boundedApply(false);
+                }
+            } catch (Exception e) {
+                JSONObject result = error(e);
+                JsonIO.write(STATUS, result);
+                JsonIO.write(BLOCKED, result);
+                log("Automatic task stopped: " + result.optString("error"));
             } finally {
-                // Best effort, narrow restore on live disable/uninstall; reboot clears nonpersistent
-                // overrides even if this process is forcibly killed by the module manager.
-                try (Locked operation = lock("operation.lock", true)) {
-                    JsonIO.write(STATUS, runOnce(false, true));
-                } catch (Exception e) { log("Exit restore failed: " + e); }
-                JsonIO.write(JsonIO.STATE.resolve("watcher.json"),
-                        new JSONObject().put("pid", -1).put("session", session));
+                observer.stopWatching();
+                // A completed or disabled task NEVER restores an applied override.
+                JsonIO.write(marker, new JSONObject().put("pid", -1)
+                        .put("session", session).put("mode", "completed"));
             }
         }
     }

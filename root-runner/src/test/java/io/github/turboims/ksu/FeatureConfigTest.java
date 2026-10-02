@@ -7,7 +7,19 @@ public class FeatureConfigTest {
     static FeatureConfig config(boolean enabled, FeatureConfig.Mode mode) {
         Map<String, FeatureConfig.Mode> modes = new LinkedHashMap<>();
         for (String name : FeatureConfig.FEATURES) modes.put(name, mode);
-        return new FeatureConfig(enabled, "all", 30, modes);
+        return new FeatureConfig(enabled, "all", 1800, modes);
+    }
+    @Test public void separateScheduleDefaultsOff() {
+        FeatureConfig c = config(true, FeatureConfig.Mode.ON);
+        assertFalse(c.periodicCheckEnabled);
+        assertEquals(1800, c.intervalSeconds);
+        FeatureConfig scheduled = new FeatureConfig(false, true, "all", 600, c.modes);
+        assertTrue(scheduled.periodicCheckEnabled);
+    }
+    @Test public void supportsAllScheduledIntervals() {
+        for (int seconds : new int[]{600,1800,3600,7200})
+            assertEquals(seconds, new FeatureConfig(true, true, "all", seconds,
+                    config(true, FeatureConfig.Mode.ON).modes).intervalSeconds);
     }
     @Test public void sevenFeatures() { assertEquals(7, FeatureConfig.FEATURES.size()); }
     @Test public void pausedDoesNotRequestOverrides() {
@@ -67,16 +79,16 @@ public class FeatureConfigTest {
     }
     @Test public void slotSelectionNotSubId() {
         FeatureConfig c=config(true,FeatureConfig.Mode.ON);
-        FeatureConfig one=new FeatureConfig(true,"slot:0",30,c.modes);
+        FeatureConfig one=new FeatureConfig(true,"slot:0",1800,c.modes);
         assertTrue(one.selects(0)); assertFalse(one.selects(1));
     }
     @Test(expected=IllegalArgumentException.class) public void rejectsBadSelection() {
-        new FeatureConfig(true,"subId:1",30,config(true,FeatureConfig.Mode.ON).modes);
+        new FeatureConfig(true,"subId:1",1800,config(true,FeatureConfig.Mode.ON).modes);
     }
     @Test(expected=IllegalArgumentException.class) public void rejectsFastPolling() {
         new FeatureConfig(true,"all",1,config(true,FeatureConfig.Mode.ON).modes);
     }
     @Test(expected=IllegalArgumentException.class) public void rejectsMissingFeatures() {
-        new FeatureConfig(true,"all",30,Map.of());
+        new FeatureConfig(true,"all",1800,Map.of());
     }
 }

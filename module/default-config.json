@@ -1,8 +1,9 @@
 {
   "schema": 1,
   "enabled": false,
+  "periodic_check_enabled": false,
   "selection": "all",
-  "interval_seconds": 30,
+  "interval_seconds": 1800,
   "features": {
     "volte": "on",
     "vowifi": "on",

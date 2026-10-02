@@ -8,19 +8,26 @@ public final class FeatureConfig {
             List.of("volte", "vowifi", "vt", "vonr", "cross_sim", "ut", "5g_nr");
     public enum Mode { DEFAULT, ON, OFF }
     public final boolean enabled;
+    public final boolean periodicCheckEnabled;
     public final String selection;
     public final int intervalSeconds;
     public final Map<String, Mode> modes;
 
     public FeatureConfig(boolean enabled, String selection, int intervalSeconds,
                          Map<String, Mode> modes) {
+        this(enabled, false, selection, intervalSeconds, modes);
+    }
+
+    public FeatureConfig(boolean enabled, boolean periodicCheckEnabled, String selection,
+                         int intervalSeconds, Map<String, Mode> modes) {
         if (!selection.equals("all") && !selection.matches("slot:[0-7]"))
             throw new IllegalArgumentException("SIM selection must be all or slot:0..7");
-        if (intervalSeconds < 15 || intervalSeconds > 300)
-            throw new IllegalArgumentException("Interval must be 15..300 seconds");
+        if (!Set.of(600, 1800, 3600, 7200).contains(intervalSeconds))
+            throw new IllegalArgumentException("Interval must be 10, 30, 60 or 120 minutes");
         if (!modes.keySet().equals(new HashSet<>(FEATURES)) || modes.containsValue(null))
             throw new IllegalArgumentException("Exactly seven feature modes are required");
         this.enabled = enabled;
+        this.periodicCheckEnabled = periodicCheckEnabled;
         this.selection = selection;
         this.intervalSeconds = intervalSeconds;
         this.modes = Collections.unmodifiableMap(new LinkedHashMap<>(modes));
@@ -82,7 +89,7 @@ public final class FeatureConfig {
         Map<String, Mode> modes = new LinkedHashMap<>();
         for (String name : FEATURES) modes.put(name, Mode.ON);
         return Collections.unmodifiableSet(
-                new LinkedHashSet<>(new FeatureConfig(true, "all", 30, modes).desired().keySet()));
+                new LinkedHashSet<>(new FeatureConfig(true, "all", 1800, modes).desired().keySet()));
     }
 
     public static boolean same(Object a, Object b) {
