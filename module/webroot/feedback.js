@@ -48,7 +48,12 @@
       circle.style.left=x-radius+"px";
       circle.style.top=y-radius+"px";
       circle.setAttribute("aria-hidden","true");
-      circle.addEventListener("animationend",()=>circle.remove(),{once:true});
+      // WebView may skip animationend if a tab becomes hidden mid-animation.
+      const cleanup = setTimeout(()=>circle.remove(),500);
+      circle.addEventListener("animationend",()=>{
+        clearTimeout(cleanup);
+        circle.remove();
+      },{once:true});
       surface.append(circle);
     },{passive:true});
   }
