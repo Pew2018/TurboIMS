@@ -8,6 +8,7 @@
   <title>TurboIMS Next</title>
   <link rel="stylesheet" href="style.css">
   <script src="bridge.js" defer></script>
+  <script src="feedback.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -15,32 +16,31 @@
 <main id="home" class="page">
   <section class="pref-group" aria-labelledby="device-heading">
     <h2 id="device-heading" class="category">设备状态</h2>
-    <div class="status-row"><span id="status-indicator" class="status-indicator" aria-hidden="true"></span><div><p id="message" role="status" aria-live="polite">正在读取状态…</p><p id="device" class="summary"></p></div></div>
-    <button id="probe" class="pref-action" type="button"><span>只读检测</span></button>
-    <button id="refresh" class="pref-action" type="button"><span>刷新状态</span></button>
+    <div class="status-row"><span id="status-indicator" class="status-indicator" aria-hidden="true"></span><div><p id="message" role="status" aria-live="polite">正在读取…</p><p id="device" class="summary"></p><p id="sim-summary" class="summary" hidden></p></div></div>
+    <div class="status-actions"><button id="probe" class="text-action" type="button"><span class="action-label">检测设备</span></button><button id="refresh" class="text-action" type="button"><span class="action-label">刷新</span></button></div>
   </section>
   <section class="pref-group" aria-labelledby="settings-heading">
-    <h2 id="settings-heading" class="category">自动适配</h2>
-    <label class="setting-row"><span class="row-copy"><strong>启用自动适配</strong><small>开机及 SIM / CarrierConfig 变化后检查设置</small></span><input id="enabled" type="checkbox" role="switch"></label>
-    <div class="setting-row"><span class="row-copy"><strong>应用范围</strong><small>选择需要调整的活跃 SIM</small></span><button id="selection-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="selection" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="all">所有活跃 SIM</option><option value="slot:0">SIM 卡槽 1</option><option value="slot:1">SIM 卡槽 2</option></select></div>
-    <div class="setting-row"><span class="row-copy"><strong>检查间隔</strong><small>后台自动检查的频率</small></span><button id="interval-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="interval" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="15">15 秒</option><option value="30">30 秒（默认）</option><option value="60">60 秒</option><option value="120">120 秒</option><option value="300">5 分钟</option></select></div>
-    <p class="hint preference-footer">首次安装默认为暂停。启用后才写入；停用模块并重启可清除非持久覆盖。</p>
-    <h3 class="category subcategory">IMS 功能覆盖</h3><div id="features"></div>
-    <button id="apply" class="pref-action" type="button"><span>保存并应用<small>写入当前配置并执行验证</small></span></button>
-    <button id="restore" class="pref-action" type="button"><span>暂停并恢复原值<small>停止自动适配并恢复本模块记录的值</small></span></button>
-    <p class="hint preference-footer">“恢复原值”只恢复本模块修改前记录的有效值，可能包含其他工具的设置。遇到第三方冲突时不会覆盖冲突键。</p>
+    <h2 id="settings-heading" class="category">自动配置</h2>
+    <label class="setting-row"><span class="row-copy"><strong>自动应用配置</strong><small>开机或 SIM 卡配置变化时自动检查</small></span><input id="enabled" type="checkbox" role="switch"></label>
+    <div class="setting-row"><span class="row-copy"><strong>应用到</strong><small>选择要应用配置的 SIM 卡</small></span><button id="selection-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="selection" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="all">所有活跃 SIM 卡</option><option value="slot:0">SIM 卡 1</option><option value="slot:1">SIM 卡 2</option></select></div>
+    <div class="setting-row"><span class="row-copy"><strong>检查频率</strong><small>设置自动检查的时间间隔</small></span><button id="interval-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="interval" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="15">15 秒</option><option value="30">30 秒（默认）</option><option value="60">60 秒</option><option value="120">120 秒</option><option value="300">5 分钟</option></select></div>
+    <p class="hint preference-footer">默认关闭。打开后，应用配置才会写入；停用模块并重启可清除临时覆盖。</p>
+    <h3 class="category subcategory">IMS 功能</h3><div id="features"></div>
+    <button id="apply" class="pref-action" type="button"><span>应用配置<small>保存并应用当前 IMS 配置</small></span></button>
+    <button id="restore" class="pref-action" type="button"><span>停止并恢复<small>停止自动应用，恢复修改前的配置</small></span></button>
+    <p class="hint preference-footer">仅恢复本模块记录的原值，可能包含其他工具的设置；发生冲突时保留冲突项。</p>
   </section>
   <section class="pref-group" aria-labelledby="more-heading">
     <h2 id="more-heading" class="category">更多</h2>
     <button id="open-appearance" class="pref-action" type="button"><span>外观<small>显示模式与强调色</small></span><span class="chevron" aria-hidden="true"></span></button>
-    <button id="open-diagnostics" class="pref-action" type="button"><span>诊断与验证<small>查看运行结果并导出诊断</small></span><span class="chevron" aria-hidden="true"></span></button>
+    <button id="open-diagnostics" class="pref-action" type="button"><span>诊断与验证<small>查看详细状态与诊断数据</small></span><span class="chevron" aria-hidden="true"></span></button>
   </section>
 </main>
 <main id="appearance-page" class="page" hidden>
   <section class="pref-group" aria-label="外观">
     <h2 class="category">外观</h2>
     <div class="setting-row"><span class="row-copy"><strong>显示模式</strong><small>跟随系统、浅色或深色</small></span><button id="theme-choice" class="choice" type="button" aria-haspopup="dialog"></button></div>
-    <div class="setting-row"><span class="row-copy"><strong>强调色</strong><small>经典色、Material 与自定义 HEX</small></span><button id="accent-choice" class="choice page-choice" type="button" aria-label="进入强调色设置"><span id="accent-swatch" class="mini-swatch" aria-hidden="true"></span><span id="accent-label"></span></button></div>
+    <div class="setting-row"><span class="row-copy"><strong>强调色</strong><small>预设颜色或自定义 HEX</small></span><button id="accent-choice" class="choice page-choice" type="button" aria-label="进入强调色设置"><span id="accent-swatch" class="mini-swatch" aria-hidden="true"></span><span id="accent-label"></span></button></div>
     <p class="hint preference-footer">外观设置只影响 WebUI，不会改变 IMS 配置。</p>
   </section>
 </main>
@@ -52,21 +52,21 @@
     <div id="material-colors" class="swatches"></div>
     <h2 class="category color-category">自定义颜色</h2>
     <label class="hex-label" for="custom-hex">HEX</label>
-    <div class="hex-row"><input id="custom-hex" class="hex-field" type="text" inputmode="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="#42A5F5" aria-describedby="hex-error"><button id="apply-hex" class="text-action" type="button">应用</button></div>
+    <div class="hex-row"><input id="custom-hex" class="hex-field" type="text" inputmode="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="#42A5F5" aria-describedby="hex-error"><button id="apply-hex" class="text-action" type="button">应用颜色</button></div>
     <p id="hex-error" class="field-error" role="alert"></p>
   </section>
 </main>
 <main id="diagnostics-page" class="page" hidden>
   <section class="pref-group" aria-labelledby="diagnostics-heading">
     <h2 id="diagnostics-heading" class="category">诊断与验证</h2>
-    <button id="export" class="pref-action" type="button"><span>生成诊断<small>读取当前状态与执行器日志</small></span></button>
+    <button id="export" class="pref-action" type="button"><span>生成诊断<small>读取详细状态与运行日志</small></span></button>
     <p class="hint preference-footer">不采集电话号码、IMSI 或 ICCID。不修改系统分区、不关闭 SELinux、不清空整张 SIM 的覆盖配置。</p>
     <h3 class="category subcategory">诊断结果</h3>
-    <p id="diagnostic-notice" class="hint" role="status">当前状态摘要；生成诊断可读取完整数据。</p>
+    <p id="diagnostic-notice" class="hint" role="status">以下为最近读取的状态，生成诊断可获取完整数据。</p>
     <dl id="diagnostic-summary" class="diagnostic-summary"></dl>
     <h3 class="category subcategory">逐卡结果</h3>
     <div id="sims" class="sim-list"></div>
-    <p class="hint preference-footer">只读检测不代表写入成功；覆盖验证通过也不保证 IMS 注册和通话，仍需运营商支持。</p>
+    <p class="hint preference-footer">检测完成仅表示可读取配置。写入成功后，IMS 注册和通话仍需运营商支持。</p>
     <button id="open-diagnostic-data" class="pref-action" type="button"><span>完整诊断数据<small>原始 JSON 与执行器日志</small></span><span class="chevron" aria-hidden="true"></span></button>
     <button id="open-operation-data" class="pref-action" type="button"><span>最近一次操作的完整结果</span><span class="chevron" aria-hidden="true"></span></button>
   </section>
@@ -74,7 +74,7 @@
 <main id="diagnostic-data-page" class="page" hidden>
   <section class="pref-group">
     <h2 class="category">完整诊断数据</h2>
-    <pre id="diagnostics" class="log-view" tabindex="0" aria-label="诊断 JSON">请先在诊断与验证页面生成诊断，可长按选择复制。</pre>
+    <pre id="diagnostics" class="log-view" tabindex="0" aria-label="诊断 JSON">请先生成诊断。数据可横向滚动，长按可选择复制。</pre>
   </section>
 </main>
 <main id="operation-data-page" class="page" hidden>

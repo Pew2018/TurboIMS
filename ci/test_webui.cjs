@@ -35,7 +35,7 @@ test("malformed runner output is an error",async()=>{
 });
 test("WebUI has offline assets and no CDN dependencies",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
-  for(const file of ["bridge.js","app.js","style.css"])
+  for(const file of ["bridge.js","feedback.js","app.js","style.css"])
     assert.ok(fs.existsSync(path.join(__dirname,"../module/webroot",file)));
   assert.ok(!/https?:\/\/|<iframe/i.test(html));
   for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh"])
@@ -53,7 +53,7 @@ async function appHarness() {
       hidden:false, isConnected:true, checked:false,
       append(...items) { this.children.push(...items); this.options.push(...items); },
       replaceChildren(...items) { this.children=[...items]; },
-      setAttribute() {}, focus() {}, closest:()=>null, querySelectorAll:()=>[] };
+      attributes:{}, setAttribute(key,value) { this.attributes[key]=value; }, removeAttribute(key) { delete this.attributes[key]; }, focus() {}, closest:()=>null, querySelector:()=>null, querySelectorAll:()=>[] };
   }
   const elements=new Map();
   const doc={activeElement:null, body:{style:{}},
@@ -179,8 +179,8 @@ test("secondary pages preserve status and show diagnostics as selectable text",a
 test("partial support is a visible warning instead of complete success",async()=>{
   const {context,elements}=await appHarness();
   context.render({ok:false,phase:"partial",subscriptions:[]});
-  assert.match(elements.get("message").textContent,/部分配置键/);
-  assert.equal(elements.get("message").className,"error");
+  assert.match(elements.get("message").textContent,/部分配置/);
+  assert.equal(elements.get("message").className,"");
   assert.equal(elements.get("status-indicator").dataset.tone,"warning");
 });
 test("per-SIM errors and unconfirmed writes remain visible",async()=>{
@@ -196,7 +196,9 @@ test("per-SIM errors and unconfirmed writes remain visible",async()=>{
 test("aggregate blocked result has a readable reason",async()=>{
   const {context,elements}=await appHarness();
   context.render({status:{phase:"error"},blocked:{phase:"ownership_lost"}});
-  assert.match(elements.get("message").textContent,/ownership_lost/);
+  assert.match(elements.get("message").textContent,/自动应用已停止/);
+  assert.match(elements.get("details").textContent,/ownership_lost/);
+  assert.doesNotMatch(elements.get("message").textContent,/ownership_lost/);
   assert.equal(elements.get("status-indicator").dataset.tone,"danger");
   assert.doesNotMatch(elements.get("message").textContent,/undefined/);
 });
@@ -257,4 +259,43 @@ test("normal homepage excludes technical per-SIM data and only page links have c
     const button=html.match(new RegExp('<button id="'+id+'"[^]*?</button>'))[0];
     assert.doesNotMatch(button,/chevron/);
   }
+});
+
+test("homepage summarizes detection without pretending to verify writes",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({phase:"probe",uid:0,sdk:36,device:"husky",
+    subscriptions:[{slot:0,sub_id:17,phase:"probe",unsupported:[]}]});
+  assert.equal(elements.get("message").textContent,"检测完成");
+  assert.match(elements.get("device").textContent,/只读检测.*尚未验证/);
+  assert.equal(elements.get("sim-summary").textContent,"已检测到 SIM 卡 1");
+  assert.doesNotMatch(elements.get("device").textContent,/UID|SDK|subId|husky/);
+  context.render({phase:"active",write_readback_verified:false});
+  assert.equal(elements.get("status-indicator").dataset.tone,"warning");
+  assert.match(elements.get("device").textContent,/尚未确认写入/);
+  context.render({phase:"active",write_readback_verified:true});
+  assert.equal(elements.get("status-indicator").dataset.tone,"success");
+  assert.match(elements.get("device").textContent,/运营商支持/);
+});
+test("technical failure details stay in diagnostics while home remains readable",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({phase:"error",error:"Binder UID 0 denied",subscriptions:[]});
+  assert.equal(elements.get("message").textContent,"操作失败");
+  assert.doesNotMatch(elements.get("device").textContent,/Binder|UID/);
+  assert.match(elements.get("details").textContent,/Binder UID 0 denied/);
+  assert.equal(elements.get("status-indicator").dataset.tone,"danger");
+});
+test("radio selection updates both visual and accessibility state",async()=>{
+  const {elements}=await appHarness();
+  elements.get("selection-choice").onclick();
+  const options=elements.get("sheet-content").children;
+  options[1].onclick();
+  assert.equal(options[1].attributes["aria-checked"],"true");
+  assert.equal(options[0].attributes["aria-checked"],"false");
+  assert.equal(options[1].children[0].className,"radio-mark");
+});
+test("probe and refresh keep their original privileged operation semantics",async()=>{
+  const {elements,calls}=await appHarness();
+  await elements.get("probe").onclick();
+  await elements.get("refresh").onclick();
+  assert.deepEqual(calls.map(([action])=>action),["status","probe","status"]);
 });

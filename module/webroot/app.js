@@ -1,16 +1,16 @@
 "use strict";
 const features = [
-  ["volte", "VoLTE", "开放 LTE 语音通话相关配置"],
-  ["vowifi", "VoWiFi", "开放 Wi-Fi 通话和模式设置"],
-  ["vt", "视频通话", "开放运营商 IMS 视频通话"],
-  ["vonr", "VoNR", "开放 5G 语音和设置入口"],
-  ["cross_sim", "跨 SIM 通话", "开放借用另一张 SIM 数据进行 IMS 通话"],
-  ["ut", "UT 补充服务", "开放基于 IMS 的补充服务"],
-  ["5g_nr", "5G NR", "开放 NSA / SA，并使用原项目的信号阈值"]
+  ["volte", "VoLTE", "LTE 语音通话"],
+  ["vowifi", "VoWiFi", "Wi-Fi 通话与模式设置"],
+  ["vt", "视频通话", "运营商 IMS 视频通话"],
+  ["vonr", "VoNR", "5G 语音通话"],
+  ["cross_sim", "跨 SIM 通话", "使用另一张 SIM 卡的数据进行通话"],
+  ["ut", "UT 补充服务", "基于 IMS 的补充服务"],
+  ["5g_nr", "5G NR", "NSA / SA 网络与信号阈值"]
 ];
 const $ = id => document.getElementById(id);
 let busy = false;
-const optionLabels = { default:"恢复原值", on:"开启覆盖", off:"关闭覆盖" };
+const optionLabels = { default:"恢复原值", on:"开启", off:"关闭" };
 const onePlusColors = [
   ["OnePlus Blue","#42A5F5"],["Golden","#CC6F4E"],
   ["Lemon Yellow","#E6A545"],["Grass Green","#7DC22F"],
@@ -38,6 +38,7 @@ function showAppearance() {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   document.documentElement.style.setProperty("--accent", accent);
   const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
+  document.documentElement.style.setProperty("--ripple-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
   document.documentElement.style.setProperty("--accent-track", "rgba(" + rgb.join(",") + ",.45)");
   const luminance = rgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
   document.documentElement.style.setProperty("--accent-text",
@@ -54,15 +55,23 @@ if (media) {
   if (media.addEventListener) media.addEventListener("change", showAppearance);
   else if (media.addListener) media.addListener(showAppearance);
 }
+let sheetFinishing = false;
 function finishSheet(value = false) {
-  if ($("sheet").hidden) return;
-  $("sheet").hidden = true;
-  document.body.style.overflow = "";
+  if ($("sheet").hidden || sheetFinishing) return;
+  sheetFinishing = true;
   const resolve = sheetResolve;
   sheetResolve = null;
-  if (sheetFocus && sheetFocus.isConnected) sheetFocus.focus();
+  const focus = sheetFocus;
   sheetFocus = null;
-  if (resolve) resolve(value);
+  const complete = () => {
+    $("sheet").hidden = true;
+    sheetFinishing = false;
+    document.body.style.overflow = "";
+    if (focus && focus.isConnected) focus.focus({preventScroll:true});
+    if (resolve) resolve(value);
+  };
+  if (window.TouchFeedback) window.TouchFeedback.closeDialog($("sheet"), complete);
+  else complete();
 }
 // Dismiss through the same history entry consumed by Android/WebView back.
 function dismissSheet(value = false) {
@@ -88,8 +97,10 @@ function openSheet(title, description) {
   $("sheet-title").textContent = title;
   $("sheet-description").textContent = description || "";
   $("sheet-content").replaceChildren();
+  $("sheet-content").removeAttribute("role");
   $("sheet-actions").replaceChildren();
   $("sheet").hidden = false;
+  window.TouchFeedback?.openDialog($("sheet"));
   document.body.style.overflow = "hidden";
   $("sheet-close").focus();
   return new Promise(resolve => { sheetResolve = resolve; });
@@ -114,13 +125,28 @@ function actionButton(title, onClick, secondary = false) {
   button.onclick = onClick; return button;
 }
 function choose(title, description, values, current, onSelect) {
+  if (!$("sheet").hidden) return;
   openSheet(title, description);
+  $("sheet-content").setAttribute("role","radiogroup");
+  $("sheet-content").setAttribute("aria-labelledby","sheet-title");
   for (const [value, label] of values) {
     const button = document.createElement("button");
     button.type = "button"; button.className = "option";
     button.textContent = label;
     button.setAttribute("aria-selected", String(value === current));
-    button.onclick = () => { onSelect(value); dismissSheet(true); };
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", String(value === current));
+    const mark = document.createElement("span"); mark.className = "radio-mark";
+    mark.setAttribute("aria-hidden","true"); button.append(mark);
+    button.onclick = () => {
+      if (sheetClosing || sheetFinishing) return;
+      for (const item of $("sheet-content").children) {
+        const selected = item === button;
+        item.setAttribute("aria-selected", String(selected));
+        item.setAttribute("aria-checked", String(selected));
+      }
+      onSelect(value); dismissSheet(true);
+    };
     $("sheet-content").append(button);
   }
 }
@@ -137,7 +163,7 @@ async function ask(title, description) {
   $("sheet-actions").append(actionButton("确认", () => dismissSheet(true)));
   return answer;
 }
-$("theme-choice").onclick = () => choose("显示模式", "WebUI 外观设置不会修改 IMS 配置。", [
+$("theme-choice").onclick = () => choose("显示模式", "", [
   ["system","跟随系统"],["light","浅色模式"],["dark","深色模式"]
 ], themeMode, value => { themeMode = value; storage.write("turboims-theme",value); showAppearance(); });
 function setAccent(value) {
@@ -251,12 +277,15 @@ $("open-operation-data").onclick = () => navigate("operation-data-page");
 $("back").onclick = () => history.back();
 function clickablePreference(button) {
   const row = button.closest(".setting-row,.feature");
-  if (row) row.onclick = event => {
+  if (!row) return;
+  row.dataset.feedback = "row";
+  row.setAttribute("aria-disabled", String(button.disabled || false));
+  row.onclick = event => {
     if (!busy && !event.target.closest("button,input,select")) button.click();
   };
 }
 for (const id of ["selection-choice","interval-choice","theme-choice","accent-choice"]) clickablePreference($(id));
-for (const [id,title] of [["selection","应用范围"],["interval","检查间隔"]]) {
+for (const [id,title] of [["selection","应用到"],["interval","检查频率"]]) {
   const button = $(id+"-choice"); button.dataset.title = title;
   choiceFor($(id),button);
 }
@@ -281,10 +310,12 @@ for (const [key, title, description] of features) {
   clickablePreference(button);
 }
 
-function message(text, error = false, tone = error ? "danger" : "neutral") {
-  $("message").textContent = text; $("message").className = error ? "error" : "";
+function message(text, error = false, tone = error ? "danger" : "neutral", detail = "") {
+  $("message").textContent = text;
+  $("message").className = error && tone === "danger" ? "error" : "";
+  $("device").textContent = detail;
   $("status-indicator").dataset.tone = tone;
-  if (currentPage === "diagnostics-page") $("diagnostic-notice").textContent = text;
+  if (currentPage === "diagnostics-page") $("diagnostic-notice").textContent = [text,detail].filter(Boolean).join("，");
 }
 function form(config) {
   $("enabled").checked = config.enabled;
@@ -314,23 +345,36 @@ function render(result, replaceForm = false) {
 
   const state = result.status || result;
   const phase = state.phase || "not_started";
-  const texts = { probe:"只读检测完成；尚未验证写入权限。",
-    active:state.write_readback_verified ? "写入并读回验证成功。" : "已启用，当前配置无需写入；请查看详情。",
-    paused:"已暂停自动覆盖。", partial:"部分配置键不受支持；请查看逐卡结果，未报告全部生效。",
-    ownership_lost:"覆盖标记丢失且配置尚未恢复；已停止自动写入，请导出诊断。",
-    waiting:"等待活跃 SIM 和运营商配置加载。", conflict:"检测到第三方配置冲突，冲突键未覆盖。",
-    not_started:"执行器尚未启动；安装后请重启，再进行只读检测。",
-    error:"执行失败：" + (state.error || "请查看诊断与验证中的逐卡错误") };
+  const texts = {
+    probe:["检测完成","仅完成只读检测，尚未验证配置写入。"],
+    active:state.write_readback_verified
+      ? ["配置已应用","已完成写入验证，通话功能仍需运营商支持。"]
+      : ["无需重新写入","当前配置未发生变化，尚未确认写入结果。"],
+    verified:["配置已验证","已完成写入验证，通话功能仍需运营商支持。"],
+    paused:["自动应用已停止","当前不会自动更新 IMS 配置。"],
+    partial:["部分配置未应用","部分配置项不受支持，请查看逐卡结果。"],
+    ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
+    waiting:["等待 SIM 卡","请等待 SIM 卡和运营商配置加载。"],
+    conflict:["存在配置冲突","冲突项已保留，请查看诊断与验证。"],
+    not_started:["尚未开始工作","安装后请重启设备，再运行检测。"],
+    error:["操作失败","请查看诊断与验证中的详细原因。"]
+  };
   const warning = ["waiting","conflict","partial"].includes(phase);
   const danger = ["error","ownership_lost"].includes(phase) || !!result.blocked;
   const tone = danger ? "danger" : warning || (phase === "active" && !state.write_readback_verified)
-    ? "warning" : phase === "active" && state.write_readback_verified ? "success" : "neutral";
-  message(texts[phase] || phase, danger || ["conflict","partial"].includes(phase), tone);
-  if (result.blocked) message("自动写入已停止：" + (result.blocked.error || result.blocked.phase || "请查看逐卡诊断"), true);
+    ? "warning" : ["active","verified","probe"].includes(phase) ? "success" : "neutral";
+  const [title,detail] = texts[phase] || ["状态待确认","请查看诊断与验证。"];
+  message(title, danger, tone, detail);
+  if (result.blocked) message("自动应用已停止", true, "danger", "存在需要手动处理的问题，请查看诊断与验证。");
   if (result.watcher && !result.watcher.alive)
-    message("后台适配进程未运行。请重启并导出诊断。", true);
-  $("device").textContent = phase === "active" && state.write_readback_verified
-    ? "当前覆盖配置已生效" : "详细结果请查看诊断与验证";
+    message("自动应用未运行", true, "danger", "请重启设备；若问题仍在，请生成诊断。");
+  const subscriptions = state.subscriptions;
+  const slots = Array.isArray(subscriptions)
+    ? [...new Set(subscriptions.filter(sub => Number.isInteger(sub.slot) && sub.slot >= 0).map(sub => sub.slot + 1))]
+    : [];
+  $("sim-summary").textContent = slots.length ? "已检测到 SIM 卡 " + slots.join("、")
+    : Array.isArray(subscriptions) && subscriptions.length === 0 ? "暂未检测到活跃 SIM 卡" : "";
+  $("sim-summary").hidden = !$("sim-summary").textContent;
   renderDiagnosticSummary(result);
   renderSimResults(result);
 }
@@ -374,26 +418,34 @@ function renderDiagnosticSummary(result) {
     row.append(term,detail); $("diagnostic-summary").append(row);
   }
 }
-async function operation(work) {
+async function operation(work, progress = "正在处理…", trigger = null) {
   if (busy) return;
   busy = true;
   document.querySelectorAll("button,input,select").forEach(x => { if (x.id !== "back") x.disabled = true; });
-  message("正在执行，请稍候…");
+  document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","true"));
+  const label = trigger?.querySelector(".action-label") || trigger;
+  const originalLabel = label?.textContent;
+  if (label) label.textContent = progress;
+  message(progress, false, "neutral", "请稍候。");
   try { await work(); }
   catch (error) {
     if (error.result) render(error.result);
-    message(error.message, true);
+    else message("操作失败", true, "danger", "请查看诊断与验证。");
+    $("diagnostic-notice").textContent = "操作失败：" + error.message;
+    if (!error.result) $("details").textContent = JSON.stringify({ok:false,error:error.message},null,2);
   } finally {
+    if (label) label.textContent = originalLabel;
     busy = false;
     document.querySelectorAll("button,input,select").forEach(x => x.disabled = false);
+    document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","false"));
   }
 }
-$("probe").onclick = () => operation(async () => render(await TurboBridge.call("probe")));
-$("refresh").onclick = () => operation(async () => render(await TurboBridge.call("status")));
+$("probe").onclick = () => operation(async () => render(await TurboBridge.call("probe")), "正在检测…", $("probe"));
+$("refresh").onclick = () => operation(async () => render(await TurboBridge.call("status")), "正在刷新…", $("refresh"));
 $("apply").onclick = async () => {
   const config = configFromForm();
-  if (config.enabled && !await ask("确认应用 IMS 配置", "将覆盖所选活跃 SIM 的 IMS 配置。运营商支持不由模块保证。")) {
-    message("已取消；设置未保存。"); return;
+  if (config.enabled && !await ask("应用 IMS 配置？", "将更新所选 SIM 卡的 IMS 配置。能否使用通话功能仍取决于运营商支持。")) {
+    message("已取消", false, "neutral", "当前设置未保存。"); return;
   }
   operation(async () => {
     await TurboBridge.call("save", btoa(JSON.stringify(config)));
@@ -401,8 +453,8 @@ $("apply").onclick = async () => {
   });
 };
 $("restore").onclick = async () => {
-  if (!await ask("暂停并恢复原值", "暂停自动覆盖，并恢复本模块修改前记录的值。其他工具造成的冲突将保留。")) {
-    message("已取消。"); return;
+  if (!await ask("停止并恢复？", "停止自动应用，恢复本模块记录的原值。与其他工具冲突的项目会保留。")) {
+    message("已取消", false, "neutral", "自动配置和已应用的设置未改变。"); return;
   }
   operation(async () => render(await TurboBridge.call("restore"), true));
 };
@@ -410,6 +462,6 @@ $("export").onclick = () => operation(async () => {
   const result = await TurboBridge.call("export");
   $("diagnostics").textContent = JSON.stringify(result, null, 2);
   render(result);
-  $("diagnostic-notice").textContent = "诊断已生成，完整数据可进入下方页面查看和复制。";
+  $("diagnostic-notice").textContent = "诊断已生成，可查看完整数据并复制。";
 });
 operation(async () => render(await TurboBridge.call("status"), true));

@@ -39,3 +39,13 @@ Chromium traversal verifies web navigation behavior, not native Android dispatch
 6. Hardware/three-button back and Android 16 edge back follow the same completed traversal.
 
 Predictive-back animation is controlled by the manager Activity and is outside module JavaScript.
+
+## Touch and status refinement
+
+The home status separates the operation title, an honest short explanation and detected SIM slots. Probe is still read-only; successful read access is never presented as write verification. Internal errors remain in diagnostic output. Probe/refresh are accent text actions rather than preference rows.
+
+The offline feedback helper delegates pointer and keyboard events without invoking commands or changing history. Row ripples start at the actual touch coordinate, are clipped to the row, fade on release and cancel on scrolling. Disabled rows suppress activation feedback. Colors follow the current theme and custom accent. CSS tokens define spacing, touch sizes and motion durations. Reduced-motion preferences suppress animated ripples and dialog movement.
+
+Dialog exit lasts 100 ms, then resolves the original confirmation promise once. History traversal is unchanged: the temporary dialog entry is consumed first; no extra animation entries are pushed. Radio rows update their accessible checked state before closing. Core runner and bridge code remain untouched.
+
+The preview workflow additionally sends real touch events in Chromium, checks touch-origin feedback and scrolling cancellation, busy text-action states, system color-scheme changes, custom HEX and reduced motion. Native Android back dispatch still requires device verification.
