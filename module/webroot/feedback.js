@@ -38,16 +38,11 @@
   function clearPress(surface) {
     if (![...active.values()].some(item => item.surface === surface)) surface.classList.remove("feedback-pressed");
   }
-  function begin(surface, x, y, id, pointerType = "touch") {
-    release(id, true);
-    surface.classList.add("touch-surface","feedback-pressed");
-    if (reduced()) {
-      active.set(id,{surface,wave:null,start:now(),x,y,pointerType});
-      return;
-    }
-    const rect = surface.getBoundingClientRect();
-    const localX = Math.max(0,Math.min(rect.width,x-rect.left));
-    const localY = Math.max(0,Math.min(rect.height,y-rect.top));
+  function createWave(item) {
+    if (item.wave || reduced() || !item.surface.isConnected) return;
+    const rect = item.surface.getBoundingClientRect();
+    const localX = Math.max(0,Math.min(rect.width,item.x-rect.left));
+    const localY = Math.max(0,Math.min(rect.height,item.y-rect.top));
     const radius = Math.hypot(Math.max(localX,rect.width-localX),Math.max(localY,rect.height-localY));
     const wave = document.createElement("span");
     wave.className = "touch-ripple";
@@ -58,26 +53,41 @@
       width:radius*2+"px",height:radius*2+"px",
       left:localX-radius+"px",top:localY-radius+"px"
     });
-    // Keep transient feedback bounded during rapid taps.
-    const old = surface.querySelectorAll(".touch-ripple");
+    const old = item.surface.querySelectorAll(".touch-ripple");
     if (old.length >= 3) old[0].remove();
-    surface.append(wave);
+    item.surface.append(wave);
     if (wave.animate) {
       wave.animate([{transform:"scale(0)"},{transform:"scale(1)"}],{
         duration:duration("--ripple-grow-duration",220),
         easing:"cubic-bezier(.2,0,.2,1)",fill:"forwards"
       });
     } else wave.style.transform = "scale(1)";
-    active.set(id,{surface,wave,start:now(),x,y,pointerType});
+    item.wave = wave;
+  }
+  function begin(surface, x, y, id, pointerType = "touch") {
+    release(id, true);
+    const item = {surface,wave:null,start:now(),x,y,pointerType};
+    active.set(id,item);
+    surface.classList.add("touch-surface","feedback-pressed");
+    // Touch feedback is deferred until pointerup. A scroll therefore never
+    // creates a ripple before the gesture has been classified as a tap.
+    if (reduced() || pointerType === "touch" || pointerType === "pen" || !pointerType) return;
+    createWave(item);
   }
   function release(id, cancelled = false) {
     const item = active.get(id);
     if (!item) return;
     active.delete(id);
     clearPress(item.surface);
-    if (cancelled) suppress(item.surface);
+    if (cancelled) {
+      suppress(item.surface);
+      if (item.wave?.isConnected) item.wave.remove();
+      return;
+    }
+    // For touch, this is the first point at which we know the gesture was a tap.
+    createWave(item);
     if (!item.wave) return;
-    const delay = cancelled ? 0 : Math.max(0,100-(now()-item.start));
+    const delay = Math.max(0,100-(now()-item.start));
     setTimeout(() => {
       if (!item.wave.isConnected) return;
       if (!item.wave.animate || reduced()) {
@@ -86,8 +96,7 @@
       }
       const fade = item.wave.animate(
         [{opacity:getComputedStyle(item.wave).opacity},{opacity:0}],
-        {duration:cancelled ? 80 : duration("--ripple-fade-duration",140),
-         easing:"linear",fill:"forwards"}
+        {duration:duration("--ripple-fade-duration",140),easing:"linear",fill:"forwards"}
       );
       fade.finished.catch(() => {}).then(() => item.wave.remove());
     },delay);

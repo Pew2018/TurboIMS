@@ -36,6 +36,12 @@ const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-sche
 function showAppearance() {
   const dark = themeMode === "dark" || (themeMode === "system" && !!media?.matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
+  document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  const chromeColor = dark ? "#121212" : "#ffffff";
+  for (const id of ["theme-color","status-bar-color","navigation-bar-color"]) {
+    const meta = document.getElementById(id);
+    if (meta) meta.setAttribute("content",chromeColor);
+  }
   document.documentElement.style.setProperty("--accent", accent);
   const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
   document.documentElement.style.setProperty("--ripple-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
@@ -312,6 +318,21 @@ for (const [id,title] of [["selection","应用到"],["interval","检查频率"]]
   const button = $(id+"-choice"); button.dataset.title = title;
   choiceFor($(id),button);
 }
+function syncFeatureSwitch(select, toggle) {
+  const state = select.value;
+  toggle.checked = state === "on";
+  toggle.indeterminate = state === "default";
+  toggle.dataset.state = state;
+  toggle.setAttribute("aria-checked", state === "default" ? "mixed" : String(toggle.checked));
+  toggle.setAttribute("aria-label", toggle.dataset.title + "，" +
+    (state === "default" ? "恢复原值" : state === "on" ? "开启" : "关闭"));
+}
+function cycleFeature(select, toggle) {
+  if (busy) return;
+  const next = {default:"on",on:"off",off:"default"}[select.value] || "default";
+  select.value = next;
+  syncFeatureSwitch(select,toggle);
+}
 for (const [key, title, description] of features) {
   const row = document.createElement("div"); row.className = "feature";
   const text = document.createElement("span"); text.className = "row-copy";
@@ -325,12 +346,22 @@ for (const [key, title, description] of features) {
     const option = document.createElement("option"); option.value = value;
     option.textContent = label; select.append(option);
   }
-  const button = document.createElement("button"); button.type = "button";
-  button.id = key+"-choice"; button.className = "choice";
-  button.dataset.title = title; button.setAttribute("aria-haspopup","dialog");
-  row.append(text,button,select); $("features").append(row);
-  choiceFor(select,button);
-  clickablePreference(button);
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox"; toggle.id = key + "-switch";
+  toggle.className = "feature-switch"; toggle.setAttribute("role","switch");
+  toggle.dataset.title = title;
+  toggle.onclick = event => {
+    event.preventDefault();
+    cycleFeature(select,toggle);
+  };
+  row.dataset.feedback = "row";
+  row.setAttribute("aria-disabled","false");
+  row.onclick = event => {
+    if (!busy && !event.target.closest("button,input,select")) cycleFeature(select,toggle);
+  };
+  row.append(text,toggle,select);
+  $("features").append(row);
+  syncFeatureSwitch(select,toggle);
 }
 
 function message(text, error = false, tone = error ? "danger" : "neutral", detail = "") {
@@ -355,7 +386,10 @@ function form(config) {
   }
   $("interval").value = String(config.interval_seconds);
   choiceFor($("interval"),$("interval-choice"));
-  for (const [key] of features) { $(key).value = config.features[key]; choiceFor($(key),$(key+"-choice")); }
+  for (const [key] of features) {
+    $(key).value = config.features[key] || "default";
+    syncFeatureSwitch($(key),$(key+"-switch"));
+  }
 }
 function configFromForm() {
   return { schema:1, enabled:$("enabled").checked, selection:$("selection").value,

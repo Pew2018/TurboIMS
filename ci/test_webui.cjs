@@ -369,3 +369,27 @@ test("touch feedback uses a scroll-safe slop and suppresses cancelled clicks",()
   const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
   assert.match(style,/\[data-feedback="row"\][^}]*touch-action: pan-y/);
 });
+
+test("dark mode publishes matching WebView chrome colors",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  for (const id of ["theme-color","status-bar-color","navigation-bar-color"])
+    assert.match(html,new RegExp('id="'+id+'"'));
+  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+  assert.match(app,/chromeColor = dark \? "#121212" : "#ffffff"/);
+  assert.match(app,/navigation-bar-color/);
+});
+test("IMS feature preferences are switch controls without feature dialogs",()=>{
+  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+  assert.match(app,/className = "feature-switch"/);
+  assert.match(app,/setAttribute\("role","switch"\)/);
+  assert.match(app,/cycleFeature\(select,toggle\)/);
+  assert.doesNotMatch(app,/button\.id = key\+"-choice"/);
+});
+test("touch ripples are deferred until a tap is confirmed",()=>{
+  const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
+  assert.match(feedback,/Touch feedback is deferred until pointerup/);
+  assert.match(feedback,/pointerType === "touch"/);
+  assert.match(feedback,/if \(cancelled\)/);
+  const style=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  assert.match(style,/-webkit-overflow-scrolling: touch/);
+});
