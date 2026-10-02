@@ -9,6 +9,101 @@ const features = [
   ["5g_nr", "5G NR", "NSA / SA 网络与信号阈值"]
 ];
 const $ = id => document.getElementById(id);
+const simCountries = [
+  ["CN","中国"],["HK","香港"],["MO","澳门"],["TW","台湾"],["JP","日本"],["KR","韩国"],
+  ["US","美国"],["GB","英国"],["DE","德国"],["FR","法国"],["IT","意大利"],["ES","西班牙"],
+  ["PT","葡萄牙"],["RU","俄罗斯"],["IN","印度"],["AU","澳大利亚"],["NZ","新西兰"],["SG","新加坡"],
+  ["MY","马来西亚"],["TH","泰国"],["VN","越南"],["ID","印度尼西亚"],["PH","菲律宾"],["CA","加拿大"],
+  ["MX","墨西哥"],["BR","巴西"],["AR","阿根廷"],["ZA","南非"]
+];
+const simCarriers = [["中国移动","China Mobile","CN"],["中国联通","China Unicom","CN"],["中国电信","China Telecom","CN"],["中国移动香港","CMHK","HK"],["香港电讯","HKT","HK"],["3香港","3HK","HK"],["SmarTone","SmarTone","HK"],["澳门电讯","CTM","MO"],["3澳门","3 Macau","MO"],["中华电信","Chunghwa Telecom","TW"],["台湾大哥大","Taiwan Mobile","TW"],["远传电信","FarEasTone","TW"],["NTT docomo","NTT docomo","JP"],["au","au by KDDI","JP"],["Softbank","Softbank","JP"],["Rakuten","Rakuten Mobile","JP"],["SK Telecom","SK Telecom","KR"],["KT","KT Corporation","KR"],["LG U+","LG U+","KR"],["AT&T","AT&T","US"],["T-Mobile","T-Mobile USA","US"],["Verizon","Verizon","US"],["Sprint","Sprint","US"],["EE","EE","GB"],["O2","O2 UK","GB"],["Three","Three UK","GB"],["Vodafone","Vodafone UK","GB"],["Singtel","Singtel","SG"],["StarHub","StarHub","SG"],["M1","M1","SG"],["Maxis","Maxis","MY"],["Celcom","Celcom","MY"],["Digi","Digi","MY"],["U Mobile","U Mobile","MY"],["AIS","AIS","TH"],["DTAC","DTAC","TH"],["True Move H","True Move H","TH"],["Viettel","Viettel Mobile","VN"],["Vinaphone","Vinaphone","VN"],["Mobifone","Mobifone","VN"],["Telkomsel","Telkomsel","ID"],["Indosat","Indosat Ooredoo","ID"],["XL Axiata","XL Axiata","ID"],["Globe","Globe Telecom","PH"],["Smart","Smart Communications","PH"],["DITO","DITO Telecommunity","PH"],["Jio","Reliance Jio","IN"],["Airtel","Bharti Airtel","IN"],["Vi","Vodafone Idea","IN"],["Telstra","Telstra","AU"],["Optus","Optus","AU"],["Vodafone","Vodafone AU","AU"],["Bell","Bell Mobility","CA"],["Rogers","Rogers Wireless","CA"],["Telus","Telus Mobility","CA"],["Telekom","T-Mobile DE","DE"],["Vodafone","Vodafone DE","DE"],["O2","O2 DE","DE"],["Orange","Orange FR","FR"],["SFR","SFR","FR"],["Free","Free Mobile","FR"],["Bouygues","Bouygues Telecom","FR"],["TIM","Telecom Italia","IT"],["Vodafone","Vodafone IT","IT"],["Wind Tre","Wind Tre","IT"],["Movistar","Movistar","ES"],["Vodafone","Vodafone ES","ES"],["Orange","Orange ES","ES"],["MTS","MTS","RU"],["MegaFon","MegaFon","RU"],["Beeline","Beeline","RU"],["Vivo","Vivo","BR"],["Claro","Claro","BR"],["TIM","TIM Brasil","BR"]];
+let simProfiles = {};
+let simSlots = [];
+let selectedSimSlot = 0;
+function simProfile(slot) { return simProfiles[String(slot)] || {country_iso:"",carrier_name:""}; }
+function simCountryLabel(code) {
+  const item = simCountries.find(x => x[0] === String(code || "").toUpperCase());
+  return item ? item[1] + " (" + item[0] + ")" : (code || "未设置");
+}
+function simSyncForm() {
+  const profile = simProfile(selectedSimSlot);
+  $("sim-slot-choice").textContent = simSlots.length
+    ? "SIM 卡 " + (selectedSimSlot + 1) : "未检测到 SIM";
+  $("sim-country-choice").textContent = profile.country_iso
+    ? simCountryLabel(profile.country_iso) : "未设置";
+  const carrier = simCarriers.find(x => x[1] === profile.carrier_name);
+  $("sim-carrier-choice").textContent = carrier ? carrier[0] : (profile.carrier_name || "未设置");
+  $("sim-custom-carrier").value = carrier ? "" : (profile.carrier_name || "");
+  $("sim-custom-country").value = profile.country_iso || "";
+  const row = simSlots.find(x => x.slot === selectedSimSlot);
+  $("sim-current").innerHTML = row
+    ? "<strong>当前 SIM " + (selectedSimSlot + 1) + "</strong><br>subId " + row.sub_id +
+      "<br>模块覆盖国家码：" + (row.effective?.sim_country_iso_override_string || "无") +
+      "<br>模块覆盖运营商：" + (row.effective?.carrier_name_string || "无")
+    : "请先运行检测，读取当前活跃 SIM。";
+}
+function renderSimPage(result) {
+  const state = result.status || result;
+  if (state.config?.sim_profiles) simProfiles = state.config.sim_profiles || {};
+  const subscriptions = Array.isArray(state.subscriptions) ? state.subscriptions : [];
+  simSlots = subscriptions.filter(x => Number.isInteger(x.slot) && x.slot >= 0)
+    .map(x => ({...x, slot:x.slot}));
+  if (simSlots.length && !simSlots.some(x => x.slot === selectedSimSlot)) selectedSimSlot = simSlots[0].slot;
+  simSyncForm();
+}
+function simSetProfile(mutator) {
+  const next = {...simProfile(selectedSimSlot)};
+  mutator(next);
+  if (!next.country_iso && !next.carrier_name) delete simProfiles[String(selectedSimSlot)];
+  else simProfiles[String(selectedSimSlot)] = next;
+  simSyncForm();
+}
+function simChoiceCountry() {
+  const values = simCountries.map(([code,name]) => [code,name + " (" + code + ")"]);
+  values.push(["__custom__", "自定义两位国家码"]);
+  choose("国家或地区", "选择要写入 SIM 国家码的值。", values,
+    simProfile(selectedSimSlot).country_iso || "",
+    value => {
+      if (value === "__custom__") {
+        $("sim-custom-country").focus();
+      } else simSetProfile(p => p.country_iso = value);
+    });
+}
+function simChoiceCarrier() {
+  const values = [["","不覆盖运营商名称"]];
+  for (const [name,display] of simCarriers) values.push([display, name + " · " + display]);
+  values.push(["__custom__", "自定义运营商名称"]);
+  choose("运营商名称", "选择系统报告的运营商名称，可留空。", values,
+    simProfile(selectedSimSlot).carrier_name || "",
+    value => {
+      if (value === "__custom__") {
+        $("sim-custom-carrier").focus();
+      } else simSetProfile(p => p.carrier_name = value);
+    });
+}
+function simApplyConfig() {
+  if (!savedConfig || !simSlots.length || busy) return;
+  const config = {...savedConfig, sim_profiles:simProfiles};
+  config.enabled = !!config.enabled;
+  return operation(async () => {
+    const saved = await TurboBridge.call("save", btoa(JSON.stringify(config)));
+    savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
+    render(await TurboBridge.call("apply"), true);
+    navigate("sim-page");
+  }, "正在保存 SIM 信息…", $("sim-save"));
+}
+function simRestore() {
+  if (!savedConfig || !simSlots.length || busy) return;
+  const next = {...simProfiles}; delete next[String(selectedSimSlot)];
+  const config = {...savedConfig, sim_profiles:next};
+  return operation(async () => {
+    const saved = await TurboBridge.call("save", btoa(JSON.stringify(config)));
+    savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
+    render(await TurboBridge.call("apply"), true);
+    navigate("sim-page");
+  }, "正在恢复 SIM 信息…", $("sim-restore"));
+}
+
 // KernelSU Next can draw this page behind the system bars; its injected CSS supplies
 // actual insets. The manager, not WebUI meta tags, still owns system icon colors.
 if (location.hostname === "mui.kernelsu.org" && window.ksu?.enableInsets) {
@@ -315,6 +410,26 @@ if (!history.state?.turboims) {
   synchronizeHistory();
 }
 for (const id of primaryPages) $("tab-"+id).onclick = () => navigate(id);
+
+// SIM 卡信息 page
+$("sim-slot-choice").onclick = () => choose("目标 SIM 卡", "选择要修改的活跃 SIM 卡。",
+  simSlots.map(x => [String(x.slot), "SIM 卡 " + (x.slot + 1) + " · subId " + x.sub_id]),
+  String(selectedSimSlot), value => { selectedSimSlot = Number(value); simSyncForm(); });
+$("sim-country-choice").onclick = simChoiceCountry;
+$("sim-carrier-choice").onclick = simChoiceCarrier;
+$("sim-custom-country").oninput = event => {
+  const value = event.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0,2);
+  event.target.value = value;
+  if (value.length === 2) simSetProfile(p => p.country_iso = value);
+  else if (value.length === 0) simSetProfile(p => p.country_iso = "");
+};
+$("sim-custom-carrier").oninput = event => simSetProfile(p => p.carrier_name = event.target.value.trim());
+$("sim-save").onclick = simApplyConfig;
+$("sim-restore").onclick = async () => {
+  if (!await ask("恢复 SIM 信息？", "仅恢复当前 SIM 的国家码和运营商名称，不清除 IMS 配置。")) return;
+  simRestore();
+};
+
 $("open-appearance").onclick = () => navigate("appearance-page");
 $("open-diagnostics").onclick = () => navigate("diagnostics-page");
 $("open-diagnostic-data").onclick = () => navigate("diagnostic-data-page");
@@ -436,6 +551,7 @@ async function saveSchedule() {
 $("periodic-check").onchange = () => { updatePeriodicControl(); saveSchedule(); };
 function form(config) {
   savedConfig = config;
+  simProfiles = config.sim_profiles || {};
   $("enabled").checked = config.enabled;
   $("periodic-check").checked = !!config.periodic_check_enabled;
   updatePeriodicControl();
@@ -462,7 +578,8 @@ function configFromForm() {
   return { schema:1, enabled:$("enabled").checked,
     periodic_check_enabled:$("periodic-check").checked, selection:$("selection").value,
     interval_seconds:Number($("interval").value),
-    features:Object.fromEntries(features.map(([key]) => [key, $(key).value])) };
+    features:Object.fromEntries(features.map(([key]) => [key, $(key).value])),
+    sim_profiles: simProfiles };
 }
 function render(result, replaceForm = false) {
   $("details").textContent = JSON.stringify(result, null, 2);
@@ -504,6 +621,7 @@ function render(result, replaceForm = false) {
   $("sim-summary").hidden = !$("sim-summary").textContent;
   renderDiagnosticSummary(result);
   renderSimResults(result);
+  renderSimPage(result);
 }
 function renderSimResults(result) {
   const state = result.status || result;

@@ -12,14 +12,25 @@ public final class FeatureConfig {
     public final String selection;
     public final int intervalSeconds;
     public final Map<String, Mode> modes;
-
-    public FeatureConfig(boolean enabled, String selection, int intervalSeconds,
-                         Map<String, Mode> modes) {
-        this(enabled, false, selection, intervalSeconds, modes);
+    public final Map<Integer, SimProfile> simProfiles;
+    public static final class SimProfile {
+        public final String countryIso; public final String carrierName;
+        public SimProfile(String countryIso, String carrierName) {
+            String iso = countryIso == null ? "" : countryIso.trim().toLowerCase(Locale.ROOT);
+            if (!iso.isEmpty() && !iso.matches("[a-z]{2}")) throw new IllegalArgumentException("SIM country ISO must be two letters");
+            String name = carrierName == null ? "" : carrierName.trim();
+            if (name.length() > 128) throw new IllegalArgumentException("Carrier name is too long");
+            this.countryIso = iso; this.carrierName = name;
+        }
+        public boolean isEmpty() { return countryIso.isEmpty() && carrierName.isEmpty(); }
     }
-
-    public FeatureConfig(boolean enabled, boolean periodicCheckEnabled, String selection,
-                         int intervalSeconds, Map<String, Mode> modes) {
+    public FeatureConfig(boolean enabled, String selection, int intervalSeconds, Map<String, Mode> modes) {
+        this(enabled, false, selection, intervalSeconds, modes, Collections.emptyMap());
+    }
+    public FeatureConfig(boolean enabled, boolean periodicCheckEnabled, String selection, int intervalSeconds, Map<String, Mode> modes) {
+        this(enabled, periodicCheckEnabled, selection, intervalSeconds, modes, Collections.emptyMap());
+    }
+    public FeatureConfig(boolean enabled, boolean periodicCheckEnabled, String selection, int intervalSeconds, Map<String, Mode> modes, Map<Integer, SimProfile> simProfiles) {
         if (!selection.equals("all") && !selection.matches("slot:[0-7]"))
             throw new IllegalArgumentException("SIM selection must be all or slot:0..7");
         if (!Set.of(600, 1800, 3600, 7200).contains(intervalSeconds))
@@ -31,12 +42,28 @@ public final class FeatureConfig {
         this.selection = selection;
         this.intervalSeconds = intervalSeconds;
         this.modes = Collections.unmodifiableMap(new LinkedHashMap<>(modes));
+        Map<Integer, SimProfile> profiles = new LinkedHashMap<>();
+        for (var entry : simProfiles.entrySet()) {
+            if (entry.getKey() == null || entry.getKey() < 0 || entry.getKey() > 7) throw new IllegalArgumentException("SIM slot must be 0..7");
+            if (entry.getValue() == null || entry.getValue().isEmpty()) continue;
+            profiles.put(entry.getKey(), entry.getValue());
+        }
+        this.simProfiles = Collections.unmodifiableMap(profiles);
     }
 
     public boolean selects(int slot) {
         return selection.equals("all") || selection.equals("slot:" + slot);
     }
 
+    public boolean hasSimProfiles() { return !simProfiles.isEmpty(); }
+    public Map<String, Object> desiredForSlot(int slot) {
+        Map<String, Object> out = desired(); SimProfile profile = simProfiles.get(slot);
+        if (profile != null) {
+            if (!profile.countryIso.isEmpty()) out.put("sim_country_iso_override_string", profile.countryIso);
+            if (!profile.carrierName.isEmpty()) { out.put("carrier_name_override_bool", true); out.put("carrier_name_string", profile.carrierName); }
+        }
+        return out;
+    }
     public Map<String, Object> desired() {
         Map<String, Object> out = new LinkedHashMap<>();
         if (!enabled) return out;
@@ -88,8 +115,9 @@ public final class FeatureConfig {
     public static Set<String> knownKeys() {
         Map<String, Mode> modes = new LinkedHashMap<>();
         for (String name : FEATURES) modes.put(name, Mode.ON);
-        return Collections.unmodifiableSet(
-                new LinkedHashSet<>(new FeatureConfig(true, "all", 1800, modes).desired().keySet()));
+        Set<String> keys = new LinkedHashSet<>(new FeatureConfig(true, "all", 1800, modes).desired().keySet());
+        keys.add("sim_country_iso_override_string"); keys.add("carrier_name_override_bool"); keys.add("carrier_name_string");
+        return Collections.unmodifiableSet(keys);
     }
 
     public static boolean same(Object a, Object b) {

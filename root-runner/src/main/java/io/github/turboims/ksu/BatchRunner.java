@@ -29,11 +29,12 @@ public final class BatchRunner {
         boolean selected = false, waiting = false, conflict = false, unsupported = false;
         boolean failed = false, verificationFailed = false, changed = false, verified = false, lost = false;
         for (CarrierBackend.Subscription sub : subscriptions) {
-            boolean target = !restore && config.selects(sub.slot);
+            boolean configured = config.enabled || config.hasSimProfiles();
+            boolean target = !restore && config.selects(sub.slot) && configured;
             selected |= target;
             try {
                 Engine.Result r = engine.reconcile(sub,
-                        target ? config.desired() : Collections.emptyMap(), !preview);
+                        target ? config.desiredForSlot(sub.slot) : Collections.emptyMap(), !preview);
                 entries.add(new Entry(sub, target, r, null));
                 waiting |= r.phase.equals("waiting") && (target || restore);
                 conflict |= !r.conflicts.isEmpty();
@@ -49,12 +50,12 @@ public final class BatchRunner {
                 entries.add(new Entry(sub, target, null, error));
             }
         }
-        if (config.enabled && !selected && !restore) waiting = true;
+        if ((config.enabled || config.hasSimProfiles()) && !selected && !restore) waiting = true;
         boolean ok = !(waiting || conflict || unsupported || failed);
         String phase = verificationFailed ? "verification_failed" : failed ? "error"
                 : lost ? "ownership_lost" : conflict ? "conflict"
                 : waiting ? "waiting" : unsupported ? "partial" : preview ? "probe"
-                : config.enabled && !restore ? "active" : "paused";
+                : (config.enabled || config.hasSimProfiles()) && !restore ? "active" : "paused";
         return new Report(entries, ok, changed, verified, failed || lost, phase);
     }
 }

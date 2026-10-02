@@ -4,6 +4,7 @@
   "periodic_check_enabled": false,
   "selection": "all",
   "interval_seconds": 1800,
+  "sim_profiles": {},
   "features": {
     "volte": "on",
     "vowifi": "on",

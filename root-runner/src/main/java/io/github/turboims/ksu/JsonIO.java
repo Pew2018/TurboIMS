@@ -63,9 +63,10 @@ public final class JsonIO implements Engine.Store {
     static FeatureConfig config(JSONObject obj) throws Exception {
         Set<String> keys = new HashSet<>();
         obj.keys().forEachRemaining(keys::add);
-        if (!keys.equals(Set.of("schema", "enabled", "selection", "interval_seconds", "features"))
-                && !keys.equals(Set.of("schema", "enabled", "periodic_check_enabled",
-                        "selection", "interval_seconds", "features")))
+        Set<String> required = Set.of("schema", "enabled", "selection", "interval_seconds", "features");
+        if (!keys.containsAll(required)
+                || !keys.stream().allMatch(k -> required.contains(k)
+                    || k.equals("periodic_check_enabled") || k.equals("sim_profiles")))
             throw new IllegalArgumentException("Unexpected configuration fields");
         if (!(obj.get("schema") instanceof Integer) || obj.getInt("schema") != 1)
             throw new IllegalArgumentException("Unsupported config schema");
@@ -84,25 +85,43 @@ public final class JsonIO implements Engine.Store {
                 throw new IllegalArgumentException("Mode must be default, on or off");
             modes.put(name, FeatureConfig.Mode.valueOf(mode.toUpperCase(Locale.ROOT)));
         }
-        // Older saved configurations had 15..300 second polling. Migrate them to the
-        // new default and leave periodic checks OFF, without changing IMS modes.
         int interval = obj.getInt("interval_seconds");
         if (!obj.has("periodic_check_enabled") && interval <= 300) interval = 1800;
         if (obj.has("periodic_check_enabled")
                 && !(obj.get("periodic_check_enabled") instanceof Boolean))
             throw new IllegalArgumentException("Invalid periodic check switch");
+        Map<Integer, FeatureConfig.SimProfile> profiles = new LinkedHashMap<>();
+        if (obj.has("sim_profiles")) {
+            JSONObject simProfiles = obj.getJSONObject("sim_profiles");
+            Iterator<String> slots = simProfiles.keys();
+            while (slots.hasNext()) {
+                String slot = slots.next();
+                int index;
+                try { index = Integer.parseInt(slot); }
+                catch (NumberFormatException e) { throw new IllegalArgumentException("Invalid SIM profile slot"); }
+                JSONObject profile = simProfiles.getJSONObject(slot);
+                profiles.put(index, new FeatureConfig.SimProfile(
+                        profile.optString("country_iso", ""), profile.optString("carrier_name", "")));
+            }
+        }
         return new FeatureConfig(obj.getBoolean("enabled"),
                 obj.optBoolean("periodic_check_enabled", false), obj.getString("selection"),
-                interval, modes);
+                interval, modes, profiles);
     }
     static JSONObject config(FeatureConfig config) throws Exception {
         JSONObject modes = new JSONObject();
         for (String name : FeatureConfig.FEATURES)
             modes.put(name, config.modes.get(name).name().toLowerCase(Locale.ROOT));
+        JSONObject profiles = new JSONObject();
+        for (var entry : config.simProfiles.entrySet()) {
+            profiles.put(String.valueOf(entry.getKey()), new JSONObject()
+                    .put("country_iso", entry.getValue().countryIso)
+                    .put("carrier_name", entry.getValue().carrierName));
+        }
         return new JSONObject().put("schema", 1).put("enabled", config.enabled)
                 .put("periodic_check_enabled", config.periodicCheckEnabled)
                 .put("selection", config.selection).put("interval_seconds", config.intervalSeconds)
-                .put("features", modes);
+                .put("features", modes).put("sim_profiles", profiles);
     }
 
     @Override public Engine.Snapshot load(int subId) throws Exception {
