@@ -15,6 +15,7 @@ if len(apks) != 1:
 prop = dict(line.split("=", 1) for line in (root / "module/module.prop").read_text().splitlines()
             if line and not line.startswith("#"))
 version = prop["version"]
+compile_sdk = int(os.environ.get("TURBOIMS_COMPILE_SDK", "36"))
 out = root / "dist"
 out.mkdir(exist_ok=True)
 payload = out / "flashable"
@@ -28,11 +29,11 @@ digest = hashlib.sha256(apk).hexdigest()
 (payload / "runner.sha256").write_text(f"{digest}  runner.apk\n")
 (payload / "build-info.json").write_text(json.dumps({
     "version": version, "commit": os.environ.get("GITHUB_SHA", ""),
-    "helper_sha256": digest, "entry": "io.github.turboims.ksu.ModuleMain",
+    "compile_sdk": compile_sdk, "helper_sha256": digest, "entry": "io.github.turboims.ksu.ModuleMain",
     "shizuku": False, "sui": False, "device_validated": False
 }, indent=2) + "\n")
 shutil.copyfile(root / "docs/KERNELSU_NEXT.md", payload / "README.md")
-dest = out / f"TurboIMS-Next-{version}.zip"
+dest = out / f"TurboIMS-Next-{version}-sdk{compile_sdk}.zip"
 with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as archive:
     for file in sorted(payload.rglob("*")):
         if file.is_file():
@@ -50,4 +51,4 @@ validate(dest)
 print(dest)
 if os.environ.get("GITHUB_OUTPUT"):
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-        output.write(f"artifact_name=FLASHABLE-TurboIMS-Next-{version}\n")
+        output.write(f"artifact_name=FLASHABLE-TurboIMS-Next-{version}-sdk{compile_sdk}\n")
