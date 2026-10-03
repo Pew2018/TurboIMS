@@ -169,7 +169,7 @@ public final class ModuleMain {
                         if (profile == null || profile.carrierTestMccMnc.isEmpty())
                             throw new IllegalStateException("Carrier IMS requires an explicit carrier_test_mccmnc for slot " + sub.slot);
                         overrideResults.put(new JSONObject(overrideControl.apply(
-                                sub.id, sub.slot, profile.carrierTestMccmnc)));
+                                sub.id, sub.slot, profile.carrierTestMccMnc)));
                     }
                 } catch (Throwable error) {
                     String detail = String.valueOf(error.getMessage());
