@@ -191,7 +191,7 @@ function simEditCarrierTestMccMnc() {
   editTextPreference({
     title:"Carrier test MCC/MNC", label:"Carrier test MCC/MNC", inputLabel:"MCC/MNC",
     description:"留空使用实际运营商身份。特定运营商可自动推导测试 MCC/MNC。",
-    value:draft.carrier_test_mccmnc, maxLength:6, inputMode:"numeric",
+    value:draft.carrier_test_mccmnc, maxLength:128, inputMode:"numeric",
     transform:value => value.replace(/[^0-9]/g,"").slice(0,6),
     validate:value => value === "" || /^[0-9]{5,6}$/.test(value),
     onSave:value => simSetCustom("carrier_test_mccmnc",value.trim()),

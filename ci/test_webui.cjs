@@ -408,6 +408,7 @@ test("SIM text editors use secondary pages, validate inputs, and keep edits draf
     sim_profiles:{"0":{country_iso:"TW",carrier_name:"FarEasTone"}}};
   context.render({config:profileConfig,status:{...profileConfig,config:profileConfig,phase:"probe",
     subscriptions:[{slot:0,sub_id:9,phase:"probe",effective:{sim_country_iso_override_string:"TW",carrier_name_string:"FarEasTone"}}]}},true);
+  elements.get("tab-sim-page").onclick();
   assert.equal(elements.get("sim-country-choice").textContent,"台湾 (TW)");
   assert.equal(elements.get("sim-carrier-choice").textContent,"远传电信");
   elements.get("sim-edit-country").onclick();
