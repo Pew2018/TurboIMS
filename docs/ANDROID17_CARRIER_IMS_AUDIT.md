@@ -35,25 +35,31 @@ Android 版本门禁目前为 SDK 33..36，GitHub Actions 安装 Android 36 SDK�
 - `content://telephony/siminfo` 查询返回无结果，表明本次命令未取得该 Provider 的 SIM 映射；runner 的 Binder 枚举给出的 subId/slot 映射仍可用。
 - 用户明确将 Android 16 设备作为当前移植目标；Android 17 可留作后续 SDK/API 验证，不应阻挡先在 SDK 36 上适配参考实现。
 
-## 当前实施决策与阻塞
+## 0.2.4 编译产物审计与本次修复
 
-本分支目前仅记录审计，没有声称 Carrier IMS 模式已实现。当前源码缺少以下实现前提：
+审计对象是分支 `feature/carrier-ims-android17-voice-fix` 上的 0.2.4，提交 `8767069ae4dbc1a2520669149f45da15c3a623b2`，GitHub Actions run `37118523819`。Actions 成功，构建产物的 `build-info.json` 标记 `shizuku=false`、`sui=false`、`device_validated=false`。这证明 ZIP/runner 构建成功，不证明 Android 17 设备兼容或电话可用。
 
-1. 可验证的 Android 17 SDK 37 编译与设备/API 兼容基线。
-2. KSU 域下对 `setCarrierTestOverride`、`clearCarrierTestOverride`、`isImsRegistered`、`resetIms` 的权限/签名确认，以及跨 Android 17 接口变化的兼容探测。
-3. MCC/MNC override 的模块所有权账本（按 subId 与 boot/session 持久记录原状态、写入值、验证结果），以及与现有 CarrierConfig Engine 的事务化切换和回滚。
-4. 状态 JSON/WebUI 对“模式已选择、配置已验证、IMS 已注册、通话可用”分别呈现；当前配置结构没有 execution mode 字段。
-5. 无 Android 17 实机/SIM 的情况下无法验证真实拨出、接听和双向音频。
+### 发现并修复
 
-在上述验证完成前，不应把模式切换写成成功路径，也不应以 CarrierConfig 的存在推断 IMS 注册或电话可用。后续实现应先增加默认 `turboims_ksu` 的向后兼容模式字段与单元测试；再增加独立 Carrier IMS adapter，复用当前配置 UI与 Engine 的安全归属原则；最后增加按 SIM 串行切换事务、MCC/MNC 所有权账本、IMS 状态/reset bounded polling、只读 APN 诊断和 SDK 37 Actions 构建。若调用权限验证失败，UI 应显示失败阶段与系统错误，并保持/恢复旧模式。
+0.2.4 的 Carrier IMS 执行路径在 CarrierConfig 写入前要求每张目标 SIM profile 明确提供 `carrier_test_mccmnc`。已有旧配置只有台湾 ISO 和中华电信名称，因而会在 CarrierConfig 写入之前失败。用户之前选择“中华电信”是通过 SIM 信息预设完成的，名称本身没有自动生成参考实现所需的 PLMN。
+
+本分支在 `FeatureConfig.SimProfile` 中只对精确组合 `tw + Chunghwa Telecom` 推导 `46692`。显式输入值优先；其他国家/运营商仍要求用户填写，避免把错误 MCC/MNC 写进另一张 SIM。新增测试覆盖旧配置推导、显式值优先和不匹配时不猜测，设置页说明也同步更新。推导值进入已规范化的 SIM profile，因此 0.2.4 的 Carrier IMS runner 可直接使用，不需重写既有 SIM profile。
+
+### 当前实现的已知限制
+
+- CarrierConfig 仍通过现有 KSU runner 的 `ICarrierConfigLoader.overrideConfig(..., false)` 写入，并经现有 Engine 逐项读回验证；Carrier IMS 没有替换原 TurboIMS KSU Engine。
+- Carrier test override 通过 `ITelephony.setCarrierTestOverride(subId, mccmnc, ...)` 设置，所有权记录按 subId 和 slot 保存；清理只调用 `clearCarrierTestOverride`，且仅清理带本模块所有权记录的值。Android 没有可靠读回接口，状态只能说明 Binder 调用被接受，不能声称测试运营商值已被系统读回验证。
+- IMS 注册查询使用 subId；`resetIms` 使用映射出的 slot，最多轮询 20 次、每次间隔 1 秒。它能报告注册状态，不等同于拨出/接听或双向音频验证。
+- 0.2.4 执行配置模式切换时，Carrier test override 与 CarrierConfig Engine 不是一个可原子提交的系统事务。若中途失败，状态会显示失败，但回滚旧模式和全部系统状态仍未做到严格原子化；不要将失败路径描述为已完成自动回滚。
+- Actions 当前安装 Android SDK 36 来构建 runner；源码允许 SDK 33..37 运行并使用反射探测隐藏接口。这不是 SDK 37 编译或 Android 17 runtime 验证。Android 17 API/权限兼容性仍须在 Android 17 Pixel 上核验。
+- APN 自动修改未移植；保持只读诊断。
 
 ## 验收状态
 
-- 分支从当前稳定 HEAD 创建：完成。
-- TurboIMS 默认稳定模式、现有执行路径、配置迁移：未修改；本分支暂未加入模式字段或后端代码。
-- Carrier IMS 代码路径审计：完成（上述参考 HEAD）。
-- Android 17 SDK 37 构建、CarrierConfig/覆盖状态事务、IMS 状态/reset、SIM 多卡、UI：未实现/未验证。
-- 实机通话与双向音频：未测试。
-- APN：本次只读源码审计，未执行修改。
+- 0.2.4 artifact 检查：ZIP 包含平铺可刷入模块文件、`runner.apk`、校验文件和 `build-info.json`；其源码提交 SHA 与 run 151 一致。
+- 0.2.4 Actions 构建：通过。
+- 本次中华电信旧 profile 自动推导：代码与单元测试已加入，等待修复分支 Actions。
+- TurboIMS 默认模式与原有 Engine：沿用 0.2.4；本次只改 profile 规范化、测试、界面说明、模块版本号。
+- Android 17 Pixel、单/多 SIM、IMS 注册、真实拨出/接听和双向音频：未验证；用户当前设备为 Android 16，不能据此宣称通话问题已修复。
+- APN：未修改。
 
-Actions 记录：审计提交期间连续推送触发工作流并取消较早运行；最终提交应单独检查状态后报告，不以已排队运行视为通过。
