@@ -131,32 +131,48 @@ public final class ModuleMain {
         List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
         boolean carrierMode = "carrier_ims".equals(config.implementationMode);
         JSONArray overrideResults = new JSONArray();
+        CarrierTestOverrideControl overrideControl = null;
         if (!preview) {
             boolean hasOwnedOverride = subscriptions.stream()
                     .anyMatch(sub -> CarrierTestOverrideControl.hasRecord(sub.id));
-            if (carrierMode || hasOwnedOverride) {
-                CarrierTestOverrideControl overrideControl = new CarrierTestOverrideControl(session);
-                boolean configured = config.enabled || config.hasSimProfiles();
-                for (CarrierBackend.Subscription sub : subscriptions) {
-                    if ((restore || !carrierMode) && CarrierTestOverrideControl.hasRecord(sub.id)) {
-                        overrideResults.put(new JSONObject(overrideControl.clearOwned(sub.id, sub.slot)));
-                    } else if (!restore && carrierMode && configured && config.selects(sub.slot)) {
-                        FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
-                        if (profile == null || profile.carrierTestMccMnc.isEmpty())
-                            throw new IllegalStateException("Carrier IMS requires an explicit carrier_test_mccmnc for slot " + sub.slot + "; no CarrierConfig write was attempted");
-                        overrideResults.put(new JSONObject(overrideControl.apply(sub.id, sub.slot, profile.carrierTestMccMnc)));
-                    }
-                }
-            }
+            // Resolve Binder compatibility before changing CarrierConfig, but write the
+            // carrier test identity only after CarrierConfig has been applied/read back.
+            if (carrierMode || hasOwnedOverride)
+                overrideControl = new CarrierTestOverrideControl(session);
         }
         Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
         BatchRunner.Report report = BatchRunner.run(subscriptions, effective, engine, preview, restore);
         JSONArray results = new JSONArray();
         boolean imsFailure = false;
         boolean imsUnregistered = false;
+        Map<Integer, String> overrideErrors = new HashMap<>();
+        if (!preview && overrideControl != null) {
+            boolean configured = config.enabled || config.hasSimProfiles();
+            for (CarrierBackend.Subscription sub : subscriptions) {
+                try {
+                    if ((restore || !carrierMode) && CarrierTestOverrideControl.hasRecord(sub.id)) {
+                        overrideResults.put(new JSONObject(overrideControl.clearOwned(sub.id, sub.slot)));
+                    } else if (!restore && carrierMode && configured && config.selects(sub.slot)) {
+                        FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
+                        if (profile == null || profile.carrierTestMccMnc.isEmpty())
+                            throw new IllegalStateException("Carrier IMS requires an explicit carrier_test_mccmnc for slot " + sub.slot);
+                        overrideResults.put(new JSONObject(overrideControl.apply(
+                                sub.id, sub.slot, profile.carrierTestMccmnc)));
+                    }
+                } catch (Throwable error) {
+                    String detail = String.valueOf(error.getMessage());
+                    overrideErrors.put(sub.id, detail);
+                    overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
+                            .put("phase", "apply_failed").put("binder_accepted", false)
+                            .put("error", detail));
+                    log("subId=" + sub.id + " carrier test override ERROR " + detail);
+                }
+            }
+        }
+        boolean imsOverrideFailure = !overrideErrors.isEmpty();
         JSONArray imsResults = new JSONArray();
         CarrierImsControl imsControl = null;
-        if (carrierMode && (!preview || !restore)) {
+        if (carrierMode) {
             try { imsControl = new CarrierImsControl(); }
             catch (Throwable ignored) { /* Per-SIM result below reports the capability error. */ }
         }
