@@ -20,12 +20,24 @@
 <div id="startup-view" role="status" aria-live="polite"><span id="startup-message">正在加载…</span><div class="startup-line" aria-hidden="true"></div></div>
 <div id="page-content" data-primary="true">
 <main id="home" class="page">
+  <section class="pref-group device-status-group" aria-labelledby="device-heading">
+    <h2 id="device-heading" class="category">设备状态</h2>
+    <div class="status-row"><span id="status-indicator" class="status-indicator" aria-hidden="true"></span><div><p id="message" role="status" aria-live="polite">正在读取…</p><p id="device" class="summary"></p><p id="sim-summary" class="summary" hidden></p></div></div>
+    <h3 class="category subcategory">IMS 注册状态</h3>
+    <dl id="ims-registration" class="status-card-values" aria-live="polite"></dl>
+    <p class="hint status-note">显示最近一次执行时读取的结果，不代表当前通话可用。</p>
+    <div class="status-actions"><button id="probe" class="text-action" type="button"><span class="action-label">检测设备</span></button><button id="refresh" class="text-action" type="button"><span class="action-label">刷新</span></button></div>
+  </section>
+  <section class="pref-group" aria-label="IMS 模式">
+    <h2 class="category">IMS 模式</h2>
+    <div class="setting-row"><span class="row-copy"><strong>执行方式</strong><small id="implementation-mode-description">使用 TurboIMS 原有 IMS 配置路径。</small></span><button id="implementation-mode-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="implementation_mode" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="turboims">TurboIMS</option><option value="carrier_ims">Carrier IMS</option></select></div>
+  </section>
   <section class="pref-group" aria-labelledby="settings-heading">
     <h2 id="settings-heading" class="category">自动配置</h2>
     <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>开机自动应用</strong><small>开机后应用一次</small></span><span class="switch-hit"><input id="enabled" type="checkbox" role="switch"></span></label>
     <div class="setting-row"><span class="row-copy"><strong>应用到</strong><small>选择目标 SIM 卡</small></span><button id="selection-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="selection" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="all">所有活跃 SIM 卡</option><option value="slot:0">SIM 卡 1</option><option value="slot:1">SIM 卡 2</option></select></div>
-    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>定时检查与修复</strong><small>定期检查，安全修复差异</small></span><span class="switch-hit"><input id="periodic-check" type="checkbox" role="switch"></span></label>
-    <div id="interval-row" class="setting-row"><span class="row-copy"><strong>检查间隔</strong><small>开启定时检查后生效</small></span><button id="interval-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="interval" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="600">每 10 分钟</option><option value="1800">每 30 分钟</option><option value="3600">每 1 小时</option><option value="7200">每 2 小时</option></select></div>
+    <label class="setting-row" data-feedback="row"><span class="row-copy"><strong>定时检查</strong><small>定期检查并恢复配置</small></span><span class="switch-hit"><input id="periodic-check" type="checkbox" role="switch"></span></label>
+    <div id="interval-row" class="setting-row" aria-disabled="true"><span class="row-copy"><strong>检查间隔</strong><small id="interval-summary">每 30 分钟</small></span><button id="interval-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="interval" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="600">每 10 分钟</option><option value="1800">每 30 分钟</option><option value="3600">每 1 小时</option><option value="7200">每 2 小时</option></select></div>
     <p class="hint preference-footer">关闭定时检查仍保留已应用配置。</p>
   </section>
   <section class="pref-group" aria-label="IMS 功能">
@@ -35,9 +47,9 @@
     <h2 class="category">操作</h2>
     <div class="action-group" role="group" aria-label="页面操作">
       <button id="apply" class="action-button action-button--primary" type="button"><span>应用配置</span></button>
-      <button id="restore" class="action-button action-button--secondary" type="button"><span>停止恢复</span></button>
+      <button id="restore" class="action-button action-button--secondary" type="button"><span>停止并恢复</span></button>
     </div>
-    <p class="hint action-summary">应用当前 IMS 配置；停止恢复会关闭自动应用并恢复原值，保留冲突项。</p>
+    <p class="hint action-summary">停止自动应用并恢复原值，保留冲突项。</p>
   </section>
 </main>
 <main id="sim-page" class="page" hidden>
@@ -49,26 +61,22 @@
   </section>
   <section class="pref-group" aria-labelledby="sim-override-heading">
     <h2 id="sim-override-heading" class="category">覆盖信息</h2>
-    <div class="setting-row"><span class="row-copy"><strong>国家或地区</strong><small id="sim-country-summary">设置系统读取的国家或地区</small></span><button id="sim-country-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
-    <button id="sim-edit-country" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义国家码</strong><small>填写两位字母代码</small></span><span id="sim-custom-country-value" class="sim-pref-value">未设置</span></button>
-    <div class="setting-row"><span class="row-copy"><strong>运营商名称</strong><small id="sim-carrier-summary">设置系统读取的名称</small></span><button id="sim-carrier-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
-    <button id="sim-edit-carrier" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义运营商名称</strong><small>优先使用自定义名称</small></span><span id="sim-custom-carrier-value" class="sim-pref-value">未设置</span></button>
-    <button id="sim-edit-carrier-test-mccmnc" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>Carrier test MCC/MNC</strong><small>可选；留空沿用实际运营商</small></span><span id="sim-carrier-test-mccmnc-value" class="sim-pref-value">未设置</span></button>
+    <div class="setting-row"><span class="row-copy"><strong>国家或地区</strong><small id="sim-country-summary">当前系统识别地区</small></span><button id="sim-country-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
+    <button id="sim-edit-country" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义国家码</strong><small>两位字母代码</small></span><span id="sim-custom-country-value" class="sim-pref-value">未设置</span></button>
+    <div class="setting-row"><span class="row-copy"><strong>运营商名称</strong><small id="sim-carrier-summary">当前系统识别名称</small></span><button id="sim-carrier-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
+    <button id="sim-edit-carrier" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义运营商名称</strong><small>留空使用当前名称</small></span><span id="sim-custom-carrier-value" class="sim-pref-value">未设置</span></button>
+    <button id="sim-edit-carrier-test-mccmnc" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>Carrier test MCC/MNC</strong><small>留空使用实际运营商</small></span><span id="sim-carrier-test-mccmnc-value" class="sim-pref-value">未设置</span></button>
     <h3 class="category subcategory">操作</h3>
     <div class="action-group" role="group" aria-label="页面操作">
       <button id="sim-save" class="action-button action-button--primary" type="button"><span>应用信息</span></button>
       <button id="sim-restore" class="action-button action-button--secondary" type="button"><span>恢复原值</span></button>
     </div>
     <p class="hint action-summary">应用当前 SIM 信息；恢复原值仅移除本模块记录的 SIM 信息覆盖。</p>
-    <p class="hint preference-footer">Carrier test MCC/MNC 仅在 Carrier IMS 模式应用。留空表示沿用 SIM 当前运营商身份；填写代码才会临时应用测试运营商。台湾 + 中华电信可自动推导 46692。Android 不提供可靠读回接口，诊断只报告 Binder 接受状态，不会伪称已验证。</p>
+    <p class="hint preference-footer">Carrier test MCC/MNC 仅用于 Carrier IMS。留空时使用 SIM 当前运营商身份。</p>
   </section>
 </main>
 <main id="settings-page" class="page" hidden>
-  <section class="pref-group device-status-group" aria-labelledby="device-heading">
-    <h2 id="device-heading" class="category">设备状态（IMS）</h2>
-    <div class="status-row"><span id="status-indicator" class="status-indicator" aria-hidden="true"></span><div><p id="message" role="status" aria-live="polite">正在读取…</p><p id="device" class="summary"></p><p id="sim-summary" class="summary" hidden></p></div></div>
-    <div class="status-actions"><button id="probe" class="text-action" type="button"><span class="action-label">检测设备</span></button><button id="refresh" class="text-action" type="button"><span class="action-label">刷新</span></button></div>
-  </section>   <section class="pref-group sim-status-group" aria-labelledby="sim-status-heading">
+  <section class="pref-group sim-status-group" aria-labelledby="sim-status-heading">
     <h2 id="sim-status-heading" class="category">SIM 卡状态</h2>
     <div class="status-card-body">
       <div class="status-card-title"><strong id="sim-status-title">未检测到 SIM 卡</strong><small id="sim-status-subtitle"></small></div>
@@ -83,15 +91,22 @@
     <h2 id="more-heading" class="category">界面</h2>
     <button id="open-appearance" class="pref-action" type="button"><span>外观<small>显示模式与强调色</small></span><span class="chevron" aria-hidden="true"></span></button>
   </section>
-  <section class="pref-group" aria-label="IMS 实现模式">
-    <h2 class="category">IMS 实现模式</h2>
-    <div class="setting-row"><span class="row-copy"><strong>执行方式</strong><small>Carrier IMS 可选应用 Carrier test MCC/MNC 并触发 IMS reset；留空沿用原运营商</small></span><button id="implementation-mode-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="implementation_mode" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="turboims">TurboIMS（当前 KSU）</option><option value="carrier_ims">Carrier IMS</option></select></div>
-    <p class="hint preference-footer">Carrier IMS 可选使用 SIM 卡信息中的运营商测试码；台湾 + 中华电信可自动推导 46692。留空沿用 SIM 原生身份，不设置 Carrier test override。APN 不会被自动修改。</p>
-  </section>
   <section class="pref-group" aria-label="工具">
     <h2 class="category">工具</h2>
     <button id="open-diagnostics" class="pref-action" type="button"><span>诊断与验证<small>运行状态与诊断数据</small></span><span class="chevron" aria-hidden="true"></span></button>
-    <button id="reset-features" class="pref-action" type="button"><span>恢复 IMS 单项原值<small>选择功能后，回到 IMS 应用</small></span></button>
+    <button id="reset-features" class="pref-action" type="button"><span>恢复 IMS 原值<small>选择要恢复的 IMS 功能</small></span></button>
+  </section>
+</main>
+<main id="text-editor-page" class="page" hidden>
+  <section class="pref-group" aria-labelledby="text-editor-heading">
+    <h2 id="text-editor-heading" class="category"></h2>
+    <label id="text-editor-input-label" class="text-editor-label" for="text-editor-input">输入</label>
+    <input id="text-editor-input" class="text-editor-input" type="text" autocomplete="off" spellcheck="false" aria-describedby="text-editor-hint text-editor-error">
+    <p id="text-editor-hint" class="hint"></p>
+    <p id="text-editor-error" class="field-error" role="status"></p>
+    <div id="text-editor-actions" class="action-group text-editor-actions" role="group" aria-label="输入操作">
+      <button id="text-editor-save" class="action-button action-button--primary" type="button">保存</button>
+    </div>
   </section>
 </main>
 <main id="appearance-page" class="page" hidden>

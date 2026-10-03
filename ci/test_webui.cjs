@@ -52,9 +52,9 @@ async function appHarness(options = {}) {
   function element() {
     const el = {children:[], options:[], value:"", textContent:"", className:"", dataset:{}, style:{setProperty(){}},
       hidden:false, isConnected:true, checked:false, scrollTop:0,
-      append(...items) { this.children.push(...items); this.options.push(...items); }, setSelectionRange(start,end) { this.selectionStart=start; this.selectionEnd=end; },
+      append(...items) { this.children.push(...items); this.options.push(...items); }, setSelectionRange(start,end) { this.selectionStart=start; this.selectionEnd=end; }, blur() {},
       replaceChildren(...items) { this.children=[...items]; },
-      attributes:{}, setAttribute(key,value) { this.attributes[key]=value; }, removeAttribute(key) { delete this.attributes[key]; }, focus() {}, closest:()=>null, querySelector:()=>null, querySelectorAll:()=>[] };
+      attributes:{}, setAttribute(key,value) { this.attributes[key]=value; }, removeAttribute(key) { delete this.attributes[key]; }, focus() {}, closest:()=>null, querySelector:()=>null, querySelectorAll:()=>[], scrollIntoView() {} };
     Object.defineProperty(el,"id",{get() { return this._id; },set(id) { this._id=id; elements.set(id,this); }});
     return el;
   }
@@ -90,7 +90,7 @@ async function appHarness(options = {}) {
     forward() { if (index < stack.length-1) { index++; location.hash=stack[index].url; dispatch("popstate"); dispatch("hashchange"); } }
   };
   function dispatch(name) { for (const callback of listeners.get(name) || []) callback(); }
-  const window = {scrollY:0,addEventListener(name,callback) {
+  const window = {scrollY:0,innerHeight:600,addEventListener(name,callback) {
     if (!listeners.has(name)) listeners.set(name,[]); listeners.get(name).push(callback);
   }};
   const context=vm.createContext({
@@ -130,6 +130,24 @@ test("choice and appearance changes never call the privileged bridge",async()=>{
   elements.get("theme-choice").onclick();
   elements.get("sheet-content").children[2].onclick();
   assert.equal(doc.documentElement.dataset.theme,"dark");
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+test("IMS mode radio choice displays exact option labels and description",async()=>{
+  const {context,elements,calls}=await appHarness();
+  const config={schema:1,enabled:false,periodic_check_enabled:false,selection:"all",interval_seconds:1800,
+    implementation_mode:"turboims",features:Object.fromEntries(["volte","vowifi","vt","vonr","cross_sim","ut","5g_nr"].map(k=>[k,"default"]))};
+  elements.get("implementation_mode").options=[
+    {value:"turboims",textContent:"TurboIMS"},{value:"carrier_ims",textContent:"Carrier IMS"}];
+  context.form(config);
+  assert.equal(elements.get("implementation-mode-choice").textContent,"TurboIMS");
+  assert.equal(elements.get("implementation-mode-description").textContent,"使用 TurboIMS 原有 IMS 配置路径。");
+  elements.get("implementation-mode-choice").onclick();
+  const choices=elements.get("sheet-content").children;
+  assert.deepEqual(choices.map(button=>button.textContent.replace("✓","").trim()),["TurboIMS","Carrier IMS"]);
+  choices[1].onclick();
+  assert.equal(elements.get("implementation_mode").value,"carrier_ims");
+  assert.equal(elements.get("implementation-mode-choice").textContent,"Carrier IMS");
+  assert.equal(elements.get("implementation-mode-description").textContent,"使用 Carrier IMS 兼容路径，可配合 Carrier test MCC/MNC。");
   assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
 test("cancelled apply does not save or apply",async()=>{
@@ -382,8 +400,8 @@ test("SIM is empty and existing tools belong exclusively to Settings",()=>{
   assert.match(nav,/tab-home[^]*tab-sim-page[^]*tab-settings-page/);
 });
 
-test("SIM custom editors stay draft-only and preserve the saved schema",async()=>{
-  const {context,elements,calls}=await appHarness();
+test("SIM text editors use secondary pages, validate inputs, and keep edits draft-only",async()=>{
+  const {context,elements,calls,history}=await appHarness();
   const profileConfig={schema:1,enabled:false,periodic_check_enabled:false,selection:"all",interval_seconds:1800,
     features:{volte:"default",vowifi:"default",vt:"default",vonr:"default",cross_sim:"default",ut:"default","5g_nr":"default"},
     sim_profiles:{"0":{country_iso:"TW",carrier_name:"FarEasTone"}}};
@@ -392,34 +410,46 @@ test("SIM custom editors stay draft-only and preserve the saved schema",async()=
   assert.equal(elements.get("sim-country-choice").textContent,"台湾 (TW)");
   assert.equal(elements.get("sim-carrier-choice").textContent,"远传电信");
   elements.get("sim-edit-country").onclick();
-  let field=elements.get("sheet-content").children[0];
+  assert.equal(elements.get("text-editor-page").hidden,false);
+  assert.equal(elements.get("sheet").hidden,true);
+  assert.equal(elements.get("page-title").textContent,"自定义国家码");
+  let field=elements.get("text-editor-input");
   field.value="1";field.oninput();
-  assert.equal(elements.get("sheet-actions").children[0].disabled,true);
-  assert.match(elements.get("sheet-content").children[1].textContent,/两位英文字母/);
+  assert.equal(elements.get("text-editor-save").disabled,true);
+  assert.match(elements.get("text-editor-error").textContent,/两个英文字母/);
   field.value="jp";field.oninput();assert.equal(field.value,"JP");
-  elements.get("sheet-actions").children[0].onclick();
-  await new Promise(resolve=>setTimeout(resolve,180));
+  history.back();
+  assert.equal(elements.get("sim-page").hidden,false);
+  assert.equal(elements.get("sim-custom-country-value").textContent,"未设置");
+  elements.get("sim-edit-country").onclick();
+  field=elements.get("text-editor-input");field.value="jp";field.oninput();
+  elements.get("text-editor-save").onclick();
   assert.equal(elements.get("sim-custom-country-value").textContent,"JP");
-  assert.match(elements.get("sim-country-summary").textContent,/JP/);
   assert.equal(calls.filter(([action])=>action==="save"||action==="apply").length,0);
   elements.get("sim-edit-country").onclick();
-  elements.get("sheet-actions").children[0].onclick();
-  await new Promise(resolve=>setTimeout(resolve,180));
+  const clear=elements.get("text-editor-actions").children.find(button=>button.textContent==="清除");
+  clear.onclick();
   assert.equal(elements.get("sim-custom-country-value").textContent,"未设置");
   assert.equal(elements.get("sim-country-choice").textContent,"台湾 (TW)");
   elements.get("sim-edit-carrier").onclick();
-  field=elements.get("sheet-content").children[0];field.value="Custom Carrier";field.oninput();
-  elements.get("sheet-actions").children[0].onclick();
-  await new Promise(resolve=>setTimeout(resolve,180));
+  field=elements.get("text-editor-input");field.value="Custom Carrier";field.oninput();
+  elements.get("text-editor-save").onclick();
   assert.equal(elements.get("sim-custom-carrier-value").textContent,"Custom Carrier");
-  elements.get("sim-edit-carrier").onclick();
-  elements.get("sheet-actions").children[0].onclick();
-  await new Promise(resolve=>setTimeout(resolve,180));
-  assert.equal(elements.get("sim-custom-carrier-value").textContent,"未设置");
-  assert.equal(elements.get("sim-carrier-choice").textContent,"远传电信");
+  elements.get("sim-edit-carrier-test-mccmnc").onclick();
+  field=elements.get("text-editor-input");
+  assert.equal(field.inputMode,"numeric");
+  field.value="46a6928";field.oninput();
+  assert.equal(field.value,"466928");
+  assert.equal(elements.get("text-editor-save").disabled,false);
+  field.value="4669";field.oninput();
+  assert.equal(elements.get("text-editor-save").disabled,true);
+  assert.match(elements.get("text-editor-error").textContent,/5 或 6 位/);
+  field.value="46692";field.oninput();
+  elements.get("text-editor-save").onclick();
+  assert.equal(elements.get("sim-carrier-test-mccmnc-value").textContent,"46692");
   await elements.get("sim-save").onclick();
   const payload=JSON.parse(Buffer.from(calls.find(([action])=>action==="save")[1],"base64").toString());
-  assert.deepEqual(payload.sim_profiles,{"0":{country_iso:"TW",carrier_name:"FarEasTone"}});
+  assert.deepEqual(payload.sim_profiles,{"0":{country_iso:"TW",carrier_name:"FarEasTone",carrier_test_mccmnc:"46692"}});
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
   const sim=html.split('<main id="sim-page"')[1].split("</main>")[0];
   assert.doesNotMatch(sim,/sim-info-card|sim-custom-country\"|sim-custom-carrier\"|CarrierConfig/);
@@ -517,17 +547,23 @@ test("appearance refinements are opt-in and preserve current actions",()=>{
   assert.match(app,/turboims-card-groups","false"/);
   assert.match(html,/id="apply" class="action-button action-button--primary"/);
   assert.match(html,/id="sim-save" class="action-button action-button--primary"/);
-  assert.ok(app.includes('visualViewport.addEventListener("resize",updateDialogViewport)'));
-  assert.match(css,/data-ime="true"/);
+  assert.ok(app.includes('visualViewport.addEventListener("resize",updateWebViewViewport)'));
+  assert.match(css,/100dvh/);
+  assert.match(css,/\.text-editor-input:focus/);
   assert.match(app,/system-status-bg/);
   assert.match(app,/const statusColor = toolbarColor/);
   assert.ok(css.includes(':root[data-card-groups="true"] .pref-group'));
   assert.match(css,/system-navigation-bg/);
   const settings=html.split('<main id="settings-page"')[1].split("</main>")[0];
   const home=html.split('<main id="home"')[1].split("</main>")[0];
-  assert.ok(settings.includes('id="device-heading"'));
-  assert.ok(settings.includes("设备状态（IMS）"));
-  assert.ok(!home.includes('id="device-heading"'));
+  assert.ok(home.includes('id="device-heading"'));
+  assert.ok(home.includes("IMS 注册状态"));
+  assert.ok(!settings.includes('id="device-heading"'));
+  assert.match(home,/option value="turboims">TurboIMS</);
+  assert.match(home,/option value="carrier_ims">Carrier IMS</);
+  assert.doesNotMatch(home,/TurboIMS（当前 KSU）/);
+  assert.match(fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8"),/\.text-editor-input/);
+  assert.ok(!settings.includes("IMS 实现模式"));
 });
 
 test("startup uses only preference buttons declared in WebUI markup",async()=>{
@@ -552,7 +588,7 @@ test("initial view stays clean until status succeeds or fails",async()=>{
 });
 test("operation buttons use short single-line labels and retain separate actions",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
-  for(const [id,label] of Object.entries({apply:"应用配置",restore:"停止恢复","sim-save":"应用信息","sim-restore":"恢复原值"})){
+  for(const [id,label] of Object.entries({apply:"应用配置",restore:"停止并恢复","sim-save":"应用信息","sim-restore":"恢复原值"})){
     const button=html.match(new RegExp('<button id="'+id+'"[^>]*>([\\s\\S]*?)</button>'))[0];
     assert.ok(button.includes("action-button"));
     assert.ok(button.includes(label));
@@ -620,10 +656,35 @@ test("toolbar title and contained button retain classic Material emphasis",()=>{
   assert.match(css,/\.action-button--primary \{[\s\S]*color:var\(--on-accent\)/);
 });
 
-test("Settings starts with matching IMS and SIM status cards",()=>{
+test("IMS home shows config and actual registration states separately",async()=>{
+  const {context,elements}=await appHarness();
+  const config={schema:1,enabled:true,periodic_check_enabled:false,selection:"all",interval_seconds:1800,
+    implementation_mode:"carrier_ims",features:Object.fromEntries(["volte","vowifi","vt","vonr","cross_sim","ut","5g_nr"].map(k=>[k,"on"]))};
+  context.render({config,status:{...config,config,phase:"active",write_readback_verified:true,
+    subscriptions:[
+      {slot:0,sub_id:1,phase:"verified",ims:{slot:0,sub_id:1,phase:"ims_registered",registered:true}},
+      {slot:1,sub_id:2,phase:"verified",ims:{slot:1,sub_id:2,phase:"ims_not_registered",registered:false}}
+    ]}},true);
+  const status=elements.get("ims-registration").children;
+  assert.equal(status.length,2);
+  assert.equal(status[0].children[0].textContent,"SIM 卡 1");
+  assert.equal(status[0].children[1].textContent,"已注册");
+  assert.equal(status[1].children[1].textContent,"未注册");
+  assert.equal(elements.get("message").textContent,"IMS 配置已应用");
+  context.render({config:{...config,implementation_mode:"turboims"},status:{...config,implementation_mode:"turboims",
+    config:{...config,implementation_mode:"turboims"},phase:"active",subscriptions:[{slot:0,sub_id:1,
+      ims:{slot:0,sub_id:1,phase:"ims_registered",registered:true}}]}},true);
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未查询");
+});
+test("Settings SIM status stays available and device status is on IMS home",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
   const settings=html.split('<main id="settings-page"')[1].split("</main>")[0];
-  assert.ok(settings.indexOf('id="device-heading"') < settings.indexOf('id="sim-status-heading"'));
+  const home=html.split('<main id="home"')[1].split("</main>")[0];
+  assert.ok(home.indexOf('id="device-heading"') < home.indexOf("IMS 模式"));
+  assert.ok(home.indexOf("IMS 模式") < home.indexOf("自动配置"));
+  assert.ok(home.indexOf("自动配置") < home.indexOf("IMS 功能"));
+  assert.ok(home.indexOf("IMS 功能") < home.indexOf("操作"));
+  assert.ok(settings.indexOf('id="sim-status-heading"') >= 0);
   for(const id of ["sim-status-title","sim-status-country","sim-status-carrier"])
     assert.ok(settings.includes('id="'+id+'"'));
   const java=fs.readFileSync(path.join(__dirname,"../root-runner/src/main/java/io/github/turboims/ksu/ModuleMain.java"),"utf8");

@@ -1,5 +1,6 @@
 :root {
   --bottom-nav-height:54px; --page-padding:24px; --appbar-height:54px; --section-gap:16px;
+  --app-viewport-height:100vh;
   --section-label-size:12px; --row-height:64px; --action-row-height:56px;
   --title-size:15px; --summary-size:13px; --value-size:13px;
   --dialog-padding:18px; --dialog-option-height:48px; --touch-target:48px;
@@ -158,8 +159,10 @@ details .log-view { margin-top:12px; }
 :root[data-edge-to-edge="true"] body::after { bottom:0; height:var(--inset-bottom); background:var(--system-navigation-bg,var(--background)); }
 /* Root destinations share a scroll viewport above the fixed classic navigation. */
 html { height:100%; overscroll-behavior:none; }
-body { height:100%; min-height:100vh; min-height:100svh; display:flex; flex-direction:column; overflow:hidden; }
-@supports (height:100svh) { body { height:100svh; } }
+body { height:100vh; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+@supports (height:100svh) { :root { --app-viewport-height:100svh; } }
+@supports (height:100dvh) { :root { --app-viewport-height:100dvh; } }
+body { height:var(--app-viewport-height,100vh); }
 .toolbar { flex:none; }
 #page-content {
   flex:1; min-height:0; overflow:auto; overscroll-behavior-y:contain;
@@ -200,17 +203,13 @@ body { height:100%; min-height:100vh; min-height:100svh; display:flex; flex-dire
 .sim-summary > div span:last-child { color:var(--ink); text-align:right; }
 .sim-edit-row { appearance:none; -webkit-appearance:none; cursor:pointer; }
 .sim-pref-value { flex:none; max-width:44%; color:var(--muted); font-size:var(--value-size); text-align:right; overflow-wrap:anywhere; }
-.dialog-text-input { display:block; width:100%; min-height:42px; margin:4px 0 0; padding:8px 0 5px; border:0; border-bottom:1px solid var(--track); border-radius:0; outline:0; background:transparent; color:var(--ink); font-size:15px; user-select:text; -webkit-user-select:text; }
-.dialog-text-input:focus { border-bottom-color:var(--accent); box-shadow:inset 0 -1px 0 var(--accent); }
-.dialog-text-input[aria-invalid="true"] { border-bottom-color:var(--danger); }
-.dialog-input-error { min-height:18px; margin:4px 0 2px !important; color:var(--danger) !important; font-size:12px !important; }
-.dialog-actions button:disabled { opacity:.42; }
-.dialog-backdrop[data-editor] .dialog-actions { display:contents; }
-.dialog-backdrop[data-editor="clear"] .dialog-cancel { order:2; }
-.dialog-backdrop[data-editor="clear"] [data-action="edit-clear"] { order:1; }
-.dialog-backdrop[data-editor="clear"] [data-action="edit-confirm"] { order:3; }
-.dialog-backdrop[data-editor="plain"] .dialog-cancel { order:1; }
-.dialog-backdrop[data-editor="plain"] [data-action="edit-confirm"] { order:2; }
+.text-editor-label { display:block; margin:8px 0 0; color:var(--muted); font-size:13px; }
+.text-editor-input { display:block; width:100%; min-height:48px; margin:6px 0 0; padding:10px 9px 8px; border:1px solid var(--divider); border-bottom:2px solid var(--track); border-radius:2px; outline:0; background:var(--surface); color:var(--ink); font-size:16px; user-select:text; -webkit-user-select:text; }
+.text-editor-input:focus { border-color:var(--accent); border-bottom-color:var(--accent); box-shadow:inset 0 -1px 0 var(--accent); }
+.text-editor-input[aria-invalid="true"] { border-bottom-color:var(--danger); }
+.text-editor-actions { margin-top:18px; }
+.text-editor-actions .action-button { flex:1; }
+#text-editor-error { min-height:18px; }
 
 :root[data-accent-toolbar="true"] { --toolbar:var(--toolbar-tint,var(--accent)); }
 :root[data-accent-toolbar="true"] .toolbar { border-bottom-color:transparent; }
@@ -294,6 +293,7 @@ input[role="switch"]:disabled { opacity:.42; }
 /* IMS and SIM status summaries share the same compact status-card rhythm. */
 .device-status-group .status-row,
 .sim-status-group .status-card-body { min-height:57px; padding:12px 0 8px; }
+.status-note { margin:0; padding:0 0 8px; }
 .status-card-title strong { display:block; font-size:15px; font-weight:400; line-height:1.3; }
 .status-card-title small { margin-top:3px; }
 .status-card-values { margin:8px 0 0; padding:0; }

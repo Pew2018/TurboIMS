@@ -107,12 +107,8 @@ function simSyncForm() {
   $("sim-custom-country-value").textContent = draft.country_custom || "未设置";
   $("sim-custom-carrier-value").textContent = draft.carrier_custom || "未设置";
   $("sim-carrier-test-mccmnc-value").textContent = draft.carrier_test_mccmnc || "未设置";
-  $("sim-country-summary").textContent = draft.country_custom
-    ? (draft.country_preset ? "自定义值 " + draft.country_custom + " 覆盖上方预设" : "使用自定义国家码")
-    : "设置系统读取的国家或地区";
-  $("sim-carrier-summary").textContent = draft.carrier_custom
-    ? (draft.carrier_preset ? "自定义名称覆盖上方预设" : "使用自定义名称")
-    : "设置系统读取的名称";
+  $("sim-country-summary").textContent = "当前系统识别地区";
+  $("sim-carrier-summary").textContent = "当前系统识别名称";
   const row = simSlots.find(x => x.slot === selectedSimSlot);
   $("sim-current").replaceChildren();
   if (!row) {
@@ -166,30 +162,48 @@ function simChoiceCarrier() {
 }
 function simEditCountry() {
   const draft = simEditorProfile(selectedSimSlot);
-  editTextPreference("自定义国家码","输入两位 ISO 国家或地区代码。",draft.country_custom,
-    value => value === "" || /^[A-Z]{2}$/.test(value),
-    value => simSetCustom("country_custom",value),
-    draft.country_custom !== "", "请输入两位英文字母", value => value.toUpperCase());
+  editTextPreference({
+    title:"自定义国家码", label:"自定义国家码", inputLabel:"国家码",
+    description:"使用两个字母的 ISO 国家或地区代码。",
+    value:draft.country_custom, maxLength:2, inputMode:"text",
+    transform:value => value.toUpperCase().replace(/[^A-Z]/g,"").slice(0,2),
+    normalize:value => value.toUpperCase(),
+    validate:value => value === "" || /^[A-Z]{2}$/.test(value),
+    onSave:value => simSetCustom("country_custom",value),
+    showClear:draft.country_custom !== "",
+    errorMessage:"请输入两个英文字母"
+  });
 }
 function simEditCarrier() {
   const draft = simEditorProfile(selectedSimSlot);
-  editTextPreference("自定义运营商名称","留空使用预设名称。",
-    draft.carrier_custom,value => value.length <= 128,
-    value => simSetCustom("carrier_custom",value.trim()),
-    draft.carrier_custom !== "", "名称不能超过 128 个字符");
+  editTextPreference({
+    title:"自定义运营商名称", label:"自定义运营商名称", inputLabel:"运营商名称",
+    description:"留空使用当前名称。",
+    value:draft.carrier_custom, maxLength:128,
+    validate:value => value.length <= 128,
+    onSave:value => simSetCustom("carrier_custom",value.trim()),
+    showClear:draft.carrier_custom !== "",
+    errorMessage:"名称不能超过 128 个字符"
+  });
 }
 function simEditCarrierTestMccMnc() {
   const draft = simEditorProfile(selectedSimSlot);
-  editTextPreference("Carrier test MCC/MNC","Carrier IMS 模式必填；填写目标运营商的 5 或 6 位 MCC/MNC，不要填当前网络代码。",
-    draft.carrier_test_mccmnc,value => value === "" || /^[0-9]{5,6}$/.test(value),
-    value => simSetCustom("carrier_test_mccmnc",value.trim()),
-    draft.carrier_test_mccmnc !== "", "请输入 5 或 6 位数字，例如 46692");
+  editTextPreference({
+    title:"Carrier test MCC/MNC", label:"Carrier test MCC/MNC", inputLabel:"MCC/MNC",
+    description:"留空使用实际运营商身份。特定运营商可自动推导测试 MCC/MNC。",
+    value:draft.carrier_test_mccmnc, maxLength:6, inputMode:"numeric",
+    transform:value => value.replace(/[^0-9]/g,"").slice(0,6),
+    validate:value => value === "" || /^[0-9]{5,6}$/.test(value),
+    onSave:value => simSetCustom("carrier_test_mccmnc",value.trim()),
+    showClear:draft.carrier_test_mccmnc !== "",
+    errorMessage:"请输入 5 或 6 位数字"
+  });
 }
 function simEffectiveProfiles() {
   const profiles = {};
   for (const slot of new Set([...Object.keys(simProfiles),...Object.keys(simEditorProfiles)])) {
     const profile = simEffectiveProfile(Number(slot));
-    if (profile.country_iso || profile.carrier_name) profiles[slot] = profile;
+    if (profile.country_iso || profile.carrier_name || profile.carrier_test_mccmnc) profiles[slot] = profile;
   }
   return profiles;
 }
@@ -445,57 +459,82 @@ function actionButton(title, onClick, secondary = false) {
   button.onclick = onClick; button.dataset.ripple = "control";
   window.TouchFeedback?.bind(button); return button;
 }
-function editTextPreference(title, description, initial, validate, onConfirm, showClear, errorMessage, normalize = value => value) {
-  openSheet(title,description);
-  $("sheet").dataset.editor = showClear ? "clear" : "plain";
-  const field = document.createElement("input");
-  field.type = "text"; field.className = "dialog-text-input";
+let textEditor = null;
+function editTextPreference(options) {
+  textEditor = options;
+  $("text-editor-heading").textContent = options.label || options.title;
+  $("text-editor-input-label").textContent = options.inputLabel || options.label || options.title;
+  $("text-editor-hint").textContent = options.description || "";
+  const field = $("text-editor-input");
+  field.value = options.value || "";
+  field.maxLength = options.maxLength || 128;
+  field.inputMode = options.inputMode || "text";
   field.autocomplete = "off"; field.spellcheck = false;
-  field.maxLength = title === "自定义国家码" ? 2 : 128;
-  field.value = initial || ""; field.setAttribute("aria-label",title);
-  const error = document.createElement("p");
-  error.className = "dialog-input-error"; error.setAttribute("role","status");
-  $("sheet-content").append(field,error);
-  const confirm = actionButton("确定",() => {
-    const value = normalize(field.value.trim());
-    if (!validate(value)) return;
-    onConfirm(value); setTimeout(() => dismissSheet(true),150);
-  });
-  confirm.disabled = !validate(normalize(field.value.trim()));
-  if (showClear) {
-    const clearButton = actionButton("清除",() => {
-      onConfirm(""); setTimeout(() => dismissSheet(true),150);
-    },true);
-    clearButton.dataset.action = "edit-clear";
-    $("sheet-actions").append(clearButton);
-  }
-  confirm.dataset.action = "edit-confirm";
-  $("sheet-actions").append(confirm);
-  field.oninput = () => {
-    const value = normalize(field.value);
-    if (field.value !== value) field.value = value;
-    const valid = validate(value.trim());
-    confirm.disabled = !valid;
-    error.textContent = valid ? "" : errorMessage;
-    field.setAttribute("aria-invalid",String(!valid));
+  field.setAttribute("aria-label",options.inputLabel || options.label || options.title);
+  $("text-editor-error").textContent = "";
+  $("text-editor-actions").replaceChildren();
+  const save = document.createElement("button");
+  save.id = "text-editor-save"; save.type = "button";
+  save.className = "action-button action-button--primary";
+  save.textContent = "保存";
+  save.onclick = () => {
+    const value = options.normalize ? options.normalize(field.value.trim()) : field.value.trim();
+    if (!options.validate(value)) { updateTextEditorValidation(); return; }
+    options.onSave(value);
+    textEditor = null;
+    history.back();
   };
+  if (options.showClear && options.value) {
+    const clear = document.createElement("button");
+    clear.type = "button"; clear.className = "action-button action-button--secondary";
+    clear.textContent = "清除";
+    clear.onclick = () => { options.onSave(""); textEditor = null; history.back(); };
+    $("text-editor-actions").append(clear);
+  }
+  $("text-editor-actions").append(save);
+  field.oninput = () => {
+    const transformed = options.transform ? options.transform(field.value) : field.value;
+    if (field.value !== transformed) {
+      const cursor = field.selectionStart;
+      field.value = transformed;
+      field.setSelectionRange(Math.min(cursor ?? transformed.length,transformed.length),
+        Math.min(cursor ?? transformed.length,transformed.length));
+    }
+    updateTextEditorValidation();
+  };
+  field.onfocus = updateTextEditorViewport;
   field.oninput();
-  field.onfocus = () => { $("sheet").dataset.ime = "true"; updateDialogViewport(); };
-  field.onblur = () => { if (document.activeElement !== field) $("sheet").removeAttribute("data-ime"); };
-  setTimeout(() => { field.focus(); field.setSelectionRange(field.value.length,field.value.length); updateDialogViewport(); },60);
+  navigate("text-editor-page");
+  setTimeout(() => {
+    field.focus();
+    field.setSelectionRange(field.value.length,field.value.length);
+    updateTextEditorViewport();
+  },80);
 }
-function updateDialogViewport() {
-  if ($("sheet").hidden || !$("sheet").dataset.editor) return;
+function updateTextEditorValidation() {
+  if (!textEditor) return;
+  const field = $("text-editor-input");
+  const value = textEditor.normalize ? textEditor.normalize(field.value.trim()) : field.value.trim();
+  const valid = textEditor.validate(value);
+  $("text-editor-save").disabled = !valid;
+  $("text-editor-error").textContent = valid ? "" : textEditor.errorMessage || "输入格式不正确";
+  field.setAttribute("aria-invalid",String(!valid));
+}
+function updateTextEditorViewport() {
+  if (currentPage !== "text-editor-page") return;
   const viewport = window.visualViewport;
-  const top = viewport ? viewport.offsetTop : 0;
   const height = viewport ? viewport.height : (window.innerHeight || 600);
-  document.documentElement.style.setProperty("--visual-viewport-top",Math.max(0,top)+"px");
-  document.documentElement.style.setProperty("--visual-viewport-height",Math.max(160,height)+"px");
+  document.documentElement.style.setProperty("--app-viewport-height",Math.max(180,height)+"px");
+  setTimeout(() => $("text-editor-input").scrollIntoView({block:"center"}),0);
+}
+function updateWebViewViewport() {
+  if (currentPage === "text-editor-page") updateTextEditorViewport();
 }
 if (window.visualViewport) {
-  window.visualViewport.addEventListener("resize",updateDialogViewport);
-  window.visualViewport.addEventListener("scroll",updateDialogViewport);
+  window.visualViewport.addEventListener("resize",updateWebViewViewport);
+  window.visualViewport.addEventListener("scroll",updateWebViewViewport);
 }
+window.addEventListener("resize",updateWebViewViewport);
 function choose(title, description, values, current, onSelect) {
   if (!$("sheet").hidden) return;
   openSheet(title, description);
@@ -526,9 +565,11 @@ function choose(title, description, values, current, onSelect) {
 function choiceFor(select, button) {
   const option = [...select.options].find(x => x.value === select.value);
   button.textContent = option?.textContent || select.value;
+  if (select.id === "interval") $("interval-summary").textContent = option?.textContent || select.value;
   button.setAttribute("aria-label", (button.dataset.title || "选择设置") + "，" + button.textContent);
   button.onclick = () => choose(button.dataset.title || "选择设置", "", [...select.options].map(x => [x.value,x.textContent]), select.value, value => {
     select.value = value; choiceFor(select,button);
+    if (select.id === "implementation_mode") updateImplementationModeDescription();
     if (select.id === "interval") saveSchedule();
   });
 }
@@ -602,10 +643,10 @@ $("card-groups").onchange = () => {
 showAppearance();
 const pageTitles = {home:"IMS","sim-page":"SIM 卡信息","settings-page":"设置",
   "appearance-page":"外观","accent-page":"强调色","accent-scope-page":"强调色应用范围","diagnostics-page":"诊断与验证",
-  "diagnostic-data-page":"完整诊断数据","operation-data-page":"操作结果"};
+  "diagnostic-data-page":"完整诊断数据","operation-data-page":"操作结果","text-editor-page":"编辑"};
 const pageRoutes = {home:"","sim-page":"sim","settings-page":"settings",
   "appearance-page":"appearance","accent-page":"accent","accent-scope-page":"accent-scope","diagnostics-page":"diagnostics",
-  "diagnostic-data-page":"diagnostic-data","operation-data-page":"operation-data"};
+  "diagnostic-data-page":"diagnostic-data","operation-data-page":"operation-data","text-editor-page":"edit"};
 const primaryPages = ["home","sim-page","settings-page"];
 const primaryScroll = {home:0,"sim-page":0,"settings-page":0};
 let currentPage = null;
@@ -624,13 +665,18 @@ function rememberScroll() {
 }
 function showPage(page, scroll = 0) {
   const changed = currentPage !== page;
+  if (currentPage === "text-editor-page" && page !== "text-editor-page") {
+    $("text-editor-input").blur();
+    textEditor = null;
+    document.documentElement.style.removeProperty("--app-viewport-height");
+  }
   currentPage = page;
   const primary = primaryPages.includes(page);
   for (const id of Object.keys(pageTitles)) $(id).hidden = id !== page;
   $("back").hidden = primary;
   $("bottom-nav").hidden = !primary;
   $("page-content").dataset.primary = String(primary);
-  $("page-title").textContent = "TurboIMS Next";
+  $("page-title").textContent = page === "text-editor-page" ? (textEditor?.title || "编辑") : "TurboIMS Next";
   for (const id of primaryPages) {
     const tab = $("tab-"+id);
     if (id === page) tab.setAttribute("aria-current","page");
@@ -830,12 +876,18 @@ async function saveSchedule() {
   }
 }
 $("periodic-check").onchange = () => { updatePeriodicControl(); saveSchedule(); };
+function updateImplementationModeDescription() {
+  $("implementation-mode-description").textContent = $("implementation_mode").value === "carrier_ims"
+    ? "使用 Carrier IMS 兼容路径，可配合 Carrier test MCC/MNC。"
+    : "使用 TurboIMS 原有 IMS 配置路径。";
+}
 function form(config) {
   savedConfig = config;
   simProfiles = config.sim_profiles || {};
   $("enabled").checked = config.enabled;
   $("implementation_mode").value = config.implementation_mode || "turboims";
   choiceFor($("implementation_mode"),$("implementation-mode-choice"));
+  updateImplementationModeDescription();
   $("periodic-check").checked = !!config.periodic_check_enabled;
   updatePeriodicControl();
   if (![...$("selection").options].some(x => x.value === config.selection)) {
@@ -907,6 +959,7 @@ function render(result, replaceForm = false) {
   $("sim-summary").textContent = slots.length ? "已检测到 SIM 卡 " + slots.join("、")
     : Array.isArray(subscriptions) && subscriptions.length === 0 ? "暂未检测到活跃 SIM 卡" : "";
   $("sim-summary").hidden = !$("sim-summary").textContent;
+  renderImsRegistrationStatus(result);
   renderDiagnosticSummary(result);
   renderSimStatus(result);
   renderSimResults(result);
@@ -935,8 +988,55 @@ function renderSimStatus(result) {
   $("sim-status-subtitle").textContent =
     (selected.sub_id ? "subId " + selected.sub_id : "已检测") + count;
   const country = String(selected.country_iso || "").toUpperCase();
-  $("sim-status-country").textContent = country ? simCountryLabel(country) : "未覆盖";
-  $("sim-status-carrier").textContent = selected.carrier_name || "未覆盖";
+  $("sim-status-country").textContent = country ? simCountryLabel(country) : "未读取";
+  $("sim-status-carrier").textContent = selected.carrier_name || "未读取";
+}
+function renderImsRegistrationStatus(result) {
+  const state = result.status || result;
+  const subscriptions = Array.isArray(state.subscriptions) ? state.subscriptions : [];
+  const mode = state.implementation_mode || result.implementation_mode || state.config?.implementation_mode
+    || result.config?.implementation_mode || savedConfig?.implementation_mode
+    || $("implementation_mode").value || "turboims";
+  const results = mode === "carrier_ims"
+    ? (Array.isArray(state.carrier_ims_results) ? state.carrier_ims_results
+      : Array.isArray(result.carrier_ims_results) ? result.carrier_ims_results : [])
+    : [];
+  const rows = subscriptions.map(sub => {
+    const registration = mode === "carrier_ims" ? sub.ims || results.find(item =>
+      Number(item.sub_id) === Number(sub.sub_id) || Number(item.slot) === Number(sub.slot)) : null;
+    return {slot:sub.slot,registration};
+  });
+  for (const item of results) {
+    if (!rows.some(row => Number(row.slot) === Number(item.slot)))
+      rows.push({slot:item.slot,registration:item});
+  }
+  const list = $("ims-registration");
+  list.replaceChildren();
+  if (!rows.length) {
+    const row = document.createElement("div");
+    const name = document.createElement("dt"); name.textContent = "注册状态";
+    const value = document.createElement("dd"); value.textContent = "未检测到 SIM 卡";
+    row.append(name,value); list.append(row); return;
+  }
+  rows.sort((a,b) => Number(a.slot) - Number(b.slot));
+  for (const item of rows) {
+    const registration = item.registration || {};
+    const row = document.createElement("div");
+    const name = document.createElement("dt");
+    name.textContent = Number.isInteger(item.slot) ? "SIM 卡 " + (item.slot + 1) : "IMS";
+    const value = document.createElement("dd");
+    if (registration.registered === true || registration.phase === "ims_registered")
+      value.textContent = "已注册";
+    else if (registration.phase === "ims_not_registered")
+      value.textContent = "未注册";
+    else if (registration.phase === "ims_status_unavailable")
+      value.textContent = "无法读取";
+    else if (registration.phase === "ims_reset_failed")
+      value.textContent = "重置失败";
+    else
+      value.textContent = "未查询";
+    row.append(name,value); list.append(row);
+  }
 }
 function renderSimResults(result) {
   const state = result.status || result;
