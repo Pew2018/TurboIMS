@@ -27,12 +27,7 @@ public final class CarrierTestOverrideControl {
         if (telephony == null) throw new java.io.IOException("ITelephony is unavailable");
         Method found = null;
         for (Method method : api.getMethods()) {
-            Class<?>[] p = method.getParameterTypes();
-            if (method.getName().equals("setCarrierTestOverride") && p.length == 10
-                    && p[0] == int.class && p[1] == String.class
-                    && p[2] == String.class && p[3] == String.class && p[4] == String.class
-                    && p[5] == String.class && p[6] == String.class && p[7] == String.class
-                    && p[8].isArray() && p[9].isArray()) { found = method; break; }
+            if (supportsCarrierTestOverrideSignature(method)) { found = method; break; }
         }
         if (found == null) throw new NoSuchMethodException("ITelephony.setCarrierTestOverride signature unavailable");
         setMethod = found;
@@ -40,6 +35,24 @@ public final class CarrierTestOverrideControl {
         try { clear = api.getMethod("clearCarrierTestOverride", int.class); }
         catch (NoSuchMethodException e) { clear = null; }
         clearMethod = clear;
+    }
+
+    /**
+     * Android's ITelephony changed the final carrier-privilege/APN arguments from
+     * legacy arrays to strings. Both forms accept null for these optional fields.
+     */
+    static boolean supportsCarrierTestOverrideSignature(Method method) {
+        if (!method.getName().equals("setCarrierTestOverride")) return false;
+        Class<?>[] p = method.getParameterTypes();
+        if (p.length != 10 || p[0] != int.class) return false;
+        for (int i = 1; i <= 7; i++) {
+            if (p[i] != String.class) return false;
+        }
+        return isStringOrLegacyArray(p[8]) && isStringOrLegacyArray(p[9]);
+    }
+
+    private static boolean isStringOrLegacyArray(Class<?> type) {
+        return type == String.class || type.isArray();
     }
 
     public static boolean hasRecord(int subId) {
