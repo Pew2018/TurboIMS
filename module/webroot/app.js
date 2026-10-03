@@ -295,6 +295,29 @@ function showAppearance() {
   const onAccent = actionDarkContrast >= 4.5 && actionDarkContrast >= actionWhiteContrast
     ? "#101010" : actionWhiteContrast >= 4.5 ? "#FFFFFF" : "#000000";
   root.style.setProperty("--on-accent",onAccent);
+
+  // Solid square action buttons use white labels consistently. If the selected
+  // accent is too light for white, derive a darker same-hue fill until the
+  // button reaches the WCAG AA 4.5:1 contrast target. The preference accent
+  // itself remains unchanged everywhere else.
+  let actionScale = 1;
+  if (relativeLuminance > .183333) {
+    let low = 0, high = 1;
+    for (let i = 0; i < 18; i++) {
+      const mid = (low + high) / 2;
+      const scaled = rgb.map(value => {
+        const channel = value * mid / 255;
+        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+      });
+      const scaledLuminance = scaled[0] * .2126 + scaled[1] * .7152 + scaled[2] * .0722;
+      if (scaledLuminance <= .183333) low = mid; else high = mid;
+    }
+    actionScale = low;
+  }
+  const actionFill = colorHex(rgb.map(value => value * actionScale));
+  root.style.setProperty("--action-fill",actionFill);
+  root.style.setProperty("--action-ripple","#ffffff");
+
   const tonalStrength = dark ? .18 : .14;
   const tonalSurfaceRgb = dark ? [33,33,33] : [255,255,255];
   const tonalRgb = rgb.map((value,index) => Math.round(value * tonalStrength + tonalSurfaceRgb[index] * (1 - tonalStrength)));
