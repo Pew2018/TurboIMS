@@ -451,7 +451,7 @@ test("SIM text editors use secondary pages, validate inputs, and keep edits draf
   assert.equal(elements.get("sim-carrier-test-mccmnc-value").textContent,"46692");
   await elements.get("sim-save").onclick();
   const payload=JSON.parse(Buffer.from(calls.find(([action])=>action==="save")[1],"base64").toString());
-  assert.deepEqual(payload.sim_profiles,{"0":{country_iso:"TW",carrier_name:"FarEasTone",carrier_test_mccmnc:"46692"}});
+  assert.deepEqual(payload.sim_profiles,{"0":{country_iso:"TW",carrier_name:"Custom Carrier",carrier_test_mccmnc:"46692"}});
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
   const sim=html.split('<main id="sim-page"')[1].split("</main>")[0];
   assert.doesNotMatch(sim,/sim-info-card|sim-custom-country\"|sim-custom-carrier\"|CarrierConfig/);
