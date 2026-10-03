@@ -12,7 +12,7 @@ public class AutoApplyTest {
         assertEquals("active", phase);
         assertEquals(1, runs.get()); assertEquals(0, waits.get());
     }
-    @Test public void onlyReadinessIsRetriedAndItIsBounded() throws Exception {
+    @Test public void retryableReadinessIsBounded() throws Exception {
         AtomicInteger runs = new AtomicInteger(), waits = new AtomicInteger();
         String phase = AutoApply.untilReady(() -> {
             runs.incrementAndGet(); return "waiting";
@@ -22,6 +22,14 @@ public class AutoApplyTest {
         });
         assertEquals("waiting", phase);
         assertEquals(12, runs.get()); assertEquals(11, waits.get());
+    }
+    @Test public void imsRegistrationCanSettleAcrossBoundedRetries() throws Exception {
+        AtomicInteger runs = new AtomicInteger(), waits = new AtomicInteger();
+        String phase = AutoApply.untilReady(() -> {
+            return runs.incrementAndGet() < 3 ? "ims_not_registered" : "active";
+        }, result -> result, delay -> waits.incrementAndGet());
+        assertEquals("active", phase);
+        assertEquals(3, runs.get()); assertEquals(2, waits.get());
     }
     @Test public void verificationFailureStopsImmediately() throws Exception {
         AtomicInteger runs = new AtomicInteger();

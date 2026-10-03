@@ -1,6 +1,6 @@
 package io.github.turboims.ksu;
 
-/** Bounded boot readiness retries; only "waiting" is retryable. */
+/** Bounded boot retries for framework readiness and post-reset IMS registration. */
 public final class AutoApply {
     public static final int MAX_ATTEMPTS = 12;
     public static final long RETRY_MILLIS = 5000;
@@ -9,12 +9,16 @@ public final class AutoApply {
     public interface Phase<T> { String of(T result) throws Exception; }
     public interface Pause { void waitFor(long millis) throws Exception; }
 
+    public static boolean isRetryablePhase(String value) {
+        return "waiting".equals(value) || "ims_not_registered".equals(value);
+    }
+
     public static <T> T untilReady(Attempt<T> attempt, Phase<T> phase, Pause pause)
             throws Exception {
         T result = null;
         for (int count = 0; count < MAX_ATTEMPTS; count++) {
             result = attempt.run();
-            if (!"waiting".equals(phase.of(result))) return result;
+            if (!isRetryablePhase(phase.of(result))) return result;
             if (count + 1 < MAX_ATTEMPTS) pause.waitFor(RETRY_MILLIS);
         }
         return result;

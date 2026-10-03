@@ -363,8 +363,13 @@ public final class ModuleMain {
         try (Locked operation = lock("operation.lock", true)) {
             JSONObject result = runOnce(false, false, true);
             JsonIO.write(STATUS, result);
-            if (result.optBoolean("requires_manual_retry")
-                    || (!result.optBoolean("ok") && !"waiting".equals(result.optString("phase"))))
+            String phase = result.optString("phase");
+            // An IMS stack can still be re-registering immediately after reset. Keep
+            // this bounded retry path alive; all other failed/uncertain writes remain
+            // blocked for explicit inspection instead of being retried blindly.
+            if (!AutoApply.isRetryablePhase(phase)
+                    && (result.optBoolean("requires_manual_retry")
+                    || !result.optBoolean("ok")))
                 JsonIO.write(BLOCKED, result);
             return result;
         }
@@ -379,11 +384,12 @@ public final class ModuleMain {
             if (Files.exists(BLOCKED)) return JsonIO.read(BLOCKED);
             return automaticAttempt();
         }, value -> value.optString("phase"), Thread::sleep);
-        if ("waiting".equals(result.optString("phase"))) {
-            result.put("phase", "retry_timeout").put("ok", false)
-                    .put("requires_manual_retry", false);
+        String finalPhase = result.optString("phase");
+        if (AutoApply.isRetryablePhase(finalPhase)) {
+            result.put("phase", "retry_timeout").put("retry_reason", finalPhase)
+                    .put("ok", false).put("requires_manual_retry", false);
             JsonIO.write(STATUS, result);
-            log("SIM/CarrierConfig readiness retry timed out");
+            log("Automatic retry timed out: " + finalPhase);
         }
         return result;
     }
