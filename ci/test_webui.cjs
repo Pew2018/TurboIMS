@@ -68,6 +68,7 @@ async function appHarness(options = {}) {
       if(!elements.has(id)) {
         if(options.strictIds && !declaredIds.has(id)) return null;
         const el=element();
+        el.id=id;
         if(id==="sheet")el.hidden=true;
         if(id==="selection")el.options=[{value:"all",textContent:"所有活跃 SIM"},{value:"slot:0",textContent:"SIM 卡槽 1"},{value:"slot:1",textContent:"SIM 卡槽 2"}];
         if(id==="interval")el.options=[600,1800,3600,7200].map(x=>({value:String(x),textContent:x+" 秒"}));

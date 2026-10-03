@@ -168,7 +168,7 @@ function simEditCountry() {
     value:draft.country_custom, maxLength:2, inputMode:"text",
     transform:value => value.toUpperCase().replace(/[^A-Z]/g,"").slice(0,2),
     normalize:value => value.toUpperCase(),
-    validate:value => value === "" || /^[A-Z]{2}$/.test(value),
+    validate:value => /^[A-Z]{2}$/.test(value),
     onSave:value => simSetCustom("country_custom",value),
     showClear:draft.country_custom !== "",
     errorMessage:"请输入两个英文字母"

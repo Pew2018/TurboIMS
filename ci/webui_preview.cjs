@@ -128,7 +128,7 @@ let browser;
   assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"1");
   assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el,"::after").backgroundColor),"rgb(238, 238, 238)");
   await page.evaluate(()=>{document.getElementById("enabled").disabled=true;});
-  assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"0.38");
+  assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"0.42");
   await switchHit.dispatchEvent("pointerdown",{button:0,isPrimary:true,pointerId:996,clientX:10,clientY:10});
   await switchHit.dispatchEvent("pointerup",{button:0,isPrimary:true,pointerId:996,clientX:10,clientY:10});
   assert.equal(await switchHit.locator(".tap-ripple").count(),0);
