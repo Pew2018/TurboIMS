@@ -35,10 +35,10 @@ test("malformed runner output is an error",async()=>{
 });
 test("WebUI has offline assets and no CDN dependencies",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
-  for(const file of ["bridge.js","feedback.js","app.js","style.css"])
+  for(const file of ["startup.js","bridge.js","feedback.js","app.js","style.css"])
     assert.ok(fs.existsSync(path.join(__dirname,"../module/webroot",file)));
   assert.ok(!/https?:\/\/|<iframe/i.test(html));
-  for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh"])
+  for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh","sim-edit-country","sim-edit-carrier","accent-scope-choice","accent-toolbar","accent-section-labels","accent-navigation-icons","card-groups"])
     assert.ok(html.includes('id="'+id+'"'));
 });
 test("default config is deliberately paused",()=>{
@@ -47,12 +47,12 @@ test("default config is deliberately paused",()=>{
   assert.equal(config.interval_seconds,1800);assert.equal(Object.keys(config.features).length,7);
 });
 
-async function appHarness() {
+async function appHarness(options = {}) {
   const vm=require("node:vm");
   function element() {
     const el = {children:[], options:[], value:"", textContent:"", className:"", dataset:{}, style:{setProperty(){}},
       hidden:false, isConnected:true, checked:false, scrollTop:0,
-      append(...items) { this.children.push(...items); this.options.push(...items); },
+      append(...items) { this.children.push(...items); this.options.push(...items); }, setSelectionRange(start,end) { this.selectionStart=start; this.selectionEnd=end; },
       replaceChildren(...items) { this.children=[...items]; },
       attributes:{}, setAttribute(key,value) { this.attributes[key]=value; }, removeAttribute(key) { delete this.attributes[key]; }, focus() {}, closest:()=>null, querySelector:()=>null, querySelectorAll:()=>[] };
     Object.defineProperty(el,"id",{get() { return this._id; },set(id) { this._id=id; elements.set(id,this); }});
@@ -60,7 +60,7 @@ async function appHarness() {
   }
   const elements=new Map();
   const doc={activeElement:null, body:{style:{}},
-    documentElement:{dataset:{},style:{properties:{},setProperty(name,value) { this.properties[name]=value; }}},
+    documentElement:{dataset:{},style:{properties:{},setProperty(name,value) { this.properties[name]=value; },removeProperty(name) { delete this.properties[name]; }}},
     addEventListener() {}, createElement:element, querySelectorAll:()=>[],
     getElementById(id) {
       if(!elements.has(id)) {
@@ -73,6 +73,7 @@ async function appHarness() {
       return elements.get(id);
     }};
   const calls=[];
+  const storageMap=new Map();
   const listeners = new Map();
   const location = {hash:""};
   const stack = [{state:null,url:""}];
@@ -93,11 +94,12 @@ async function appHarness() {
     window, history, location,
     document:doc,
     TurboBridge:{call:async(action,payload)=>{calls.push([action,payload]);
+      if(action==="status" && options.initialStatus) return options.initialStatus;
       if(action==="save")return {ok:true,config:JSON.parse(Buffer.from(payload,"base64").toString()),phase:"saved"};
       return {phase:"not_started"};}},
-    localStorage:{getItem:()=>null,setItem(){}},
+    localStorage:{getItem:key=>storageMap.get(key)||null,setItem:(key,value)=>storageMap.set(key,value)},
     matchMedia:()=>({matches:false,addEventListener(){}}),
-    btoa:s=>Buffer.from(s).toString("base64"), setTimeout
+    btoa:s=>Buffer.from(s).toString("base64"), setTimeout, clearTimeout
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8"),context);
   await Promise.resolve();await Promise.resolve();
@@ -135,27 +137,33 @@ test("cancelled apply does not save or apply",async()=>{
   await click;
   assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
-test("OnePlus Blue defaults to a separate Classic color page",async()=>{
+test("accent colors apply immediately and extended targets stay opt-in",async()=>{
   const {elements,doc,calls}=await appHarness();
   assert.equal(doc.documentElement.style.properties["--accent"],"#42A5F5");
   assert.equal(elements.get("accent-label").textContent,"OnePlus Blue");
+  assert.equal(doc.documentElement.dataset.accentToolbar,"false");
   elements.get("tab-settings-page").onclick();
   elements.get("open-appearance").onclick();
   elements.get("accent-choice").onclick();
   assert.equal(elements.get("accent-page").hidden,false);
-  assert.equal(elements.get("page-title").textContent,"TurboIMS Next");
   assert.equal(elements.get("oneplus-colors").children.length,8);
-  assert.ok(elements.get("material-colors").children.length>=2);
   elements.get("oneplus-colors").children[1].onclick();
   assert.equal(doc.documentElement.style.properties["--accent"],"#CC6F4E");
-  elements.get("custom-hex").value="bad";
-  elements.get("apply-hex").onclick();
-  assert.match(elements.get("hex-error").textContent,/六位 HEX/);
-  elements.get("custom-hex").value="#123456";
-  elements.get("apply-hex").onclick();
+  const field=elements.get("custom-hex");
+  field.value="#123";field.oninput();
+  assert.match(elements.get("hex-error").textContent,/6 位/);
+  assert.equal(doc.documentElement.style.properties["--accent"],"#CC6F4E");
+  field.value="123456";field.oninput();
+  await new Promise(resolve=>setTimeout(resolve,220));
   assert.equal(doc.documentElement.style.properties["--accent"],"#123456");
-  elements.get("back").onclick();
-  assert.equal(elements.get("appearance-page").hidden,false);
+  assert.equal(field.value,"#123456");
+  elements.get("accent-toolbar").checked=true;elements.get("accent-toolbar").onchange();
+  assert.equal(doc.documentElement.dataset.accentToolbar,"true");
+  assert.equal(doc.documentElement.style.properties["--toolbar-foreground"],"#ffffff");
+  elements.get("accent-navigation-icons").checked=true;elements.get("accent-navigation-icons").onchange();
+  assert.equal(doc.documentElement.dataset.accentNavigationIcons,"false");
+  elements.get("accent-toolbar").checked=false;elements.get("accent-toolbar").onchange();
+  assert.equal(doc.documentElement.dataset.accentNavigationIcons,"true");
   assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
 test("IMS config semantics survive preference presentation",async()=>{
@@ -201,7 +209,7 @@ test("per-SIM errors and unconfirmed writes remain visible",async()=>{
   ]});
   const rows=elements.get("sims").children;
   assert.equal(rows.length,2);assert.match(rows[0].textContent,/Binder denied/);
-  assert.match(rows[0].textContent,/未确认/);assert.match(rows[1].textContent,/verified/);
+  assert.match(rows[0].textContent,/未确认/);assert.match(rows[1].textContent,/已验证/);
 });
 test("aggregate blocked result has a readable reason",async()=>{
   const {context,elements}=await appHarness();
@@ -361,6 +369,8 @@ test("SIM is empty and existing tools belong exclusively to Settings",()=>{
   const settings=html.split('<main id="settings-page"')[1].split('</main>')[0];
   assert.doesNotMatch(home,/open-appearance|open-diagnostics|chevron/);
   assert.match(settings,/open-appearance/);
+  const appearance=html.split('<main id="appearance-page"')[1].split("</main>")[0];
+  assert.match(appearance,/强调色应用范围/);
   assert.match(settings,/open-diagnostics/);
   assert.match(html,/<main id="sim-page" class="page" hidden>/);
   assert.match(html, /id="sim-save"/); // SIM controls are part of the primary navigation contract
@@ -369,6 +379,49 @@ test("SIM is empty and existing tools belong exclusively to Settings",()=>{
   assert.match(nav,/tab-home[^]*tab-sim-page[^]*tab-settings-page/);
 });
 
+test("SIM custom editors stay draft-only and preserve the saved schema",async()=>{
+  const {context,elements,calls}=await appHarness();
+  const profileConfig={schema:1,enabled:false,periodic_check_enabled:false,selection:"all",interval_seconds:1800,
+    features:{volte:"default",vowifi:"default",vt:"default",vonr:"default",cross_sim:"default",ut:"default","5g_nr":"default"},
+    sim_profiles:{"0":{country_iso:"TW",carrier_name:"FarEasTone"}}};
+  context.render({config:profileConfig,status:{...profileConfig,config:profileConfig,phase:"probe",
+    subscriptions:[{slot:0,sub_id:9,phase:"probe",effective:{sim_country_iso_override_string:"TW",carrier_name_string:"FarEasTone"}}]}},true);
+  assert.equal(elements.get("sim-country-choice").textContent,"台湾 (TW)");
+  assert.equal(elements.get("sim-carrier-choice").textContent,"远传电信");
+  elements.get("sim-edit-country").onclick();
+  let field=elements.get("sheet-content").children[0];
+  field.value="1";field.oninput();
+  assert.equal(elements.get("sheet-actions").children[0].disabled,true);
+  assert.match(elements.get("sheet-content").children[1].textContent,/两位英文字母/);
+  field.value="jp";field.oninput();assert.equal(field.value,"JP");
+  elements.get("sheet-actions").children[0].onclick();
+  await new Promise(resolve=>setTimeout(resolve,180));
+  assert.equal(elements.get("sim-custom-country-value").textContent,"JP");
+  assert.match(elements.get("sim-country-summary").textContent,/JP/);
+  assert.equal(calls.filter(([action])=>action==="save"||action==="apply").length,0);
+  elements.get("sim-edit-country").onclick();
+  elements.get("sheet-actions").children[0].onclick();
+  await new Promise(resolve=>setTimeout(resolve,180));
+  assert.equal(elements.get("sim-custom-country-value").textContent,"未设置");
+  assert.equal(elements.get("sim-country-choice").textContent,"台湾 (TW)");
+  elements.get("sim-edit-carrier").onclick();
+  field=elements.get("sheet-content").children[0];field.value="Custom Carrier";field.oninput();
+  elements.get("sheet-actions").children[0].onclick();
+  await new Promise(resolve=>setTimeout(resolve,180));
+  assert.equal(elements.get("sim-custom-carrier-value").textContent,"Custom Carrier");
+  elements.get("sim-edit-carrier").onclick();
+  elements.get("sheet-actions").children[0].onclick();
+  await new Promise(resolve=>setTimeout(resolve,180));
+  assert.equal(elements.get("sim-custom-carrier-value").textContent,"未设置");
+  assert.equal(elements.get("sim-carrier-choice").textContent,"远传电信");
+  await elements.get("sim-save").onclick();
+  const payload=JSON.parse(Buffer.from(calls.find(([action])=>action==="save")[1],"base64").toString());
+  assert.deepEqual(payload.sim_profiles,{"0":{country_iso:"TW",carrier_name:"FarEasTone"}});
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  const sim=html.split('<main id="sim-page"')[1].split("</main>")[0];
+  assert.doesNotMatch(sim,/sim-info-card|sim-custom-country\"|sim-custom-carrier\"|CarrierConfig/);
+  assert.match(fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8"),/\.sim-edit-row/);
+});
 test("scroll rows have no blue WebView tap overlay and no ripple listeners",()=>{
   const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
   assert.doesNotMatch(feedback,/document\.addEventListener\("pointer|pointermove/);
@@ -433,7 +486,7 @@ test("schedule switch saves immediately and interval is disabled when off",async
 test("compact controls retain confirmed tap ripples without global tracking",()=>{
   const feedback=fs.readFileSync(path.join(__dirname,"../module/webroot/feedback.js"),"utf8");
   assert.match(feedback,/\.bottom-tab,\.switch-hit,\.text-action,\.choice/);
-  assert.match(feedback,/\.option,\.swatch-item/);
+  assert.match(feedback,/\.option,\.swatch-item,\.sim-edit-row/);
   assert.match(feedback,/\.dialog-cancel/);
   assert.match(feedback,/surface\.addEventListener\("pointerup"/);
   assert.match(feedback,/Math\.hypot\(event\.clientX-tap\.x,event\.clientY-tap\.y\)>slop/);
@@ -450,5 +503,112 @@ test("system bar background opts into KernelSU insets without touching core",()=
   assert.match(style,/--inset-top:var\(--safe-area-inset-top/);
   assert.match(style,/--inset-bottom:var\(--safe-area-inset-bottom/);
   assert.match(style,/body::before/);
-  assert.match(app,/--system-bar-bg/);
+  assert.match(app,/--system-status-bg/);
+});
+
+test("appearance refinements are opt-in and preserve current actions",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+  const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  assert.match(html,/id="card-groups"[^>]*role="switch"/);
+  assert.match(app,/turboims-card-groups","false"/);
+  assert.match(html,/id="apply" class="action-button action-button--primary"/);
+  assert.match(html,/id="sim-save" class="action-button action-button--primary"/);
+  assert.ok(app.includes('visualViewport.addEventListener("resize",updateDialogViewport)'));
+  assert.match(css,/data-ime="true"/);
+  assert.match(app,/system-status-bg/);
+  assert.match(app,/statusRgb = accentToolbar/);
+  assert.ok(css.includes(':root[data-card-groups="true"] .pref-group'));
+  assert.match(css,/system-navigation-bg/);
+  const settings=html.split('<main id="settings-page"')[1].split("</main>")[0];
+  const home=html.split('<main id="home"')[1].split("</main>")[0];
+  assert.ok(settings.includes('id="device-heading"'));
+  assert.ok(settings.includes("设备状态（IMS）"));
+  assert.ok(!home.includes('id="device-heading"'));
+});
+
+test("initial view stays clean until status succeeds or fails",async()=>{
+  for (const fail of [false,true]) {
+    let resolve,reject;
+    const pending=new Promise((yes,no)=>{resolve=yes;reject=no;});
+    const {doc,context,calls}=await appHarness({initialStatus:pending});
+    assert.notEqual(doc.documentElement.dataset.loading,"false");
+    assert.deepEqual(calls.map(([action])=>action),["status"]);
+    if(fail)reject(new Error("bridge unavailable"));
+    else resolve({phase:"not_started"});
+    await new Promise(yes=>setImmediate(yes));
+    assert.equal(doc.documentElement.dataset.loading,"false");
+    assert.equal(require("node:vm").runInContext("busy",context),false);
+    assert.deepEqual(calls.map(([action])=>action),["status"]);
+  }
+});
+test("operation buttons use short single-line labels and retain separate actions",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  for(const [id,label] of Object.entries({apply:"应用配置",restore:"停止恢复","sim-save":"应用信息","sim-restore":"恢复原值"})){
+    const button=html.match(new RegExp('<button id="'+id+'"[^>]*>([\\s\\S]*?)</button>'))[0];
+    assert.ok(button.includes("action-button"));
+    assert.ok(button.includes(label));
+    assert.doesNotMatch(button,/<small/);
+    assert.ok(label.length>=4 && label.length<=5);
+  }
+});
+test("toolbar palette is independent, readable and updates with accent",async()=>{
+  const {context,doc}=await appHarness();
+  for(const color of ["#42A5F5","#E6A545","#7DC22F","#FFFFFF","#000000","#123456"]){
+    context.testAccent=color;
+    require("node:vm").runInContext('accent=testAccent; accentToolbar=true; showAppearance();',context);
+    const properties=doc.documentElement.style.properties;
+    assert.equal(properties["--accent"],color);
+    const toolbar=properties["--toolbar-tint"];
+    if(color!=="#000000")assert.notEqual(toolbar,color);
+    const rgb=[1,3,5].map(i=>parseInt(toolbar.slice(i,i+2),16)/255)
+      .map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4);
+    const luminance=rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;
+    const foreground=properties["--toolbar-foreground"];
+    const fc=16/255;
+    const fg=foreground==="#ffffff"?1:((fc+.055)/1.055)**2.4;
+    const contrast=(Math.max(luminance,fg)+.05)/(Math.min(luminance,fg)+.05);
+    assert.ok(contrast>=4.5,color+" toolbar contrast "+contrast);
+  }
+});
+
+test("every preset and arbitrary RGB accent has readable action text in both themes",async()=>{
+  const {context,doc,calls}=await appHarness();
+  const vm=require("node:vm");
+  const colors=vm.runInContext('[...onePlusColors,...materialColors].map(x=>x[1])',context);
+  for(let value=0;value<=255;value+=17) colors.push("#"+value.toString(16).padStart(2,"0").repeat(3));
+  colors.push("#FFF176","#37474F","#777777","#123456");
+  const luminance=hex=>{
+    const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+    return c[0]*.2126+c[1]*.7152+c[2]*.0722;
+  };
+  for(const mode of ["light","dark"])for(const color of colors){
+    context.actionTestColor=color;context.actionTestTheme=mode;
+    vm.runInContext('accent=actionTestColor; themeMode=actionTestTheme; showAppearance();',context);
+    const vars=doc.documentElement.style.properties;
+    assert.equal(vars["--accent"],color);
+    const a=luminance(color),b=luminance(vars["--on-accent"]);
+    assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5,color);
+    assert.ok(vars["--switch-on-track"].endsWith(",.35)"));
+  }
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+
+test("Settings starts with matching IMS and SIM status cards",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  const settings=html.split('<main id="settings-page"')[1].split("</main>")[0];
+  assert.ok(settings.indexOf('id="device-heading"') < settings.indexOf('id="sim-status-heading"'));
+  for(const id of ["sim-status-title","sim-status-country","sim-status-carrier"])
+    assert.ok(settings.includes('id="'+id+'"'));
+  const java=fs.readFileSync(path.join(__dirname,"../root-runner/src/main/java/io/github/turboims/ksu/ModuleMain.java"),"utf8");
+  const backend=fs.readFileSync(path.join(__dirname,"../root-runner/src/main/java/io/github/turboims/ksu/AndroidCarrierBackend.java"),"utf8");
+  assert.match(java,/New bottom-layer feature: this path only reads/);
+  assert.match(java,/\.put\("sim_cards", simCards\(\)\)/);
+  assert.match(backend,/public Map<String, String> simIdentity/);
+});
+test("secondary page actions use accent-tonal surface",()=>{
+  const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+  assert.match(css,/action-button--secondary[\s\S]*background:var\(--action-tonal\)/);
+  assert.match(app,/--action-tonal/);
 });

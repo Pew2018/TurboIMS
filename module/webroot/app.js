@@ -1,12 +1,12 @@
 "use strict";
 const features = [
-  ["volte", "VoLTE", "LTE 语音通话"],
-  ["vowifi", "VoWiFi", "Wi-Fi 通话与模式设置"],
-  ["vt", "视频通话", "运营商 IMS 视频通话"],
-  ["vonr", "VoNR", "5G 语音通话"],
-  ["cross_sim", "跨 SIM 通话", "使用另一张 SIM 卡的数据进行通话"],
-  ["ut", "UT 补充服务", "基于 IMS 的补充服务"],
-  ["5g_nr", "5G NR", "NSA / SA 网络与信号阈值"]
+  ["volte", "VoLTE", "LTE 通话"],
+  ["vowifi", "VoWiFi", "Wi-Fi 通话"],
+  ["vt", "视频通话", "运营商视频通话"],
+  ["vonr", "VoNR", "5G 通话"],
+  ["cross_sim", "跨 SIM 通话", "使用另一张 SIM 卡的数据通话"],
+  ["ut", "UT 补充服务", "通话补充服务"],
+  ["5g_nr", "5G NR", "5G 网络模式与信号阈值"]
 ];
 const $ = id => document.getElementById(id);
 const simCountries = [
@@ -18,76 +18,160 @@ const simCountries = [
 ];
 const simCarriers = [["中国移动","China Mobile","CN"],["中国联通","China Unicom","CN"],["中国电信","China Telecom","CN"],["中国移动香港","CMHK","HK"],["香港电讯","HKT","HK"],["3香港","3HK","HK"],["SmarTone","SmarTone","HK"],["澳门电讯","CTM","MO"],["3澳门","3 Macau","MO"],["中华电信","Chunghwa Telecom","TW"],["台湾大哥大","Taiwan Mobile","TW"],["远传电信","FarEasTone","TW"],["NTT docomo","NTT docomo","JP"],["au","au by KDDI","JP"],["Softbank","Softbank","JP"],["Rakuten","Rakuten Mobile","JP"],["SK Telecom","SK Telecom","KR"],["KT","KT Corporation","KR"],["LG U+","LG U+","KR"],["AT&T","AT&T","US"],["T-Mobile","T-Mobile USA","US"],["Verizon","Verizon","US"],["Sprint","Sprint","US"],["EE","EE","GB"],["O2","O2 UK","GB"],["Three","Three UK","GB"],["Vodafone","Vodafone UK","GB"],["Singtel","Singtel","SG"],["StarHub","StarHub","SG"],["M1","M1","SG"],["Maxis","Maxis","MY"],["Celcom","Celcom","MY"],["Digi","Digi","MY"],["U Mobile","U Mobile","MY"],["AIS","AIS","TH"],["DTAC","DTAC","TH"],["True Move H","True Move H","TH"],["Viettel","Viettel Mobile","VN"],["Vinaphone","Vinaphone","VN"],["Mobifone","Mobifone","VN"],["Telkomsel","Telkomsel","ID"],["Indosat","Indosat Ooredoo","ID"],["XL Axiata","XL Axiata","ID"],["Globe","Globe Telecom","PH"],["Smart","Smart Communications","PH"],["DITO","DITO Telecommunity","PH"],["Jio","Reliance Jio","IN"],["Airtel","Bharti Airtel","IN"],["Vi","Vodafone Idea","IN"],["Telstra","Telstra","AU"],["Optus","Optus","AU"],["Vodafone","Vodafone AU","AU"],["Bell","Bell Mobility","CA"],["Rogers","Rogers Wireless","CA"],["Telus","Telus Mobility","CA"],["Telekom","T-Mobile DE","DE"],["Vodafone","Vodafone DE","DE"],["O2","O2 DE","DE"],["Orange","Orange FR","FR"],["SFR","SFR","FR"],["Free","Free Mobile","FR"],["Bouygues","Bouygues Telecom","FR"],["TIM","Telecom Italia","IT"],["Vodafone","Vodafone IT","IT"],["Wind Tre","Wind Tre","IT"],["Movistar","Movistar","ES"],["Vodafone","Vodafone ES","ES"],["Orange","Orange ES","ES"],["MTS","MTS","RU"],["MegaFon","MegaFon","RU"],["Beeline","Beeline","RU"],["Vivo","Vivo","BR"],["Claro","Claro","BR"],["TIM","TIM Brasil","BR"]];
 let simProfiles = {};
+let simEditorProfiles = {};
+let simBackendSignature = null;
 let simSlots = [];
 let selectedSimSlot = 0;
 function simProfile(slot) { return simProfiles[String(slot)] || {country_iso:"",carrier_name:""}; }
+function simEditorProfile(slot) {
+  const key = String(slot);
+  if (!simEditorProfiles[key]) {
+    const saved = simProfile(slot);
+    const country = String(saved.country_iso || "").toUpperCase();
+    const carrier = String(saved.carrier_name || "");
+    const countryPreset = simCountries.some(([code]) => code === country);
+    const carrierPreset = simCarriers.some(([,display]) => display === carrier);
+    simEditorProfiles[key] = {
+      country_preset:countryPreset ? country : "",
+      country_custom:country && !countryPreset ? country : "",
+      carrier_preset:carrierPreset ? carrier : "",
+      carrier_custom:carrier && !carrierPreset ? carrier : ""
+    };
+  }
+  return simEditorProfiles[key];
+}
+function simEffectiveProfile(slot) {
+  const draft = simEditorProfile(slot);
+  return {country_iso:(draft.country_custom || draft.country_preset || "").toUpperCase(),
+    carrier_name:draft.carrier_custom || draft.carrier_preset || ""};
+}
+function simPersistEditors() {
+  storage.write("turboims-sim-editors",JSON.stringify(simEditorProfiles));
+}
+function simReconcileEditors(profiles) {
+  const signature = JSON.stringify(profiles || {});
+  if (signature === simBackendSignature) return;
+  for (const [slot,saved] of Object.entries(profiles || {})) {
+    const draft = simEditorProfiles[slot];
+    const effective = draft ? simEffectiveProfile(Number(slot)) : null;
+    const actual = {country_iso:String(saved.country_iso || "").toUpperCase(),
+      carrier_name:String(saved.carrier_name || "")};
+    if (!draft || effective.country_iso !== actual.country_iso || effective.carrier_name !== actual.carrier_name) {
+      const countryPreset = simCountries.some(([code]) => code === actual.country_iso);
+      const carrierPreset = simCarriers.some(([,display]) => display === actual.carrier_name);
+      simEditorProfiles[slot] = {
+        country_preset:countryPreset ? actual.country_iso : "",
+        country_custom:actual.country_iso && !countryPreset ? actual.country_iso : "",
+        carrier_preset:carrierPreset ? actual.carrier_name : "",
+        carrier_custom:actual.carrier_name && !carrierPreset ? actual.carrier_name : ""
+      };
+    }
+  }
+  simBackendSignature = signature;
+  simPersistEditors();
+}
 function simCountryLabel(code) {
   const item = simCountries.find(x => x[0] === String(code || "").toUpperCase());
   return item ? item[1] + " (" + item[0] + ")" : (code || "未设置");
 }
 function simSyncForm() {
-  const profile = simProfile(selectedSimSlot);
+  const draft = simEditorProfile(selectedSimSlot);
   $("sim-slot-choice").textContent = simSlots.length
     ? "SIM 卡 " + (selectedSimSlot + 1) : "未检测到 SIM";
-  $("sim-country-choice").textContent = profile.country_iso
-    ? simCountryLabel(profile.country_iso) : "未设置";
-  const carrier = simCarriers.find(x => x[1] === profile.carrier_name);
-  $("sim-carrier-choice").textContent = carrier ? carrier[0] : (profile.carrier_name || "未设置");
-  $("sim-custom-carrier").value = carrier ? "" : (profile.carrier_name || "");
-  $("sim-custom-country").value = profile.country_iso || "";
+  $("sim-country-choice").textContent = draft.country_preset
+    ? simCountryLabel(draft.country_preset) : "未设置";
+  $("sim-carrier-choice").textContent = draft.carrier_preset
+    ? (simCarriers.find(x => x[1] === draft.carrier_preset)?.[0] || draft.carrier_preset)
+    : "未设置";
+  $("sim-custom-country-value").textContent = draft.country_custom || "未设置";
+  $("sim-custom-carrier-value").textContent = draft.carrier_custom || "未设置";
+  $("sim-country-summary").textContent = draft.country_custom
+    ? (draft.country_preset ? "自定义值 " + draft.country_custom + " 覆盖上方预设" : "使用自定义国家码")
+    : "设置系统读取的国家或地区";
+  $("sim-carrier-summary").textContent = draft.carrier_custom
+    ? (draft.carrier_preset ? "自定义名称覆盖上方预设" : "使用自定义名称")
+    : "设置系统读取的名称";
   const row = simSlots.find(x => x.slot === selectedSimSlot);
-  $("sim-current").innerHTML = row
-    ? "<strong>当前 SIM " + (selectedSimSlot + 1) + "</strong><br>subId " + row.sub_id +
-      "<br>模块覆盖国家码：" + (row.effective?.sim_country_iso_override_string || "无") +
-      "<br>模块覆盖运营商：" + (row.effective?.carrier_name_string || "无")
-    : "请先运行检测，读取当前活跃 SIM。";
+  $("sim-current").replaceChildren();
+  if (!row) {
+    $("sim-current").textContent = "请先检测设备。";
+    return;
+  }
+  const title = document.createElement("strong");
+  title.textContent = "SIM 卡 " + (selectedSimSlot + 1) + " · subId " + row.sub_id;
+  const country = document.createElement("div");
+  const countryLabel = document.createElement("span"); countryLabel.textContent = "国家或地区";
+  const countryValue = document.createElement("span");
+  const appliedCountry = row.effective?.sim_country_iso_override_string || "";
+  countryValue.textContent = appliedCountry ? simCountryLabel(String(appliedCountry).toUpperCase()) : "未覆盖";
+  country.append(countryLabel,countryValue);
+  const carrier = document.createElement("div");
+  const carrierLabel = document.createElement("span"); carrierLabel.textContent = "运营商";
+  const carrierValue = document.createElement("span"); carrierValue.textContent = row.effective?.carrier_name_string || "未覆盖";
+  carrier.append(carrierLabel,carrierValue);
+  $("sim-current").append(title,country,carrier);
 }
 function renderSimPage(result) {
   const state = result.status || result;
-  if (state.config?.sim_profiles) simProfiles = state.config.sim_profiles || {};
+  if (state.config?.sim_profiles) { simProfiles = state.config.sim_profiles || {}; simReconcileEditors(simProfiles); }
   const subscriptions = Array.isArray(state.subscriptions) ? state.subscriptions : [];
   simSlots = subscriptions.filter(x => Number.isInteger(x.slot) && x.slot >= 0)
     .map(x => ({...x, slot:x.slot}));
   if (simSlots.length && !simSlots.some(x => x.slot === selectedSimSlot)) selectedSimSlot = simSlots[0].slot;
   simSyncForm();
 }
-function simSetProfile(mutator) {
-  const next = {...simProfile(selectedSimSlot)};
-  mutator(next);
-  if (!next.country_iso && !next.carrier_name) delete simProfiles[String(selectedSimSlot)];
-  else simProfiles[String(selectedSimSlot)] = next;
-  simSyncForm();
+function simSetPreset(field,value) {
+  simEditorProfiles[String(selectedSimSlot)] = {...simEditorProfile(selectedSimSlot),[field]:value};
+  simPersistEditors(); simSyncForm();
+}
+function simSetCustom(field,value) {
+  simEditorProfiles[String(selectedSimSlot)] = {...simEditorProfile(selectedSimSlot),[field]:value};
+  simPersistEditors(); simSyncForm();
 }
 function simChoiceCountry() {
-  const values = simCountries.map(([code,name]) => [code,name + " (" + code + ")"]);
-  values.push(["__custom__", "自定义两位国家码"]);
-  choose("国家或地区", "选择要写入 SIM 国家码的值。", values,
-    simProfile(selectedSimSlot).country_iso || "",
-    value => {
-      if (value === "__custom__") {
-        $("sim-custom-country").focus();
-      } else simSetProfile(p => p.country_iso = value);
-    });
+  const values = [["","不覆盖国家或地区"]];
+  for (const [code,name] of simCountries) values.push([code,name + " (" + code + ")"]);
+  choose("国家或地区", "选择要写入 SIM 国家或地区的预设。", values,
+    simEditorProfile(selectedSimSlot).country_preset,
+    value => simSetPreset("country_preset",value));
 }
 function simChoiceCarrier() {
   const values = [["","不覆盖运营商名称"]];
-  for (const [name,display] of simCarriers) values.push([display, name + " · " + display]);
-  values.push(["__custom__", "自定义运营商名称"]);
-  choose("运营商名称", "选择系统报告的运营商名称，可留空。", values,
-    simProfile(selectedSimSlot).carrier_name || "",
-    value => {
-      if (value === "__custom__") {
-        $("sim-custom-carrier").focus();
-      } else simSetProfile(p => p.carrier_name = value);
-    });
+  for (const [name,display] of simCarriers) values.push([display,name + " · " + display]);
+  choose("运营商名称", "选择系统读取的运营商名称预设。", values,
+    simEditorProfile(selectedSimSlot).carrier_preset,
+    value => simSetPreset("carrier_preset",value));
+}
+function simEditCountry() {
+  const draft = simEditorProfile(selectedSimSlot);
+  editTextPreference("自定义国家码","输入两位 ISO 国家或地区代码。",draft.country_custom,
+    value => value === "" || /^[A-Z]{2}$/.test(value),
+    value => simSetCustom("country_custom",value),
+    draft.country_custom !== "", "请输入两位英文字母", value => value.toUpperCase());
+}
+function simEditCarrier() {
+  const draft = simEditorProfile(selectedSimSlot);
+  editTextPreference("自定义运营商名称","留空使用预设名称。",
+    draft.carrier_custom,value => value.length <= 128,
+    value => simSetCustom("carrier_custom",value.trim()),
+    draft.carrier_custom !== "", "名称不能超过 128 个字符");
+}
+function simEffectiveProfiles() {
+  const profiles = {};
+  for (const slot of new Set([...Object.keys(simProfiles),...Object.keys(simEditorProfiles)])) {
+    const profile = simEffectiveProfile(Number(slot));
+    if (profile.country_iso || profile.carrier_name) profiles[slot] = profile;
+  }
+  return profiles;
 }
 function simApplyConfig() {
   if (!savedConfig || !simSlots.length || busy) return;
-  const config = {...savedConfig, sim_profiles:simProfiles};
+  const config = {...savedConfig, sim_profiles:simEffectiveProfiles()};
   config.enabled = !!config.enabled;
   return operation(async () => {
     const saved = await TurboBridge.call("save", btoa(JSON.stringify(config)));
     savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
+    simBackendSignature = JSON.stringify(simProfiles); simPersistEditors();
     render(await TurboBridge.call("apply"), true);
     navigate("sim-page");
   }, "正在保存 SIM 信息…", $("sim-save"));
@@ -95,10 +179,12 @@ function simApplyConfig() {
 function simRestore() {
   if (!savedConfig || !simSlots.length || busy) return;
   const next = {...simProfiles}; delete next[String(selectedSimSlot)];
+  const nextEditors = {...simEditorProfiles}; delete nextEditors[String(selectedSimSlot)];
   const config = {...savedConfig, sim_profiles:next};
   return operation(async () => {
     const saved = await TurboBridge.call("save", btoa(JSON.stringify(config)));
     savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
+    simEditorProfiles = nextEditors; simBackendSignature = JSON.stringify(simProfiles); simPersistEditors();
     render(await TurboBridge.call("apply"), true);
     navigate("sim-page");
   }, "正在恢复 SIM 信息…", $("sim-restore"));
@@ -136,26 +222,84 @@ let themeMode = storage.read("turboims-theme", "system");
 if (!["system","light","dark"].includes(themeMode)) themeMode = "system";
 let accent = storage.read("turboims-accent", "#42A5F5").toUpperCase();
 if (!/^#[0-9A-F]{6}$/.test(accent)) accent = "#42A5F5";
+let accentToolbar = storage.read("turboims-accent-toolbar","false") === "true";
+let accentSectionLabels = storage.read("turboims-accent-section-labels","false") === "true";
+let accentNavigationIcons = storage.read("turboims-accent-navigation-icons","false") === "true";
+let cardGroups = storage.read("turboims-card-groups","false") === "true";
+try {
+  const editors = JSON.parse(storage.read("turboims-sim-editors","{}"));
+  if (editors && typeof editors === "object") simEditorProfiles = editors;
+} catch (_) { simEditorProfiles = {}; }
+let accentInputInitialized = false;
+let accentInputTimer = null;
 const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+function colorHex(rgb) { return "#" + rgb.map(value => Math.max(0,Math.min(255,Math.round(value))).toString(16).padStart(2,"0")).join("").toUpperCase(); }
 function showAppearance() {
   const dark = themeMode === "dark" || (themeMode === "system" && !!media?.matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
   const chromeColor = dark ? "#121212" : "#ffffff";
-  // Android system icons follow the host Activity, not this WebUI preference.
-  // Keep their background legible if a manual WebUI theme differs from the host.
-  document.documentElement.style.setProperty("--system-bar-bg", media?.matches ? "#121212" : "#ffffff");
-  for (const id of ["theme-color","status-bar-color","navigation-bar-color"]) {
-    const meta = document.getElementById(id);
-    if (meta) meta.setAttribute("content",chromeColor);
-  }
   document.documentElement.style.setProperty("--accent", accent);
+  const root = document.documentElement;
+  root.dataset.accentToolbar = String(accentToolbar);
+  root.dataset.accentSectionLabels = String(accentSectionLabels);
+  root.dataset.accentNavigationIcons = String(accentNavigationIcons && !accentToolbar);
+  root.dataset.cardGroups = String(cardGroups);
+  $("card-groups").checked = cardGroups;
+  $("accent-toolbar").checked = accentToolbar;
+  $("accent-section-labels").checked = accentSectionLabels;
+  $("accent-navigation-icons").checked = accentNavigationIcons;
   const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
+  // Leave standard controls on the selected accent. Tone only the toolbar surface
+  // and its status-bar companion for a quieter, connected system chrome.
+  const surfaceRgb = dark ? [18,18,18] : [255,255,255];
+  // Classic Material separates primary chrome from control accents. This blend
+  // is our restrained palette derivation, not a prescribed Android algorithm.
+  const neutral = rgb[0]*.2126 + rgb[1]*.7152 + rgb[2]*.0722;
+  const toolbarRgb = accentToolbar
+    ? rgb.map(value => Math.round((value*.55 + neutral*.45) * (dark ? .72 : .82)))
+    : surfaceRgb;
+  const statusRgb = accentToolbar ? toolbarRgb.map(value => Math.round(value*.86)) : surfaceRgb;
+  const toolbarColor = accentToolbar ? colorHex(toolbarRgb) : chromeColor;
+  const statusColor = accentToolbar ? colorHex(statusRgb) : chromeColor;
+  root.style.setProperty("--toolbar-tint",toolbarColor);
+  root.style.setProperty("--system-status-bg",statusColor);
+  root.style.setProperty("--system-navigation-bg",media?.matches ? "#121212" : "#ffffff");
+  const metaColors = {"theme-color":toolbarColor,"status-bar-color":statusColor,"navigation-bar-color":chromeColor};
+  for (const [id,color] of Object.entries(metaColors)) {
+    const meta = document.getElementById(id);
+    if (meta) meta.setAttribute("content",color);
+  }
   document.documentElement.style.setProperty("--press-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
   document.documentElement.style.setProperty("--accent-track", "rgba(" + rgb.join(",") + ",.45)");
   const luminance = rgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
-  document.documentElement.style.setProperty("--accent-text",
-    luminance[0]*.2126 + luminance[1]*.7152 + luminance[2]*.0722 > .18 ? "#101010" : "#ffffff");
+  const relativeLuminance = luminance[0]*.2126 + luminance[1]*.7152 + luminance[2]*.0722;
+  document.documentElement.style.setProperty("--accent-text",relativeLuminance > .18 ? "#101010" : "#ffffff");
+  // Pick a real foreground contrast, including near-black luminance. Pure black
+  // covers the small range where neither near-black nor white reaches 4.5:1.
+  const actionWhiteContrast = 1.05 / (relativeLuminance + .05);
+  const actionDarkContrast = (relativeLuminance + .05) / (.0051815167 + .05);
+  const onAccent = actionDarkContrast >= 4.5 && actionDarkContrast >= actionWhiteContrast
+    ? "#101010" : actionWhiteContrast >= 4.5 ? "#FFFFFF" : "#000000";
+  root.style.setProperty("--on-accent",onAccent);
+  const tonalStrength = dark ? .18 : .14;
+  const tonalSurfaceRgb = dark ? [33,33,33] : [255,255,255];
+  const tonalRgb = rgb.map((value,index) => Math.round(value * tonalStrength + tonalSurfaceRgb[index] * (1 - tonalStrength)));
+  const pressedRgb = rgb.map((value,index) => Math.round(value * (tonalStrength + .06) + tonalSurfaceRgb[index] * (1 - tonalStrength - .06)));
+  root.style.setProperty("--action-border","transparent");
+  root.style.setProperty("--action-tonal",colorHex(tonalRgb));
+  root.style.setProperty("--action-tonal-pressed",colorHex(pressedRgb));
+  root.style.setProperty("--switch-on-track","rgba(" + rgb.join(",") + ",.35)");
+  const whiteContrast = 1.05 / (relativeLuminance + .05);
+  const darkContrast = (relativeLuminance + .05) / .05;
+  const toolbarLuminance = toolbarRgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
+  const toolbarRelative = toolbarLuminance[0]*.2126 + toolbarLuminance[1]*.7152 + toolbarLuminance[2]*.0722;
+  const toolbarWhiteContrast = 1.05 / (toolbarRelative + .05);
+  const toolbarDarkContrast = (toolbarRelative + .05) / .05;
+  document.documentElement.style.setProperty("--toolbar-foreground",
+    toolbarDarkContrast >= toolbarWhiteContrast
+      ? ((toolbarRelative+.05)/(.0051815167+.05) >= 4.5 ? "#101010" : "#000000")
+      : "#ffffff");
   $("theme-choice").textContent = {system:"跟随系统",light:"浅色模式",dark:"深色模式"}[themeMode];
   const chosen = [...onePlusColors,...materialColors].find(([,hex]) => hex === accent);
   $("accent-label").textContent = chosen ? chosen[0] : accent;
@@ -163,6 +307,7 @@ function showAppearance() {
   const blend = (x,y,t) => Math.round(x*(1-t)+y*t);
   const ink = rgb.map(x => blend(x,dark ? 255 : 0,dark ? .20 : .36));
   document.documentElement.style.setProperty("--accent-ink", "rgb(" + ink.join(",") + ")");
+  $("accent-swatch").style.setProperty("--accent",accent);
 }
 if (media) {
   if (media.addEventListener) media.addEventListener("change", showAppearance);
@@ -171,6 +316,9 @@ if (media) {
 let sheetFinishing = false;
 function finishSheet(value = false) {
   if ($("sheet").hidden || sheetFinishing) return;
+  $("sheet").removeAttribute("data-ime");
+  document.documentElement.style.removeProperty("--visual-viewport-top");
+  document.documentElement.style.removeProperty("--visual-viewport-height");
   sheetFinishing = true;
   const resolve = sheetResolve;
   sheetResolve = null;
@@ -202,6 +350,7 @@ let sheetResolve = null;
 let sheetFocus = null;
 function openSheet(title, description) {
   if (!$("sheet").hidden) return Promise.resolve(false);
+  delete $("sheet").dataset.editor;
   rememberScroll();
   sheetClosing = false;
   sheetAnswer = false;
@@ -239,6 +388,57 @@ function actionButton(title, onClick, secondary = false) {
   if (secondary) button.className = "secondary";
   button.onclick = onClick; button.dataset.ripple = "control";
   window.TouchFeedback?.bind(button); return button;
+}
+function editTextPreference(title, description, initial, validate, onConfirm, showClear, errorMessage, normalize = value => value) {
+  openSheet(title,description);
+  $("sheet").dataset.editor = showClear ? "clear" : "plain";
+  const field = document.createElement("input");
+  field.type = "text"; field.className = "dialog-text-input";
+  field.autocomplete = "off"; field.spellcheck = false;
+  field.maxLength = title === "自定义国家码" ? 2 : 128;
+  field.value = initial || ""; field.setAttribute("aria-label",title);
+  const error = document.createElement("p");
+  error.className = "dialog-input-error"; error.setAttribute("role","status");
+  $("sheet-content").append(field,error);
+  const confirm = actionButton("确定",() => {
+    const value = normalize(field.value.trim());
+    if (!validate(value)) return;
+    onConfirm(value); setTimeout(() => dismissSheet(true),150);
+  });
+  confirm.disabled = !validate(normalize(field.value.trim()));
+  if (showClear) {
+    const clearButton = actionButton("清除",() => {
+      onConfirm(""); setTimeout(() => dismissSheet(true),150);
+    },true);
+    clearButton.dataset.action = "edit-clear";
+    $("sheet-actions").append(clearButton);
+  }
+  confirm.dataset.action = "edit-confirm";
+  $("sheet-actions").append(confirm);
+  field.oninput = () => {
+    const value = normalize(field.value);
+    if (field.value !== value) field.value = value;
+    const valid = validate(value.trim());
+    confirm.disabled = !valid;
+    error.textContent = valid ? "" : errorMessage;
+    field.setAttribute("aria-invalid",String(!valid));
+  };
+  field.oninput();
+  field.onfocus = () => { $("sheet").dataset.ime = "true"; updateDialogViewport(); };
+  field.onblur = () => { if (document.activeElement !== field) $("sheet").removeAttribute("data-ime"); };
+  setTimeout(() => { field.focus(); field.setSelectionRange(field.value.length,field.value.length); updateDialogViewport(); },60);
+}
+function updateDialogViewport() {
+  if ($("sheet").hidden || !$("sheet").dataset.editor) return;
+  const viewport = window.visualViewport;
+  const top = viewport ? viewport.offsetTop : 0;
+  const height = viewport ? viewport.height : (window.innerHeight || 600);
+  document.documentElement.style.setProperty("--visual-viewport-top",Math.max(0,top)+"px");
+  document.documentElement.style.setProperty("--visual-viewport-height",Math.max(160,height)+"px");
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize",updateDialogViewport);
+  window.visualViewport.addEventListener("scroll",updateDialogViewport);
 }
 function choose(title, description, values, current, onSelect) {
   if (!$("sheet").hidden) return;
@@ -285,6 +485,7 @@ $("theme-choice").onclick = () => choose("显示模式", "", [
   ["system","跟随系统"],["light","浅色模式"],["dark","深色模式"]
 ], themeMode, value => { themeMode = value; storage.write("turboims-theme",value); showAppearance(); });
 function setAccent(value) {
+  clearTimeout(accentInputTimer);
   accent = value;
   storage.write("turboims-accent",accent);
   $("custom-hex").value = accent;
@@ -309,23 +510,45 @@ function buildColors(target, colors) {
 buildColors($("oneplus-colors"),onePlusColors);
 buildColors($("material-colors"),materialColors);
 $("accent-choice").onclick = () => navigate("accent-page");
-function applyCustomColor() {
-  let value = $("custom-hex").value.trim().toUpperCase();
-  if (/^[0-9A-F]{6}$/.test(value)) value = "#" + value;
-  if (!/^#[0-9A-F]{6}$/.test(value)) {
-    $("hex-error").textContent = "请输入六位 HEX 颜色，例如 #42A5F5。";
-    return;
+$("accent-scope-choice").onclick = () => navigate("accent-scope-page");
+$("custom-hex").oninput = () => {
+  const field = $("custom-hex");
+  const start = field.selectionStart;
+  const raw = field.value.toUpperCase().replace(/[^#0-9A-F]/g,"");
+  const hex = raw.replace(/^#/,"").replace(/#/g,"").slice(0,6);
+  const normalized = "#" + hex;
+  if (field.value !== normalized) {
+    field.value = normalized;
+    const pos = Math.max(1,Math.min(normalized.length,start ?? normalized.length));
+    field.setSelectionRange(pos,pos);
   }
-  setAccent(value);
+  const valid = /^[0-9A-F]{6}$/.test(hex);
+  $("hex-error").textContent = valid ? "" : "请输入 6 位 HEX 颜色值";
+  clearTimeout(accentInputTimer);
+  if (valid) accentInputTimer = setTimeout(() => setAccent(normalized),180);
+};
+function persistAccentScope() {
+  accentToolbar = $("accent-toolbar").checked;
+  accentSectionLabels = $("accent-section-labels").checked;
+  accentNavigationIcons = $("accent-navigation-icons").checked;
+  storage.write("turboims-accent-toolbar",String(accentToolbar));
+  storage.write("turboims-accent-section-labels",String(accentSectionLabels));
+  storage.write("turboims-accent-navigation-icons",String(accentNavigationIcons));
+  showAppearance();
 }
-$("apply-hex").onclick = applyCustomColor;
-$("custom-hex").onkeydown = event => { if (event.key === "Enter") applyCustomColor(); };
+for (const id of ["accent-toolbar","accent-section-labels","accent-navigation-icons"])
+  $(id).onchange = persistAccentScope;
+$("card-groups").onchange = () => {
+  cardGroups = $("card-groups").checked;
+  storage.write("turboims-card-groups",String(cardGroups));
+  showAppearance();
+};
 showAppearance();
 const pageTitles = {home:"IMS","sim-page":"SIM 卡信息","settings-page":"设置",
-  "appearance-page":"外观","accent-page":"强调色","diagnostics-page":"诊断与验证",
+  "appearance-page":"外观","accent-page":"强调色","accent-scope-page":"强调色应用范围","diagnostics-page":"诊断与验证",
   "diagnostic-data-page":"完整诊断数据","operation-data-page":"操作结果"};
 const pageRoutes = {home:"","sim-page":"sim","settings-page":"settings",
-  "appearance-page":"appearance","accent-page":"accent","diagnostics-page":"diagnostics",
+  "appearance-page":"appearance","accent-page":"accent","accent-scope-page":"accent-scope","diagnostics-page":"diagnostics",
   "diagnostic-data-page":"diagnostic-data","operation-data-page":"operation-data"};
 const primaryPages = ["home","sim-page","settings-page"];
 const primaryScroll = {home:0,"sim-page":0,"settings-page":0};
@@ -357,7 +580,7 @@ function showPage(page, scroll = 0) {
     if (id === page) tab.setAttribute("aria-current","page");
     else tab.removeAttribute("aria-current");
   }
-  if (page === "accent-page") $("custom-hex").value = accent;
+  if (page === "accent-page" && !accentInputInitialized) { $("custom-hex").value = accent; accentInputInitialized = true; }
   if (changed) $("page-content").scrollTop = scroll;
 }
 function synchronizeHistory() {
@@ -417,16 +640,11 @@ $("sim-slot-choice").onclick = () => choose("目标 SIM 卡", "选择要修改�
   String(selectedSimSlot), value => { selectedSimSlot = Number(value); simSyncForm(); });
 $("sim-country-choice").onclick = simChoiceCountry;
 $("sim-carrier-choice").onclick = simChoiceCarrier;
-$("sim-custom-country").oninput = event => {
-  const value = event.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0,2);
-  event.target.value = value;
-  if (value.length === 2) simSetProfile(p => p.country_iso = value);
-  else if (value.length === 0) simSetProfile(p => p.country_iso = "");
-};
-$("sim-custom-carrier").oninput = event => simSetProfile(p => p.carrier_name = event.target.value.trim());
+$("sim-edit-country").onclick = simEditCountry;
+$("sim-edit-carrier").onclick = simEditCarrier;
 $("sim-save").onclick = simApplyConfig;
 $("sim-restore").onclick = async () => {
-  if (!await ask("恢复 SIM 信息？", "仅恢复当前 SIM 的国家码和运营商名称，不清除 IMS 配置。")) return;
+  if (!await ask("恢复 SIM 信息？", "移除当前 SIM 的国家或地区及运营商覆盖，不清除 IMS 配置。")) return;
   simRestore();
 };
 
@@ -444,7 +662,7 @@ function clickablePreference(button) {
     if (!busy && !event.target.closest("button,input,select")) button.click();
   };
 }
-for (const id of ["selection-choice","interval-choice","theme-choice","accent-choice"]) clickablePreference($(id));
+for (const id of ["selection-choice","interval-choice","theme-choice","accent-choice","accent-scope-choice"]) clickablePreference($(id));
 for (const [id,title] of [["selection","应用到"],["interval","检查间隔"]]) {
   const button = $(id+"-choice"); button.dataset.title = title;
   choiceFor($(id),button);
@@ -590,9 +808,9 @@ function render(result, replaceForm = false) {
   const texts = {
     probe:["检测完成","仅完成只读检测，尚未验证配置写入。"],
     active:state.write_readback_verified
-      ? ["配置已应用","已完成写入验证，通话功能仍需运营商支持。"]
+      ? ["IMS 配置已应用","已验证，通话仍需运营商支持。"]
       : ["无需重新写入","当前配置未发生变化，尚未确认写入结果。"],
-    verified:["配置已验证","已完成写入验证，通话功能仍需运营商支持。"],
+    verified:["IMS 配置已验证","已验证，通话仍需运营商支持。"],
     paused:["自动应用已停止","当前不会自动更新 IMS 配置。"],
     partial:["部分配置未应用","部分配置项不受支持，请查看逐卡结果。"],
     ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
@@ -620,8 +838,35 @@ function render(result, replaceForm = false) {
     : Array.isArray(subscriptions) && subscriptions.length === 0 ? "暂未检测到活跃 SIM 卡" : "";
   $("sim-summary").hidden = !$("sim-summary").textContent;
   renderDiagnosticSummary(result);
+  renderSimStatus(result);
   renderSimResults(result);
   renderSimPage(result);
+}
+function renderSimStatus(result) {
+  const state = result.status || result;
+  const cards = Array.isArray(result.sim_cards) ? result.sim_cards
+    : Array.isArray(state.sim_cards) ? state.sim_cards
+    : Array.isArray(state.subscriptions) ? state.subscriptions.map(sub => ({
+      slot:sub.slot, sub_id:sub.sub_id,
+      country_iso:sub.country_iso || sub.effective?.sim_country_iso_override_string || "",
+      carrier_name:sub.carrier_name || sub.effective?.carrier_name_string || "",
+      phase:sub.phase
+    })) : [];
+  const selected = cards.find(card => Number(card.slot) === selectedSimSlot) || cards[0];
+  if (!selected) {
+    $("sim-status-title").textContent = "未检测到 SIM 卡";
+    $("sim-status-subtitle").textContent = "";
+    $("sim-status-country").textContent = "未读取";
+    $("sim-status-carrier").textContent = "未读取";
+    return;
+  }
+  const count = cards.length > 1 ? " · 共 " + cards.length + " 张" : "";
+  $("sim-status-title").textContent = "SIM 卡 " + (Number(selected.slot) + 1);
+  $("sim-status-subtitle").textContent =
+    (selected.sub_id ? "subId " + selected.sub_id : "已检测") + count;
+  const country = String(selected.country_iso || "").toUpperCase();
+  $("sim-status-country").textContent = country ? simCountryLabel(country) : "未覆盖";
+  $("sim-status-carrier").textContent = selected.carrier_name || "未覆盖";
 }
 function renderSimResults(result) {
   const state = result.status || result;
@@ -629,7 +874,7 @@ function renderSimResults(result) {
   for (const sub of state.subscriptions || []) {
     const line = document.createElement("div"); line.className = "sim";
     line.textContent = "SIM 卡槽 " + (sub.slot + 1) + " · subId " + sub.sub_id +
-      " · " + sub.phase
+      " · " + ({verified:"已验证",unchanged:"未变化",waiting:"等待中",error:"失败",verification_failed:"验证失败",conflict:"存在冲突",ownership_lost:"状态冲突",restored:"已恢复"}[sub.phase] || sub.phase)
       + (sub.unsupported?.length ? " · 跳过不支持的键 " + sub.unsupported.length + " 个" : "")
       + (sub.error ? " · " + sub.error : "")
       + (sub.write_state_unknown ? " · 此卡写入结果未确认" : "");
@@ -650,7 +895,7 @@ function renderDiagnosticSummary(result) {
     ["设备", result.device || state.device || "未取得"],
     ["SDK", result.sdk ?? state.sdk ?? "未取得"],
     ["后台任务", result.watcher ? (result.watcher.alive ? "运行中" : "已结束") : "尚未启动"],
-    ["CarrierConfig", binder?.carrier_config === true ? "读通路可用" :
+    ["CarrierConfig", binder?.carrier_config === true ? "读取正常" :
       binder?.carrier_config === false ? "不可用" : "尚未检测"]
   ];
   if (state.error || result.error) rows.push(["错误",state.error || result.error]);
@@ -690,7 +935,7 @@ $("probe").onclick = () => operation(async () => render(await TurboBridge.call("
 $("refresh").onclick = () => operation(async () => render(await TurboBridge.call("status")), "正在刷新…", $("refresh"));
 $("apply").onclick = async () => {
   const config = configFromForm();
-  if (!await ask("应用 IMS 配置？", "将更新所选 SIM 卡的 IMS 配置。能否使用通话功能仍取决于运营商支持。")) {
+  if (!await ask("应用 IMS 配置？", "应用到所选 SIM 卡。通话仍需运营商支持。")) {
     message("已取消", false, "neutral", "当前设置未保存。"); return;
   }
   operation(async () => {
@@ -700,7 +945,7 @@ $("apply").onclick = async () => {
   });
 };
 $("restore").onclick = async () => {
-  if (!await ask("停止并恢复？", "停止自动应用，恢复本模块记录的原值。与其他工具冲突的项目会保留。")) {
+  if (!await ask("停止并恢复？", "停止自动应用并恢复原值，保留冲突项。")) {
     message("已取消", false, "neutral", "自动配置和已应用的设置未改变。"); return;
   }
   operation(async () => render(await TurboBridge.call("restore"), true));
@@ -711,4 +956,12 @@ $("export").onclick = () => operation(async () => {
   render(result);
   $("diagnostic-notice").textContent = "诊断已生成，可查看完整数据并复制。";
 });
-operation(async () => render(await TurboBridge.call("status"), true));
+function revealInitialUI() {
+  clearTimeout(window.turboStartupTimer);
+  document.documentElement.dataset.loading = "false";
+}
+// Bound the loading screen only; a slow bridge keeps controls disabled until
+// operation() settles. Never fabricate configuration or trigger an extra call.
+const initialViewDeadline = setTimeout(revealInitialUI, 6000);
+operation(async () => render(await TurboBridge.call("status"), true))
+  .finally(() => { clearTimeout(initialViewDeadline); revealInitialUI(); });

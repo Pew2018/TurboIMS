@@ -10,6 +10,7 @@ let browser;
   page.on("pageerror",error=>errors.push(String(error)));
   await page.addInitScript(() => {
     window.bridgeCalls = [];
+    window.nextReadDelay = 1200;
     let config={schema:1,enabled:false,periodic_check_enabled:false,selection:"all",interval_seconds:1800,features:{
       volte:"on",vowifi:"on",vt:"on",vonr:"on",cross_sim:"on",ut:"on","5g_nr":"on"
     }};
@@ -49,7 +50,12 @@ let browser;
     // Content now scrolls internally; capture the phone viewport, not offscreen DOM bounds.
     return page.screenshot({path:"preview/"+name+".png",fullPage:false});
   };
-  await page.goto("http://127.0.0.1:8765/",{waitUntil:"networkidle"});
+  await page.goto("http://127.0.0.1:8765/",{waitUntil:"domcontentloaded"});
+  await visible("startup-view");
+  assert.equal(await page.locator("#page-content").isHidden(),true);
+  await capture("startup");
+  await page.waitForFunction(()=>document.documentElement.dataset.loading === "false");
+  assert.equal(await page.locator("#startup-view").isHidden(),true);
   const rootLength=await page.evaluate(()=>history.length);
   await capture("home-light");
   assert.equal(await page.locator("#home .chevron").count(),0);
@@ -57,6 +63,74 @@ let browser;
   assert.equal(await page.locator("#apply").evaluate(el=>getComputedStyle(el).userSelect),"none");
 
 
+
+  // Verify the same action component across themes and every preset, without
+  // invoking apply/restore. Arbitrary dark/light HEX uses the same contrast rule.
+  const palette=await page.evaluate(()=>[...onePlusColors,...materialColors].map(x=>x[1]).concat(["#FFF176","#37474F","#777777","#000000","#FFFFFF"]));
+  for(const theme of ["light","dark"])for(const color of palette){
+    await page.evaluate(({theme,color})=>{themeMode=theme;accent=color;showAppearance();},{theme,color});
+    const primary=await page.locator("#apply").evaluate(el=>{
+      const s=getComputedStyle(el);return {bg:s.backgroundColor,fg:s.color,height:s.height,width:s.width};
+    });
+    const ratio=await page.evaluate(({bg,fg})=>{
+      const lum=value=>{const rgb=value.match(/[0-9.]+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
+      const a=lum(bg),b=lum(fg);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+    },{bg:primary.bg,fg:primary.fg});
+    assert.ok(ratio>=4.5,theme+" "+color+" action contrast");
+    assert.equal(primary.height,"48px");
+    assert.equal(primary.width,"112px");
+    assert.equal(await page.locator("#restore").evaluate(el=>getComputedStyle(el).boxShadow),"none");
+    await page.evaluate(()=>{document.getElementById("apply").disabled=true;});
+    assert.notEqual(await page.locator("#apply").evaluate(el=>getComputedStyle(el).backgroundColor),primary.bg);
+    await page.dispatchEvent("#apply","pointerdown",{button:0,isPrimary:true,pointerId:997,clientX:10,clientY:10});
+    await page.dispatchEvent("#apply","pointerup",{button:0,isPrimary:true,pointerId:997,clientX:10,clientY:10});
+    assert.equal(await page.locator("#apply .tap-ripple").count(),0);
+    await page.evaluate(()=>{document.getElementById("apply").disabled=false;});
+  }
+  await page.evaluate(()=>{themeMode="system";accent="#42A5F5";showAppearance();});
+  for(const tab of ["tab-home","tab-sim-page"]){
+    await page.locator("#"+tab).click();
+    const actions=page.locator(tab==="tab-home"?"#home .action-button":"#sim-page .action-button");
+    const a=await actions.nth(0).boundingBox(),b=await actions.nth(1).boundingBox();
+    assert.equal(a.y,b.y);assert.equal(a.width,b.width);assert.equal(a.height,b.height);
+    assert.equal(b.x-a.x-a.width,12);
+  }
+  await page.locator("#tab-settings-page").click();
+  await page.locator("#settings-page").waitFor({state:"visible"});
+  assert.equal(await page.locator("#sim-page #device-heading").count(),0);
+  assert.equal(await page.locator("#home #device-heading").count(),0);
+  assert.equal(await page.locator("#settings-page #device-heading").innerText(),"设备状态（IMS）");
+  assert.equal(await page.locator("#settings-page #sim-status-heading").innerText(),"SIM 卡状态");
+  assert.ok((await page.locator("#settings-page #device-heading").boundingBox()).y < (await page.locator("#settings-page #sim-status-heading").boundingBox()).y);
+  await page.locator("#tab-home").click();
+
+  for(const cards of [false,true])for(const width of [280,320,393]){
+    await page.setViewportSize({width,height:852});
+    await page.evaluate(cards=>{cardGroups=cards;showAppearance();},cards);
+    const a=await page.locator("#apply").boundingBox(),b=await page.locator("#restore").boundingBox();
+    assert.equal(a.width,b.width);assert.equal(a.height,b.height);
+    if(width===280)assert.ok(b.y>a.y);else assert.equal(a.y,b.y);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  }
+  await page.setViewportSize({width:393,height:852});
+  await page.evaluate(()=>{cardGroups=false;showAppearance();});
+  await page.locator("#apply").scrollIntoViewIfNeeded();
+  const actionBox=await page.locator("#apply").boundingBox();
+  const actionPoint={button:0,isPrimary:true,pointerId:995,clientX:actionBox.x+24,clientY:actionBox.y+24};
+  await page.dispatchEvent("#apply","pointerdown",actionPoint);
+  await page.dispatchEvent("#apply","pointerup",actionPoint);
+  assert.equal(await page.locator("#apply .tap-ripple").evaluate(el=>getComputedStyle(el).position),"absolute");
+  assert.equal((await page.locator("#apply").boundingBox()).width,actionBox.width);
+  await page.waitForFunction(()=>!document.querySelector("#apply .tap-ripple"));
+  const switchHit=page.locator("#enabled").locator("..");
+  assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"1");
+  assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el,"::after").backgroundColor),"rgb(238, 238, 238)");
+  await page.evaluate(()=>{document.getElementById("enabled").disabled=true;});
+  assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"0.38");
+  await switchHit.dispatchEvent("pointerdown",{button:0,isPrimary:true,pointerId:996,clientX:10,clientY:10});
+  await switchHit.dispatchEvent("pointerup",{button:0,isPrimary:true,pointerId:996,clientX:10,clientY:10});
+  assert.equal(await switchHit.locator(".tap-ripple").count(),0);
+  await page.evaluate(()=>{document.getElementById("enabled").disabled=false;});
   // Root tabs replace, rather than push, and preserve untouched IMS controls.
   await page.locator("#enabled").check();
   await page.evaluate(()=>{document.getElementById("page-content").scrollTop=400;});
@@ -64,15 +138,53 @@ let browser;
   const callsBeforeTabs=await page.evaluate(()=>window.bridgeCalls.length);
   await page.locator("#tab-sim-page").click();
   await visible("sim-page");
-  assert.equal(await page.locator("#sim-page").innerHTML(),"");
+  assert.equal(await page.locator("#sim-page .sim-edit-row").count(),2);
+  assert.equal(await page.locator("#sim-page input").count(),0);
+  assert.equal(await page.locator("#sim-page .sim-info-card").count(),0);
   assert.equal(await page.locator("#page-title").innerText(),"TurboIMS Next");
   assert.equal(await page.locator("#back").isHidden(),true);
-  await capture("sim-empty");
+  await capture("sim-preferences");
+  const bridgeCountBeforeEdit=await page.evaluate(()=>window.bridgeCalls.length);
+  await page.locator("#sim-edit-country").click();
+  await page.locator("#sheet-content input").fill("1");
+  assert.equal(await page.locator("#sheet-actions button").last().isDisabled(),true);
+  assert.match(await page.locator("#sheet-content .dialog-input-error").innerText(),/两位英文字母/);
+  await page.locator("#sheet-content input").fill("jp");
+  assert.equal(await page.locator("#sheet-content input").inputValue(),"JP");
+  assert.equal(await page.locator("#sheet").getAttribute("data-ime"),"true");
+  const imeLayout=await page.locator("#sheet").evaluate(el=>({
+    align:getComputedStyle(el).alignItems,
+    footer:getComputedStyle(el.querySelector(".dialog-footer")).position
+  }));
+  assert.equal(imeLayout.align,"flex-start");
+  assert.equal(imeLayout.footer,"sticky");
+  await systemBack("sim-page");
+  await page.locator("#sheet").waitFor({state:"hidden"});
+  assert.equal(await page.locator("#sim-custom-country-value").innerText(),"未设置");
+  await page.locator("#sim-edit-country").click();
+  await page.locator("#sheet-content input").fill("jp");
+  await page.locator("#sheet-actions button").last().click();
+  await page.locator("#sheet").waitFor({state:"hidden"});
+  assert.equal(await page.locator("#sim-custom-country-value").innerText(),"JP");
+  assert.equal(await page.evaluate(()=>window.bridgeCalls.length),bridgeCountBeforeEdit);
+  await page.locator("#sim-edit-country").click();
+  await page.locator("#sheet-actions button").first().click();
+  await page.locator("#sheet").waitFor({state:"hidden"});
+  assert.equal(await page.locator("#sim-custom-country-value").innerText(),"未设置");
+  await page.locator("#sim-edit-carrier").click();
+  await page.locator("#sheet-content input").fill("FarEasTone");
+  await page.locator("#sheet-actions button").last().click();
+  await page.locator("#sheet").waitFor({state:"hidden"});
+  assert.equal(await page.locator("#sim-custom-carrier-value").innerText(),"FarEasTone");
+  await page.locator("#sim-edit-carrier").click();
+  await page.locator("#sheet-actions button").first().click();
+  await page.locator("#sheet").waitFor({state:"hidden"});
   await page.locator("#tab-settings-page").click();
   await visible("settings-page");
   await capture("settings-light");
   assert.equal(await page.locator("#open-appearance").isVisible(),true);
-  assert.equal(await page.evaluate(()=>history.length),rootLength);
+  assert.ok(await page.evaluate(()=>history.length) <= rootLength+1);
+  assert.equal(await page.evaluate(()=>history.state.dialog),undefined);
   await page.locator("#tab-home").click();
   assert.equal(await page.locator("#page-content").evaluate(el=>el.scrollTop),imsScroll);
   assert.equal(await page.locator("#enabled").isChecked(),true);
@@ -82,6 +194,10 @@ let browser;
   assert.ok((await page.locator("#restore").boundingBox()).y+
     (await page.locator("#restore").boundingBox()).height <= (await page.locator("#bottom-nav").boundingBox()).y);
   await capture("ims-bottom");
+  await page.locator("#tab-sim-page").click();
+  await page.locator("#sim-save").scrollIntoViewIfNeeded();
+  await capture("sim-actions-light");
+  await page.locator("#tab-home").click();
   await page.locator("#enabled").uncheck();
   const touch = await page.context().newCDPSession(page);
   const touchEvent = (type,x,y) => touch.send("Input.dispatchTouchEvent",{
@@ -146,6 +262,7 @@ let browser;
   await page.locator("#selection-choice").click();
   await capture("sim-dialog");
   await close();
+  await page.locator("#tab-settings-page").click();
   await page.evaluate(()=>{window.nextReadDelay=300;});
   await page.locator("#probe").click();
   assert.equal(await page.locator("#probe").isDisabled(),true);
@@ -162,6 +279,7 @@ let browser;
   assert.equal(await page.locator("#probe").innerText(),"检测设备");
   assert.equal(await page.locator("#refresh").innerText(),"刷新");
   assert.equal(await page.locator("#interval-choice").isDisabled(),true);
+  await page.locator("#tab-home").click();
   await page.locator("#periodic-check").check();
   await page.waitForFunction(()=>!document.getElementById("interval-choice").disabled);
   await page.locator("#interval-choice").click();
@@ -175,7 +293,7 @@ let browser;
   await page.waitForFunction(()=>document.getElementById("diagnostic-notice").textContent.includes("已生成"));
   await capture("diagnostics-light");
   assert.equal(await page.locator("#diagnostics").isVisible(),false);
-  assert.match(await page.locator("#diagnostic-summary").innerText(),/读通路可用/);
+  assert.match(await page.locator("#diagnostic-summary").innerText(),/读取正常/);
   await page.locator("#open-diagnostic-data").click();
   await visible("diagnostic-data-page");
   await capture("diagnostic-json");
@@ -229,6 +347,37 @@ let browser;
   await page.locator("#sheet-content .option").nth(2).click();
   await page.locator("#sheet").waitFor({state:"hidden"});
   await capture("appearance-dark");
+  assert.equal(await page.locator("#card-groups").isChecked(),false);
+  await page.locator("#card-groups").check();
+  assert.equal(await page.locator("html").getAttribute("data-card-groups"),"true");
+  assert.notEqual(await page.locator("#appearance-page .pref-group").first().evaluate(el=>getComputedStyle(el).boxShadow),"none");
+  await page.locator("#card-groups").uncheck();
+  await page.locator("#accent-scope-choice").click();
+  await visible("accent-scope-page");
+  assert.equal(await page.locator("#accent-toolbar").isChecked(),false);
+  await page.locator("#accent-toolbar").check();
+  assert.equal(await page.locator(".toolbar").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(75, 114, 146)");
+  assert.equal(await page.locator("#status-bar-color").getAttribute("content"),"#41627E");
+  assert.equal(await page.locator("#navigation-bar-color").getAttribute("content"),"#121212");
+  assert.equal(await page.locator("#page-title").evaluate(el=>getComputedStyle(el).color),"rgb(255, 255, 255)");
+  await page.locator("#back").click();
+  await visible("appearance-page");
+  await page.locator("#accent-choice").click();
+  await visible("accent-page");
+  await page.getByRole("button",{name:/Lemon Yellow/}).click();
+  assert.equal(await page.locator(".toolbar").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(147, 121, 83)");
+  assert.equal(await page.locator("#page-title").evaluate(el=>getComputedStyle(el).color),"rgb(16, 16, 16)");
+  await page.locator("#back").click();
+  await visible("appearance-page");
+  await page.locator("#accent-scope-choice").click();
+  await visible("accent-scope-page");
+  await page.locator("#accent-toolbar").uncheck();
+  await page.locator("#accent-section-labels").check();
+  await page.locator("#accent-navigation-icons").check();
+  assert.equal(await page.locator(".toolbar").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(18, 18, 18)");
+  assert.equal(await page.locator("#back").evaluate(el=>getComputedStyle(el).color),"rgb(235, 183, 106)");
+  await page.locator("#back").click();
+  await visible("appearance-page");
   await page.locator("#accent-choice").click();
   await visible("accent-page");
   await capture("accent-colors-dark");
@@ -280,9 +429,12 @@ let browser;
   await fresh.locator("#tab-settings-page").click();
   await fresh.locator("#open-appearance").click();
   await fresh.locator("#accent-choice").click();
-  await fresh.locator("#custom-hex").fill("#123456");
-  await fresh.locator("#apply-hex").click();
-  assert.equal(await fresh.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()),"#123456");
+  await fresh.locator("#custom-hex").fill("#12");
+  assert.match(await fresh.locator("#hex-error").innerText(),/6 位/);
+  assert.equal(await fresh.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()),"#42A5F5");
+  await fresh.locator("#custom-hex").fill("123456");
+  await fresh.waitForFunction(()=>getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()==="#123456");
+  assert.equal(await fresh.locator("#apply-hex").count(),0);
   assert.match(await fresh.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue("--press-rgb")),/7,21,34/);
   await fresh.locator("#back").click();
   await fresh.locator("#appearance-page").waitFor({state:"visible"});
