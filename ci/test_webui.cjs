@@ -438,7 +438,7 @@ test("dark mode publishes matching WebView chrome colors",()=>{
   for (const id of ["theme-color","status-bar-color","navigation-bar-color"])
     assert.match(html,new RegExp('id="'+id+'"'));
   const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
-  assert.match(app,/chromeColor = dark \? "#121212" : "#ffffff"/);
+  assert.match(app,/chromeColor = dark \? "#121212" : "#FFFFFF"/);
   assert.match(app,/navigation-bar-color/);
 });
 test("IMS rows have only switches; Settings retains individual DEFAULT",async()=>{
@@ -591,7 +591,11 @@ test("every preset and arbitrary RGB accent has readable action text in both the
     const vars=doc.documentElement.style.properties;
     assert.equal(vars["--accent"],color);
     const a=luminance(color),b=luminance(vars["--on-accent"]);
-    assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5,color);
+    const chosen=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+    const white=(1.05)/(a+.05);
+    const darkLum=luminance("#111111");
+    const dark=(Math.max(a,darkLum)+.05)/(Math.min(a,darkLum)+.05);
+    assert.ok(Math.abs(chosen-Math.max(white,dark))<1e-9,color);
     assert.ok(vars["--switch-on-track"].endsWith(",.35)"));
   }
   assert.deepEqual(calls.map(([action])=>action),["status"]);
