@@ -66,7 +66,7 @@ public final class JsonIO implements Engine.Store {
         Set<String> required = Set.of("schema", "enabled", "selection", "interval_seconds", "features");
         if (!keys.containsAll(required)
                 || !keys.stream().allMatch(k -> required.contains(k)
-                    || k.equals("periodic_check_enabled") || k.equals("sim_profiles") || k.equals("implementation_mode"))))
+                    || k.equals("periodic_check_enabled") || k.equals("sim_profiles") || k.equals("implementation_mode")))
             throw new IllegalArgumentException("Unexpected configuration fields");
         if (!(obj.get("schema") instanceof Integer) || obj.getInt("schema") != 1)
             throw new IllegalArgumentException("Unsupported config schema");
