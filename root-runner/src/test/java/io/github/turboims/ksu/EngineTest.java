@@ -80,6 +80,17 @@ public class EngineTest {
         assertArrayEquals(new int[]{1,2},(int[])f.values.get(key));
         assertArrayEquals(new int[]{1},(int[])f.snapshot.baseline.get(key));
     }
+    @Test public void foreignMarkerPreventsCarrierReloadRebase() throws Exception {
+        Fake f=new Fake();
+        String key="carrier_nr_availabilities_int_array";
+        Map<String,Object> wanted=Map.of(key,new int[]{1,2});
+        assertRun(f,"verified",wanted,true);
+        f.values.put(Engine.MARKER,"other-session");
+        f.values.put(key,new int[]{1});
+        Engine.Result result=f.engine("boot-b").reconcile(SUB,wanted,true);
+        assertEquals("ownership_lost",result.phase);
+        assertArrayEquals(new int[]{1},(int[])f.values.get(key));
+    }
     @Test public void unsupportedKeysAreSkipped() throws Exception {Fake f=new Fake();f.values.remove(KEY);
         Engine.Result r=f.engine().reconcile(SUB,on(),true);assertEquals(List.of(KEY),r.unsupported);
         assertEquals(0,f.writes);}

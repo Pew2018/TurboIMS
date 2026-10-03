@@ -53,7 +53,10 @@ public final class Engine {
 
     private static boolean canRebaseAfterCarrierReload(Map<String, Object> current,
                                                        Snapshot old) {
-        if (!old.pending.isEmpty() || old.owned.isEmpty()) return false;
+        // A different TurboIMS session still owns the visible override. Never
+        // reclaim it merely because the persisted snapshot belongs to this process.
+        if (current.containsKey(MARKER) || !old.pending.isEmpty() || old.owned.isEmpty())
+            return false;
         for (var entry : old.owned.entrySet()) {
             if (FeatureConfig.same(current.get(entry.getKey()), entry.getValue()))
                 return false;
