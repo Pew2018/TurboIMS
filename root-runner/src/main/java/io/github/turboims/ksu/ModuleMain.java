@@ -125,8 +125,9 @@ public final class ModuleMain {
 
     private static JSONObject runOnce(boolean preview, boolean restore, boolean forceApply) throws Exception {
         FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
-        // Manual apply and scheduled repair are independent from boot auto apply.
-        FeatureConfig effective = forceApply && !restore && !preview && !config.hasSimProfiles()
+        // A user-triggered apply must cover IMS features even when boot automation
+        // is off. Automatic boot/periodic passes keep the saved enabled state.
+        FeatureConfig effective = forceApply && !restore && !preview
                 ? new FeatureConfig(true, config.periodicCheckEnabled, config.selection,
                         config.intervalSeconds, config.modes, config.simProfiles, config.implementationMode) : config;
         AndroidCarrierBackend backend = backend();
@@ -373,7 +374,7 @@ public final class ModuleMain {
 
     private static JSONObject automaticAttempt() throws Exception {
         try (Locked operation = lock("operation.lock", true)) {
-            JSONObject result = runOnce(false, false, true);
+            JSONObject result = runOnce(false, false, false);
             JsonIO.write(STATUS, result);
             String phase = result.optString("phase");
             // An IMS stack can still be re-registering immediately after reset. Keep
