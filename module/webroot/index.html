@@ -82,6 +82,11 @@
     <h2 id="more-heading" class="category">界面</h2>
     <button id="open-appearance" class="pref-action" type="button"><span>外观<small>显示模式与强调色</small></span><span class="chevron" aria-hidden="true"></span></button>
   </section>
+  <section class="pref-group" aria-label="IMS 实现模式">
+    <h2 class="category">IMS 实现模式</h2>
+    <div class="setting-row"><span class="row-copy"><strong>执行方式</strong><small>Carrier IMS 会在应用配置后触发 IMS reset 并检查注册</small></span><button id="implementation-mode-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="implementation_mode" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="turboims">TurboIMS（当前 KSU）</option><option value="carrier_ims">Carrier IMS</option></select></div>
+    <p class="hint preference-footer">切换后点“应用配置”；APN 不会被自动修改。</p>
+  </section>
   <section class="pref-group" aria-label="工具">
     <h2 class="category">工具</h2>
     <button id="open-diagnostics" class="pref-action" type="button"><span>诊断与验证<small>运行状态与诊断数据</small></span><span class="chevron" aria-hidden="true"></span></button>
