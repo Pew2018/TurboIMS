@@ -13,6 +13,7 @@ public final class FeatureConfig {
     public final int intervalSeconds;
     public final Map<String, Mode> modes;
     public final Map<Integer, SimProfile> simProfiles;
+    public final String implementationMode;
     public static final class SimProfile {
         public final String countryIso; public final String carrierName;
         public SimProfile(String countryIso, String carrierName) {
@@ -31,8 +32,13 @@ public final class FeatureConfig {
         this(enabled, periodicCheckEnabled, selection, intervalSeconds, modes, Collections.emptyMap());
     }
     public FeatureConfig(boolean enabled, boolean periodicCheckEnabled, String selection, int intervalSeconds, Map<String, Mode> modes, Map<Integer, SimProfile> simProfiles) {
+        this(enabled, periodicCheckEnabled, selection, intervalSeconds, modes, simProfiles, "turboims");
+    }
+    public FeatureConfig(boolean enabled, boolean periodicCheckEnabled, String selection, int intervalSeconds, Map<String, Mode> modes, Map<Integer, SimProfile> simProfiles, String implementationMode) {
         if (!selection.equals("all") && !selection.matches("slot:[0-7]"))
             throw new IllegalArgumentException("SIM selection must be all or slot:0..7");
+        if (!Set.of("turboims", "carrier_ims").contains(implementationMode))
+            throw new IllegalArgumentException("Implementation mode must be turboims or carrier_ims");
         if (!Set.of(600, 1800, 3600, 7200).contains(intervalSeconds))
             throw new IllegalArgumentException("Interval must be 10, 30, 60 or 120 minutes");
         if (!modes.keySet().equals(new HashSet<>(FEATURES)) || modes.containsValue(null))
@@ -49,6 +55,7 @@ public final class FeatureConfig {
             profiles.put(entry.getKey(), entry.getValue());
         }
         this.simProfiles = Collections.unmodifiableMap(profiles);
+        this.implementationMode = implementationMode;
     }
 
     public boolean selects(int slot) {
