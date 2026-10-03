@@ -24,6 +24,17 @@ Android 版本门禁目前为 SDK 33..36，GitHub Actions 安装 Android 36 SDK�
 
 以上 Binder 调用都发生在委托 shell 权限身份期间。KSU runner 的 uid 0 和 SELinux 域 `u:r:ksu:s0` 不等同于 shell identity；root 进程可读取/调用某些 Binder 接口，并不能证明每项权限检查均与 shell 相同。必须在目标 Android 17 Pixel 上分别探测权限、写入、读回与清理，否则功能应报告明确失败。
 
+
+## 当前设备只读诊断（用户提供，2026-10-03）
+
+- Pixel 8 Pro（husky），Android 16 / SDK 36，build `CP1A.260505.005.A1`，SELinux enforcing，Termux root 与 runner 均处于 `u:r:ksu:s0`。
+- runner 成功枚举 `subId=1 → slot=0`；`ICarrierConfigLoader.overrideConfig(..., persistent=false)` 可写入并读回验证，配置无 unsupported/conflicts。
+- 本次实际配置启用了 VoLTE、VoWiFi、VT、VoNR、cross-SIM、UT、5G NR；SIM profile 为 slot 0 / ISO `tw` / 名称 `Chunghwa Telecom`。现有 module runner 仍为 0.2.0。
+- SIM property 的 `gsm.sim.operator.numeric` 为 `46009,`，当前网络 `gsm.operator.numeric` 为 `46001`；网络服务状态显示 LTE voice 注册可用。IMS APN 显示 CONNECTED。
+- 这些信息确认 TurboIMS 已成功应用 CarrierConfig，且网络/IMS APN 通路有活动状态；它们本身不等同于 `ITelephony.isImsRegistered(1)` 的直接返回，也不证明拨出、接听或双向音频成功。
+- `content://telephony/siminfo` 查询返回无结果，表明本次命令未取得该 Provider 的 SIM 映射；runner 的 Binder 枚举给出的 subId/slot 映射仍可用。
+- 用户明确将 Android 16 设备作为当前移植目标；Android 17 可留作后续 SDK/API 验证，不应阻挡先在 SDK 36 上适配参考实现。
+
 ## 当前实施决策与阻塞
 
 本分支目前仅记录审计，没有声称 Carrier IMS 模式已实现。当前源码缺少以下实现前提：
