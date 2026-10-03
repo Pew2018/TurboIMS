@@ -377,7 +377,7 @@ let browser;
   await page.locator("#accent-section-labels").check();
   await page.locator("#accent-navigation-icons").check();
   assert.equal(await page.locator(".toolbar").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(18, 18, 18)");
-  assert.equal(await page.locator("#back").evaluate(el=>getComputedStyle(el).color),"rgb(235, 183, 106)");
+  assert.equal(await page.locator("#back").evaluate(el=>getComputedStyle(el).color),"rgb(236, 185, 110)");
   await page.locator("#back").click();
   await visible("appearance-page");
   await page.locator("#accent-choice").click();
