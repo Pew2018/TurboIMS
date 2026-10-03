@@ -40,7 +40,7 @@ jobs:
           COMPILE_SDK: ${{ matrix.compile_sdk }}
         run: |
           if [ "$COMPILE_SDK" = "37" ]; then
-            if ! sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0"; then
+            if ! sdkmanager --channel=3 "platforms;android-37.0" "build-tools;37.0.0"; then
               echo "::error::Android SDK 37 preview platform/build tools are not available from this runner's SDK repository."
               sdkmanager --list --channel=3 | grep -Ei 'android-37|Cinnamon|build-tools;37' || true
               exit 1
