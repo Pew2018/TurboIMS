@@ -247,11 +247,31 @@ let accentInputInitialized = false;
 let accentInputTimer = null;
 const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
 function colorHex(rgb) { return "#" + rgb.map(value => Math.max(0,Math.min(255,Math.round(value))).toString(16).padStart(2,"0")).join("").toUpperCase(); }
+function relativeLuminance(rgb) {
+  const linear = rgb.map(c => {
+    c /= 255;
+    return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4;
+  });
+  return linear[0]*.2126 + linear[1]*.7152 + linear[2]*.0722;
+}
+function contrastRatio(a,b) {
+  const lighter = Math.max(a,b), darker = Math.min(a,b);
+  return (lighter + .05) / (darker + .05);
+}
+const LIGHT_FOREGROUND = "#FFFFFF";
+const DARK_FOREGROUND = "#111111";
+const DARK_FOREGROUND_LUMINANCE = relativeLuminance([17,17,17]);
+function foregroundForRgb(rgb) {
+  const background = relativeLuminance(rgb);
+  const lightContrast = contrastRatio(background,1);
+  const darkContrast = contrastRatio(background,DARK_FOREGROUND_LUMINANCE);
+  return darkContrast >= lightContrast ? DARK_FOREGROUND : LIGHT_FOREGROUND;
+}
 function showAppearance() {
   const dark = themeMode === "dark" || (themeMode === "system" && !!media?.matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
-  const chromeColor = dark ? "#121212" : "#ffffff";
+  const chromeColor = dark ? "#121212" : "#FFFFFF";
   document.documentElement.style.setProperty("--accent", accent);
   const root = document.documentElement;
   root.dataset.accentToolbar = String(accentToolbar);
@@ -262,87 +282,62 @@ function showAppearance() {
   $("accent-toolbar").checked = accentToolbar;
   $("accent-section-labels").checked = accentSectionLabels;
   $("accent-navigation-icons").checked = accentNavigationIcons;
+
   const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
-  // Leave standard controls on the selected accent. Tone only the toolbar surface
-  // and its status-bar companion for a quieter, connected system chrome.
   const surfaceRgb = dark ? [18,18,18] : [255,255,255];
-  // Classic Material separates primary chrome from control accents. This blend
-  // is our restrained palette derivation, not a prescribed Android algorithm.
+
+  // Keep the established restrained tint, but calculate foreground from the
+  // final rendered toolbar color rather than from the raw accent.
   const neutral = rgb[0]*.2126 + rgb[1]*.7152 + rgb[2]*.0722;
   const toolbarRgb = accentToolbar
     ? rgb.map(value => Math.round((value*.55 + neutral*.45) * (dark ? .72 : .82)))
     : surfaceRgb;
-  const statusRgb = accentToolbar ? toolbarRgb.map(value => Math.round(value*.86)) : surfaceRgb;
   const toolbarColor = accentToolbar ? colorHex(toolbarRgb) : chromeColor;
-  const statusColor = accentToolbar ? colorHex(statusRgb) : chromeColor;
+  const statusColor = toolbarColor;
+  const toolbarForeground = foregroundForRgb(toolbarRgb);
+
   root.style.setProperty("--toolbar-tint",toolbarColor);
+  root.style.setProperty("--toolbar-foreground",toolbarForeground);
   root.style.setProperty("--system-status-bg",statusColor);
-  root.style.setProperty("--system-navigation-bg",media?.matches ? "#121212" : "#ffffff");
-  const metaColors = {"theme-color":toolbarColor,"status-bar-color":statusColor,"navigation-bar-color":chromeColor};
+  root.style.setProperty("--system-navigation-bg",dark ? "#121212" : "#FFFFFF");
+
+  // Chromium/WebView uses theme-color as its available system-bar hint. KernelSU
+  // still owns the actual icon mode, so keep the color and color-scheme hints in sync.
+  const metaColors = {
+    "theme-color":toolbarColor,
+    "status-bar-color":statusColor,
+    "navigation-bar-color":dark ? "#121212" : "#FFFFFF"
+  };
   for (const [id,color] of Object.entries(metaColors)) {
     const meta = document.getElementById(id);
     if (meta) meta.setAttribute("content",color);
   }
-  document.documentElement.style.setProperty("--press-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
-  document.documentElement.style.setProperty("--accent-track", "rgba(" + rgb.join(",") + ",.45)");
-  const luminance = rgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
-  const relativeLuminance = luminance[0]*.2126 + luminance[1]*.7152 + luminance[2]*.0722;
-  document.documentElement.style.setProperty("--accent-text",relativeLuminance > .18 ? "#101010" : "#ffffff");
-  // Pick a real foreground contrast, including near-black luminance. Pure black
-  // covers the small range where neither near-black nor white reaches 4.5:1.
-  const actionWhiteContrast = 1.05 / (relativeLuminance + .05);
-  const actionDarkContrast = (relativeLuminance + .05) / (.0051815167 + .05);
-  const onAccent = actionDarkContrast >= 4.5 && actionDarkContrast >= actionWhiteContrast
-    ? "#101010" : actionWhiteContrast >= 4.5 ? "#FFFFFF" : "#000000";
+
+  root.style.setProperty("--press-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
+  root.style.setProperty("--accent-track", "rgba(" + rgb.join(",") + ",.35)");
+
+  const onAccent = foregroundForRgb(rgb);
+  root.style.setProperty("--accent-text",onAccent);
   root.style.setProperty("--on-accent",onAccent);
+  root.style.setProperty("--action-fill",accent);
+  root.style.setProperty("--action-ripple",onAccent);
 
-  // Solid square action buttons use white labels consistently. If the selected
-  // accent is too light for white, derive a darker same-hue fill until the
-  // button reaches the WCAG AA 4.5:1 contrast target. The preference accent
-  // itself remains unchanged everywhere else.
-  let actionScale = 1;
-  if (relativeLuminance > .183333) {
-    let low = 0, high = 1;
-    for (let i = 0; i < 18; i++) {
-      const mid = (low + high) / 2;
-      const scaled = rgb.map(value => {
-        const channel = value * mid / 255;
-        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
-      });
-      const scaledLuminance = scaled[0] * .2126 + scaled[1] * .7152 + scaled[2] * .0722;
-      if (scaledLuminance <= .183333) low = mid; else high = mid;
-    }
-    actionScale = low;
-  }
-  const actionFill = colorHex(rgb.map(value => value * actionScale));
-  root.style.setProperty("--action-fill",actionFill);
-  root.style.setProperty("--action-ripple","#ffffff");
-
-  const tonalStrength = dark ? .18 : .14;
-  const tonalSurfaceRgb = dark ? [33,33,33] : [255,255,255];
+  const tonalStrength = dark ? .18 : .12;
+  const tonalSurfaceRgb = dark ? [32,32,32] : [255,255,255];
   const tonalRgb = rgb.map((value,index) => Math.round(value * tonalStrength + tonalSurfaceRgb[index] * (1 - tonalStrength)));
   const pressedRgb = rgb.map((value,index) => Math.round(value * (tonalStrength + .06) + tonalSurfaceRgb[index] * (1 - tonalStrength - .06)));
   root.style.setProperty("--action-border","transparent");
   root.style.setProperty("--action-tonal",colorHex(tonalRgb));
   root.style.setProperty("--action-tonal-pressed",colorHex(pressedRgb));
   root.style.setProperty("--switch-on-track","rgba(" + rgb.join(",") + ",.35)");
-  const whiteContrast = 1.05 / (relativeLuminance + .05);
-  const darkContrast = (relativeLuminance + .05) / .05;
-  const toolbarLuminance = toolbarRgb.map(c => { c /= 255; return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4; });
-  const toolbarRelative = toolbarLuminance[0]*.2126 + toolbarLuminance[1]*.7152 + toolbarLuminance[2]*.0722;
-  const toolbarWhiteContrast = 1.05 / (toolbarRelative + .05);
-  const toolbarDarkContrast = (toolbarRelative + .05) / .05;
-  document.documentElement.style.setProperty("--toolbar-foreground",
-    toolbarDarkContrast >= toolbarWhiteContrast
-      ? ((toolbarRelative+.05)/(.0051815167+.05) >= 4.5 ? "#101010" : "#000000")
-      : "#ffffff");
+
   $("theme-choice").textContent = {system:"跟随系统",light:"浅色模式",dark:"深色模式"}[themeMode];
   const chosen = [...onePlusColors,...materialColors].find(([,hex]) => hex === accent);
   $("accent-label").textContent = chosen ? chosen[0] : accent;
   for (const [button,color] of swatchButtons) button.setAttribute("aria-pressed",String(color === accent));
   const blend = (x,y,t) => Math.round(x*(1-t)+y*t);
-  const ink = rgb.map(x => blend(x,dark ? 255 : 0,dark ? .20 : .36));
-  document.documentElement.style.setProperty("--accent-ink", "rgb(" + ink.join(",") + ")");
+  const ink = rgb.map(x => blend(x,dark ? 255 : 0,dark ? .22 : .36));
+  root.style.setProperty("--accent-ink", "rgb(" + ink.join(",") + ")");
   $("accent-swatch").style.setProperty("--accent",accent);
 }
 if (media) {
@@ -561,7 +556,7 @@ $("custom-hex").oninput = () => {
   const valid = /^[0-9A-F]{6}$/.test(hex);
   $("hex-error").textContent = valid ? "" : "请输入 6 位 HEX 颜色值";
   clearTimeout(accentInputTimer);
-  if (valid) accentInputTimer = setTimeout(() => setAccent(normalized),180);
+  if (valid) setAccent(normalized);
 };
 function persistAccentScope() {
   accentToolbar = $("accent-toolbar").checked;
