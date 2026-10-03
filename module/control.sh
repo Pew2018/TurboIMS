@@ -18,5 +18,5 @@ export CLASSPATH="$MODDIR/runner.apk"
 if [ "$1" = "watch" ] || [ "$1" = "watch-periodic" ]; then
   exec /system/bin/app_process64 /system/bin io.github.turboims.ksu.ModuleMain "$MODDIR" "$@"
 fi
-exec /system/bin/timeout 45 /system/bin/app_process64 /system/bin \
+exec /system/bin/timeout 180 /system/bin/app_process64 /system/bin \
   io.github.turboims.ksu.ModuleMain "$MODDIR" "$@"
