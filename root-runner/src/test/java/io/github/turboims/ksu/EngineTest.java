@@ -35,7 +35,8 @@ public class EngineTest {
         }
         public Engine.Snapshot load(int id){return snapshot;}
         public void save(int id,Engine.Snapshot s){saves++;snapshot=s;}
-        Engine engine(){return new Engine(this,this,"boot-a",()->{});}
+        Engine engine(){return engine("boot-a");}
+        Engine engine(String session){return new Engine(this,this,session,()->{});}
     }
     static Map<String,Object> on(){return Map.of(KEY,true);}
     @Test public void appliesAndVerifies(){Fake f=new Fake();
@@ -137,6 +138,23 @@ public class EngineTest {
         Fake f=new Fake();assertRun(f,"verified",on(),true);f.values.remove(Engine.MARKER);
         int writes=f.writes;assertRun(f,"ownership_lost",Map.of(),true);
         assertEquals(writes,f.writes);assertEquals(false,f.snapshot.baseline.get(KEY));
+    }
+    @Test public void ownershipSurvivesRebootWhenMarkerMatchesSavedSnapshot() throws Exception {
+        Fake f=new Fake();
+        assertEquals("verified",f.engine("boot-a").reconcile(SUB,on(),true).phase);
+        Engine.Result restored=f.engine("boot-b").reconcile(SUB,Map.of(),true);
+        assertEquals("restored",restored.phase);
+        assertEquals(false,f.values.get(KEY));
+        assertEquals("boot-b",f.values.get(Engine.MARKER));
+        assertEquals("boot-b",f.snapshot.session);
+    }
+    @Test public void missingMarkerAfterRebootDoesNotReclaimModifiedValue() throws Exception {
+        Fake f=new Fake();
+        assertEquals("verified",f.engine("boot-a").reconcile(SUB,on(),true).phase);
+        f.values.remove(Engine.MARKER);
+        Engine.Result result=f.engine("boot-b").reconcile(SUB,on(),true);
+        assertEquals("ownership_lost",result.phase);
+        assertEquals(true,f.values.get(KEY));
     }
     @Test public void mutationWithoutMarkerStopsForManualRecovery() throws Exception {
         Fake f=new Fake();f.dropMarker=true;

@@ -57,8 +57,10 @@ public final class Engine {
         if (!Boolean.TRUE.equals(current.get(LOADED)))
             return new Result(sub, "waiting", false, List.of(), List.of(), current);
         Snapshot old = store.load(sub.id);
-        boolean ours = old != null && session.equals(old.session)
-                && session.equals(current.get(MARKER));
+        // A non-persistent CarrierConfig override can survive long enough to be
+        // observed after reboot. Its marker is paired with the persisted snapshot,
+        // not with the current boot ID, so ownership remains explicit across boots.
+        boolean ours = old != null && old.session.equals(current.get(MARKER));
         Map<String, Object> baseline = new LinkedHashMap<>();
         Map<String, Object> previous = new LinkedHashMap<>();
         if (ours) {
@@ -82,8 +84,7 @@ public final class Engine {
                 }
             }
         } else {
-            if (old != null && session.equals(old.session)
-                    && (!old.owned.isEmpty() || !old.pending.isEmpty())) {
+            if (old != null && (!old.owned.isEmpty() || !old.pending.isEmpty())) {
                 Set<String> tracked = new LinkedHashSet<>(old.owned.keySet());
                 tracked.addAll(old.pending.keySet());
                 List<String> lost = new ArrayList<>();
@@ -153,8 +154,13 @@ public final class Engine {
             if (!verified) throw new VerificationException(
                     "CarrierConfig read-back mismatch for subId=" + sub.id);
         }
-        if (ours || !payload.isEmpty())
-            store.save(sub.id, new Snapshot(session, baseline, nextOwned));
+        if (ours || !payload.isEmpty()) {
+            // Keep the stored owner token aligned with the marker that is actually
+            // present. A changed payload writes this boot's marker; an unchanged
+            // cross-boot reconciliation deliberately retains the prior marker.
+            String ownerToken = !payload.isEmpty() ? session : old.session;
+            store.save(sub.id, new Snapshot(ownerToken, baseline, nextOwned));
+        }
         String phase = !conflicts.isEmpty() ? "conflict" :
                 (!payload.isEmpty() ? (desired.isEmpty() ? "restored" : "verified") : "unchanged");
         return new Result(sub, phase, !payload.isEmpty(), unsupported, conflicts, current);
