@@ -361,7 +361,7 @@ let browser;
   assert.equal(await page.locator(".toolbar").evaluate(el=>getComputedStyle(el).backgroundColor),"rgb(55, 133, 195)");
   assert.equal(await page.locator("#status-bar-color").getAttribute("content"),"#3785C3");
   assert.equal(await page.locator("#navigation-bar-color").getAttribute("content"),"#121212");
-  assert.equal(await page.locator("#page-title").evaluate(el=>getComputedStyle(el).color),"rgb(255, 255, 255)");
+  assert.equal(await page.locator("#page-title").evaluate(el=>getComputedStyle(el).color),"rgb(0, 0, 0)");
   await page.locator("#back").click();
   await visible("appearance-page");
   await page.locator("#accent-choice").click();
