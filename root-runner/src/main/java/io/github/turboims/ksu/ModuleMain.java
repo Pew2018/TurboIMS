@@ -29,8 +29,8 @@ public final class ModuleMain {
                     || !Set.of("/data/adb/modules", "/data/adb/modules_update")
                         .contains(module.getParent().toString()))
                 throw new SecurityException("Unexpected module path");
-            if (Build.VERSION.SDK_INT < 33 || Build.VERSION.SDK_INT > 36)
-                throw new IllegalStateException("Initial support is Android 13..16 (SDK 33..36)");
+            if (Build.VERSION.SDK_INT < 33 || Build.VERSION.SDK_INT > 37)
+                throw new IllegalStateException("Supported runner range is Android 13..17 (SDK 33..37)");
             Files.createDirectories(JsonIO.STATE);
             Os.chmod(JsonIO.STATE.toString(), 0700);
             session = new String(Files.readAllBytes(Paths.get("/proc/sys/kernel/random/boot_id")),
