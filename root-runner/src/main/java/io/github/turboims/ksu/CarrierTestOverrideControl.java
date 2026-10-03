@@ -135,7 +135,14 @@ public final class CarrierTestOverrideControl {
     private static Map<String, Object> result(int subId, int slot, String code, String phase, boolean accepted) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("sub_id", subId); out.put("slot", slot); out.put("mccmnc", code); out.put("phase", phase);
-        out.put("binder_accepted", accepted); out.put("readback_available", false); out.put("readback_verified", false);
+        // Android exposes no reliable public read-back for carrier test identity.
+        // Keep the legacy Binder field for WebUI compatibility, but make the
+        // verification boundary explicit for diagnostics and callers.
+        out.put("binder_accepted", accepted);
+        out.put("request_accepted", accepted);
+        out.put("effective_identity_verification", "unavailable");
+        out.put("readback_available", false);
+        out.put("readback_verified", false);
         return out;
     }
     private static Exception asException(Throwable t) {

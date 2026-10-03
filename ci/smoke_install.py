@@ -38,9 +38,11 @@ set_perm() { chmod "$4" "$1"; }
         return subprocess.run(["busybox", "sh", str(launcher)], env=settings,
                               capture_output=True, text=True)
 
-    for overrides in ({"KSU": "false"}, {"ARCH": "x86_64"}, {"API": "37"}):
+    for overrides in ({"KSU": "false"}, {"ARCH": "x86_64"}, {"API": "38"}):
         result = run(overrides)
         assert result.returncode != 0 and "ABORT:" in result.stderr, result
+    result = run({"API": "37"})
+    assert result.returncode == 0, result.stderr + result.stdout
     original = (module / "runner.sha256").read_bytes()
     (module / "runner.sha256").write_text("0" * 64 + "  runner.apk\n")
     result = run()
@@ -63,4 +65,17 @@ set_perm() { chmod "$4" "$1"; }
     result = run()
     assert result.returncode == 0, result.stderr + result.stdout
     assert config.read_text() == '{"existing_config_must_survive":true}\n'
-    print("BusyBox install smoke passed: platform guards, checksum, permissions, fresh install and upgrade")
+    # An uninstall restore failure must leave a root-only recovery record instead
+    # of disappearing with the module directory.
+    (module / "control.sh").write_text("#!/system/bin/sh\nexit 7\n")
+    (module / "control.sh").chmod(0o755)
+    uninstall = module / "uninstall-test.sh"
+    uninstall.write_text((module / "uninstall.sh").read_text()
+                         .replace("/data/adb/turboims-next", str(state))
+                         .replace("/system/bin/sh", "busybox sh"))
+    result = subprocess.run(["busybox", "sh", str(uninstall)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr + result.stdout
+    recovery = state / "uninstall-restore.json"
+    assert recovery.stat().st_mode & 0o777 == 0o600
+    assert '"phase":"uninstall_restore_failed"' in recovery.read_text()
+    print("BusyBox install smoke passed: platform guards, checksum, permissions, fresh install, upgrade and uninstall recovery")

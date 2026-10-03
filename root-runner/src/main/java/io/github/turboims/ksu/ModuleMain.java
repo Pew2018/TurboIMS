@@ -18,6 +18,7 @@ public final class ModuleMain {
     private static String session;
     private static final Path STATUS = JsonIO.STATE.resolve("status.json");
     private static final Path BLOCKED = JsonIO.STATE.resolve("blocked.json");
+    private static final Path UNINSTALL_RECOVERY = JsonIO.STATE.resolve("uninstall-restore.json");
 
     public static void main(String[] args) {
         int code = 0;
@@ -84,7 +85,10 @@ public final class ModuleMain {
                                 action.equals("apply"));
                         if (!action.equals("probe")) {
                             JsonIO.write(STATUS, result);
-                            if (result.getBoolean("ok")) Files.deleteIfExists(BLOCKED);
+                            if (result.getBoolean("ok")) {
+                                Files.deleteIfExists(BLOCKED);
+                                Files.deleteIfExists(UNINSTALL_RECOVERY);
+                            }
                         }
                     } else throw new IllegalArgumentException("Unknown action: " + action);
                 }
@@ -188,7 +192,9 @@ public final class ModuleMain {
                             && !targetRequested) {
                         overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                                 .put("mccmnc", "").put("phase", "not_requested_native_identity")
-                                .put("binder_accepted", false).put("readback_available", false)
+                                .put("binder_accepted", false).put("request_accepted", false)
+                                .put("effective_identity_verification", "not_requested")
+                                .put("readback_available", false)
                                 .put("readback_verified", false));
                     }
                 } catch (Throwable error) {
@@ -196,6 +202,8 @@ public final class ModuleMain {
                     overrideErrors.put(sub.id, detail);
                     overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                             .put("phase", "apply_failed").put("binder_accepted", false)
+                            .put("request_accepted", false)
+                            .put("effective_identity_verification", "unavailable")
                             .put("error", detail));
                     log("subId=" + sub.id + " carrier test override ERROR " + detail);
                 }
@@ -206,7 +214,9 @@ public final class ModuleMain {
                 if (config.selects(sub.slot) && (profile == null || profile.carrierTestMccMnc.trim().isEmpty())) {
                     overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                             .put("mccmnc", "").put("phase", "not_requested_native_identity")
-                            .put("binder_accepted", false).put("readback_available", false)
+                            .put("binder_accepted", false).put("request_accepted", false)
+                            .put("effective_identity_verification", "not_requested")
+                            .put("readback_available", false)
                             .put("readback_verified", false));
                 }
             }
@@ -271,7 +281,8 @@ public final class ModuleMain {
                             registration = new CarrierImsControl.Registration(registered,
                                     registered ? "ims_registered" : "ims_not_registered", "");
                         } else {
-                            registration = imsControl.resetAndAwait(sub.id, sub.slot, 20, 1000L);
+                            registration = imsControl.resetAndAwait(sub.id, sub.slot, 20, 1000L,
+                                    CarrierImsControl.settleDelayMillis(entry.result.phase, entry.result.changed));
                         }
                         imsRow.put("phase", registration.phase)
                                 .put("registered", registration.registered)
@@ -351,6 +362,8 @@ public final class ModuleMain {
             JSONObject blocked = JsonIO.read(BLOCKED);
             if (session.equals(blocked.optString("session"))) result.put("blocked", blocked);
         }
+        if (Files.exists(UNINSTALL_RECOVERY))
+            result.put("uninstall_recovery", JsonIO.read(UNINSTALL_RECOVERY));
         Path pid = JsonIO.STATE.resolve("watcher.json");
         if (Files.exists(pid)) {
             JSONObject info = JsonIO.read(pid);

@@ -702,3 +702,9 @@ test("secondary page actions use accent-tonal surface",()=>{
   assert.match(css,/action-button--secondary[\s\S]*background:var\(--action-tonal\)/);
   assert.match(app,/--action-tonal/);
 });
+
+test("WebUI CSP forbids dynamic script evaluation",()=>{
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  assert.match(html,/script-src 'self'/);
+  assert.doesNotMatch(html,/'unsafe-eval'/);
+});

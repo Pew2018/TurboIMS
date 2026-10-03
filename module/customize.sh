@@ -1,7 +1,7 @@
 #!/system/bin/sh
 [ "$KSU" = "true" ] || abort "Install with KernelSU Next."
 [ "$ARCH" = "arm64" ] || abort "Initial validation target is arm64."
-[ "$API" -ge 33 ] && [ "$API" -le 36 ] || abort "Android 13..16 required."
+[ "$API" -ge 33 ] && [ "$API" -le 37 ] || abort "Android 13..17 required."
 [ -f "$MODPATH/runner.apk" ] || abort "Missing bundled runner."
 (cd "$MODPATH" && sha256sum -c runner.sha256) || abort "Runner checksum mismatch."
 ui_print "TurboIMS Next: standalone root executor"

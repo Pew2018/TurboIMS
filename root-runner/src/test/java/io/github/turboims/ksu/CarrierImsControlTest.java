@@ -14,5 +14,8 @@ public class CarrierImsControlTest {
         assertFalse(CarrierImsControl.isReadyForReset("ownership_lost"));
         assertFalse(CarrierImsControl.isReadyForReset("partial"));
         assertFalse(CarrierImsControl.isReadyForReset(null));
+        assertEquals(1500L, CarrierImsControl.settleDelayMillis("verified", true));
+        assertEquals(0L, CarrierImsControl.settleDelayMillis("verified", false));
+        assertEquals(0L, CarrierImsControl.settleDelayMillis("unchanged", true));
     }
 }
