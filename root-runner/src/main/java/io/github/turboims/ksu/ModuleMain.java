@@ -132,16 +132,20 @@ public final class ModuleMain {
         boolean carrierMode = "carrier_ims".equals(config.implementationMode);
         JSONArray overrideResults = new JSONArray();
         if (!preview) {
-            CarrierTestOverrideControl overrideControl = new CarrierTestOverrideControl(session);
-            boolean configured = config.enabled || config.hasSimProfiles();
-            for (CarrierBackend.Subscription sub : subscriptions) {
-                if (restore || !carrierMode) {
-                    overrideResults.put(new JSONObject(overrideControl.clearOwned(sub.id, sub.slot)));
-                } else if (configured && config.selects(sub.slot)) {
-                    FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
-                    if (profile == null || profile.carrierTestMccMnc.isEmpty())
-                        throw new IllegalStateException("Carrier IMS requires an explicit carrier_test_mccmnc for slot " + sub.slot + "; no CarrierConfig write was attempted");
-                    overrideResults.put(new JSONObject(overrideControl.apply(sub.id, sub.slot, profile.carrierTestMccMnc)));
+            boolean hasOwnedOverride = subscriptions.stream()
+                    .anyMatch(sub -> CarrierTestOverrideControl.hasRecord(sub.id));
+            if (carrierMode || hasOwnedOverride) {
+                CarrierTestOverrideControl overrideControl = new CarrierTestOverrideControl(session);
+                boolean configured = config.enabled || config.hasSimProfiles();
+                for (CarrierBackend.Subscription sub : subscriptions) {
+                    if ((restore || !carrierMode) && CarrierTestOverrideControl.hasRecord(sub.id)) {
+                        overrideResults.put(new JSONObject(overrideControl.clearOwned(sub.id, sub.slot)));
+                    } else if (!restore && carrierMode && configured && config.selects(sub.slot)) {
+                        FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
+                        if (profile == null || profile.carrierTestMccMnc.isEmpty())
+                            throw new IllegalStateException("Carrier IMS requires an explicit carrier_test_mccmnc for slot " + sub.slot + "; no CarrierConfig write was attempted");
+                        overrideResults.put(new JSONObject(overrideControl.apply(sub.id, sub.slot, profile.carrierTestMccMnc)));
+                    }
                 }
             }
         }

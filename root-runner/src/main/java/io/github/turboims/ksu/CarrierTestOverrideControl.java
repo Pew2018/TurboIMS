@@ -42,6 +42,10 @@ public final class CarrierTestOverrideControl {
         clearMethod = clear;
     }
 
+    public static boolean hasRecord(int subId) {
+        return Files.exists(JsonIO.STATE.resolve("carrier-test-override-" + subId + ".json"));
+    }
+
     public Map<String, Object> apply(int subId, int slot, String mccmnc) throws Exception {
         if (mccmnc == null || !mccmnc.matches("[0-9]{5,6}"))
             throw new IllegalArgumentException("Carrier test MCC/MNC must contain 5 or 6 digits");
@@ -93,7 +97,7 @@ public final class CarrierTestOverrideControl {
         invoke(setMethod, telephony, subId, code, "", "", "", "", "", "", null, null);
     }
     private Path path(int subId) { return JsonIO.STATE.resolve("carrier-test-override-" + subId + ".json"); }
-    private JSONObject record(int subId, int slot, String code, String phase) {
+    private JSONObject record(int subId, int slot, String code, String phase) throws Exception {
         return new JSONObject().put("owner", OWNER).put("sub_id", subId).put("slot", slot)
                 .put("mccmnc", code).put("phase", phase).put("session", session)
                 .put("time_ms", System.currentTimeMillis());
