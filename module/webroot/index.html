@@ -60,7 +60,7 @@
       <button id="sim-restore" class="action-button action-button--secondary" type="button"><span>恢复原值</span></button>
     </div>
     <p class="hint action-summary">应用当前 SIM 信息；恢复原值仅移除本模块记录的 SIM 信息覆盖。</p>
-    <p class="hint preference-footer">Carrier test MCC/MNC 仅在 Carrier IMS 模式应用。Android 没有可靠的读取接口，诊断只报告 Binder 调用结果，不会伪称读回验证；未填写时应用会失败。已保存配置会在重启后重新应用。</p>
+    <p class="hint preference-footer">Carrier test MCC/MNC 仅在 Carrier IMS 模式应用。台湾 + 中华电信的已有配置会自动推导 46692；其他运营商需填写对应的 5 或 6 位代码。Android 没有可靠的读取接口，诊断只报告 Binder 调用结果，不会伪称读回验证。已保存配置会在重启后重新应用。</p>
   </section>
 </main>
 <main id="settings-page" class="page" hidden>
@@ -86,7 +86,7 @@
   <section class="pref-group" aria-label="IMS 实现模式">
     <h2 class="category">IMS 实现模式</h2>
     <div class="setting-row"><span class="row-copy"><strong>执行方式</strong><small>Carrier IMS 还会按 SIM 应用 Carrier test MCC/MNC，并触发 IMS reset</small></span><button id="implementation-mode-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="implementation_mode" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="turboims">TurboIMS（当前 KSU）</option><option value="carrier_ims">Carrier IMS</option></select></div>
-    <p class="hint preference-footer">Carrier IMS 必须先在 SIM 卡信息页填写目标运营商 MCC/MNC；缺失或 Binder 权限不足时应用失败。APN 不会被自动修改。</p>
+    <p class="hint preference-footer">Carrier IMS 使用 SIM 卡信息中的运营商测试码；台湾 + 中华电信预设会自动推导 46692，其他配置请手动填写。APN 不会被自动修改。</p>
   </section>
   <section class="pref-group" aria-label="工具">
     <h2 class="category">工具</h2>
