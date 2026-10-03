@@ -552,26 +552,30 @@ test("operation buttons use short single-line labels and retain separate actions
     assert.ok(label.length>=4 && label.length<=5);
   }
 });
-test("toolbar palette is independent, readable and updates with accent",async()=>{
+test("toolbar uses Material-style on-color with AA contrast",async()=>{
   const {context,doc}=await appHarness();
+  const vm=require("node:vm");
   const luminance=hex=>{
     const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255)
       .map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
     return c[0]*.2126+c[1]*.7152+c[2]*.0722;
   };
-  for(const color of ["#42A5F5","#E6A545","#7DC22F","#FFFFFF","#000000","#123456"]){
-    context.testAccent=color;
-    require("node:vm").runInContext('accent=testAccent; accentToolbar=true; showAppearance();',context);
+  const colors=vm.runInContext('[...onePlusColors,...materialColors].map(x=>x[1])',context);
+  colors.push("#FFFFFF","#000000","#777777","#E91E63","#123456","#FFF176");
+  for(const mode of ["light","dark"])for(const color of colors){
+    context.testAccent=color;context.testTheme=mode;
+    vm.runInContext('accent=testAccent; themeMode=testTheme; accentToolbar=true; showAppearance();',context);
     const properties=doc.documentElement.style.properties;
     assert.equal(properties["--accent"],color);
     const toolbar=properties["--toolbar-tint"];
-    if(color!=="#000000")assert.notEqual(toolbar,color);
     const foreground=properties["--toolbar-foreground"];
-    assert.ok(["#FFFFFF","#111111"].includes(foreground));
+    assert.ok(["#FFFFFF","#000000"].includes(foreground));
     const contrast=(Math.max(luminance(toolbar),luminance(foreground))+.05)/
       (Math.min(luminance(toolbar),luminance(foreground))+.05);
     assert.ok(contrast>=4.5,color+" toolbar contrast "+contrast);
-    assert.equal(doc.documentElement.style.properties["--system-status-bg"],toolbar);
+    assert.ok(Number(properties["--toolbar-contrast"])>=4.5);
+    assert.equal(properties["--system-status-bg"],toolbar);
+    if(mode==="light") assert.equal(toolbar,color);
   }
 });
 
@@ -590,15 +594,22 @@ test("every preset and arbitrary RGB accent has readable action text in both the
     vm.runInContext('accent=actionTestColor; themeMode=actionTestTheme; showAppearance();',context);
     const vars=doc.documentElement.style.properties;
     assert.equal(vars["--accent"],color);
-    const a=luminance(color),b=luminance(vars["--on-accent"]);
+    const onAccent=vars["--on-accent"];
+    assert.ok(["#FFFFFF","#000000"].includes(onAccent));
+    const a=luminance(color),b=luminance(onAccent);
     const chosen=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
-    const white=(1.05)/(a+.05);
-    const darkLum=luminance("#111111");
-    const dark=(Math.max(a,darkLum)+.05)/(Math.min(a,darkLum)+.05);
-    assert.ok(Math.abs(chosen-Math.max(white,dark))<1e-9,color);
+    assert.ok(chosen>=4.5,color+" button contrast "+chosen);
+    assert.ok(Number(vars["--on-accent-contrast"])>=4.5);
     assert.ok(vars["--switch-on-track"].endsWith(",.35)"));
   }
   assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+
+test("toolbar title and contained button retain classic Material emphasis",()=>{
+  const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  assert.match(css,/\.toolbar h1 \{[^}]*font-size:20px;[^}]*font-weight:500;/);
+  assert.match(css,/\.action-button \{[\s\S]*font:500 14px\/1\.2/);
+  assert.match(css,/\.action-button--primary \{[\s\S]*color:var\(--on-accent\)/);
 });
 
 test("Settings starts with matching IMS and SIM status cards",()=>{
