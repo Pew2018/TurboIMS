@@ -46,6 +46,9 @@ public final class ModuleMain {
                     if (!"Another runner operation is busy".equals(duplicate.getMessage()))
                         throw duplicate;
                 }
+                // app_process keeps ART/FileObserver threads alive after main returns.
+                // Terminate the runner explicitly after all cleanup.
+                System.exit(0);
                 return;
             }
             JSONObject result;
@@ -259,6 +262,16 @@ public final class ModuleMain {
             if (Files.exists(BLOCKED) && !session.equals(JsonIO.read(BLOCKED).optString("session")))
                 Files.delete(BLOCKED);
             log("Automatic task started, sdk=" + Build.VERSION.SDK_INT);
+            FeatureConfig boot = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
+            if (bootPass && (boot.enabled || boot.hasSimProfiles()) && !Files.exists(BLOCKED)) boundedApply(true);
+            // The normal boot path is one-shot. Do not create an inotify/FileObserver
+            // thread unless the user explicitly enabled periodic compatibility checks.
+            FeatureConfig afterBoot = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
+            if (!afterBoot.periodicCheckEnabled || Files.exists(BLOCKED)) {
+                JsonIO.write(marker, new JSONObject().put("pid", -1)
+                        .put("session", session).put("mode", "completed"));
+                return;
+            }
             final Object changed = new Object();
             final long[] generation = {0};
             // Config is atomically replaced; observe the directory's MOVED_TO event.
@@ -273,8 +286,6 @@ public final class ModuleMain {
             };
             observer.startWatching();
             try {
-                FeatureConfig boot = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
-                if (bootPass && (boot.enabled || boot.hasSimProfiles()) && !Files.exists(BLOCKED)) boundedApply(true);
                 while (installedAndEnabled()) {
                     long seen;
                     synchronized (changed) { seen = generation[0]; }
