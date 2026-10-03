@@ -1,237 +1,111 @@
-# Turbo IMS
+# TurboIMS Next
 
-<div align="center">
-  <img src="Turboims.png" width="200" alt="Turbo IMS Logo"/>
+[English](README.md)
 
-  <h3>Google Pixel 设备增强版 IMS 配置工具</h3>
+TurboIMS Next 是面向受支持 arm64 Google Pixel 设备的独立 **KernelSU Next 模块**。它通过本地 WebUI 与 root runner 应用选定的 IMS 相关 CarrierConfig 配置；不安装伴随 Android 应用，也不依赖 Shizuku、Sui、Zygisk、LSPosed 或外部服务。
 
-  [![Android](https://img.shields.io/badge/Android-14%2B-green.svg)](https://www.android.com/)
-  [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-  [![Version](https://img.shields.io/badge/Version-3.0-brightgreen.svg)](https://github.com/Turbo1123/TurboIMS/releases)
+> **兼容性说明：** 当前 `master` 的安装脚本仅接受 Android 13–16（API 33–36）的 arm64 设备。CI 虽然也编译 SDK 37 runner，但当前安装脚本会拒绝 Android 17。请勿将 SDK 37 构建产物视为可安装的 Android 17 支持。实际语音通话仍取决于设备、运营商、SIM 卡和网络。
 
-  [English](README.md) | 简体中文
-</div>
+## 功能
 
----
+- 保留 **TurboIMS** 作为默认实现模式。
+- 提供可选的 **Carrier IMS** 模式，供需要 Carrier IMS 兼容路径的设备和系统版本使用。
+- 应用受支持的 IMS 功能开关：VoLTE、VoWiFi、视频通话、VoNR、跨 SIM IMS、UT 与 5G NR 可用性。
+- 支持全部活跃订阅或单张 SIM 卡；执行前会映射 subscription ID 与 slot。
+- 以非持久化 CarrierConfig 覆盖方式应用配置，并在平台 API 支持时读回目标值。
+- Carrier IMS 模式可按 SIM 设置 carrier test MCC/MNC；留空时使用实际 SIM 身份。
+- 可读取 IMS 注册状态、请求 IMS reset，并报告有上限的轮询结果。
+- 记录本模块拥有的状态，使模式切换和恢复只针对 TurboIMS Next 自己记录的覆盖。
+- 提供开机应用、可选定时检查、状态导出、日志、诊断及单项 IMS 恢复。
 
-## 📱 关于项目
+## 不会执行的操作
 
-**Turbo IMS** 是 [vvb2060 的 IMS 项目](https://github.com/vvb2060/Ims) 的增强版分支，专为 Google Pixel 手机设计，通过系统级权限配置启用 VoLTE、VoWiFi、VoNR 等高级 IMS 功能。
+- 不会自动修改 APN。
+- 不会修改 system 分区、SELinux 策略、root 隐藏设置或系统属性。
+- 不会向网络服务发送数据。
+- 不保证运营商注册、紧急呼叫、拨出电话、接听来电或双向音频。CarrierConfig 读回成功或 IMS 显示已注册，都不能单独证明通话可用。
 
-这个增强版本在保持与原版完全兼容的同时，提供了现代化的用户界面、改进的用户体验、自动语言检测以及更多便利功能。
+## 要求
 
-## ✨ Turbo IMS 新增功能
+| 要求 | 当前状态 |
+| --- | --- |
+| KernelSU Next | 必需 |
+| 设备 ABI | arm64 |
+| Android | 当前安装脚本接受 Android 13–16（API 33–36） |
+| 设备 | 目标为 Google Pixel；仍需按设备和运营商实测 |
+| Root 伴随应用 | 不使用 |
+| Shizuku / Sui / Zygisk / LSPosed | 不使用 |
 
-### 🎨 **现代化 UI 重设计**
-- 专业的 Logo 和品牌形象
-- 简洁的 Material Design 风格界面
-- 增强的启动页面和版本显示
-- 改进的视觉反馈和状态指示
+运营商、SIM 预配置、区域、基带状态和 Android 版本仍会决定 IMS 通话是否可用。
 
-### 🌍 **自动语言检测**
-- 首次启动自动检测系统语言
-- 中文用户自动显示中文界面（支持简体、繁体、香港等）
-- 其他地区用户显示英文界面
-- 支持手动切换语言
+## 安装
 
-### 📡 **快速网络设置跳转**
-- 配置成功后一键跳转到网络设置
-- 便捷的对话框提示
-- 简化的 IMS 功能测试流程
+1. 在本仓库的 **Actions** 中下载成功的 `FLASHABLE-TurboIMS-Next-...` 构建产物。
+2. 在 KernelSU Next 中直接安装下载的 ZIP。
+3. 重启设备。
+4. 打开模块 WebUI，查看已识别的 SIM 和状态，然后启用并应用所需配置。
 
-### 🎯 **单卡配置支持**
-- 选择特定 SIM 卡（SIM 1 或 SIM 2）
-- 可单独为某张卡配置或同时配置所有 SIM 卡
-- 清晰的选中卡状态反馈
+首次安装时配置处于暂停状态。请先确认目标 SIM 和配置，再执行应用。
 
-### 🔄 **改进的用户体验**
-- 配置后自动返回应用
-- 清晰的成功/失败通知
-- Android 版本检测及 QPR2 Beta 3+ 警告
-- 实时 Shizuku 状态监控
+## 使用
 
-## 🎯 核心功能
+### IMS 模式
 
-### IMS 功能配置
-- ✅ **VoLTE**（4G 语音）- 4G LTE 高清语音通话
-- ✅ **VoWiFi**（WiFi 通话）- 通过 WiFi 网络拨打电话
-- ✅ **VT**（视频通话）- 基于 IMS 的视频通话
-- ✅ **VoNR**（5G 语音）- 5G NR 高清语音通话
-- ✅ **跨 SIM 通话** - 双卡互通功能
-- ✅ **UT 补充服务** - 呼叫转移、呼叫等待等
-- ✅ **5G NR**（NSA/SA）- 启用 5G 独立/非独立组网
+- **TurboIMS**：默认模式，沿用已建立的 KernelSU 配置路径。
+- **Carrier IMS**：可选兼容路径，可设置 carrier test MCC/MNC、请求 IMS reset，并检查 IMS 注册状态。
 
-### 系统要求
-- Google Pixel 设备（在 Pixel 6+ 上测试通过）
-- Android 14 或更高版本
-- 已安装并运行 [Shizuku](https://github.com/RikkaApps/Shizuku)
-- 已授予 Turbo IMS Shizuku 权限
+同一个订阅在同一时间只能由一种模式拥有。模块会先尝试清理自己记录的旧覆盖，再应用新模式。清理、应用或读回任一步失败时，界面会报告失败阶段，不会将其显示为成功。
 
-## 🚀 安装方法
+### SIM 配置
 
-### 方法 1：下载 APK（推荐）
-1. 从 [Releases](https://github.com/Turbo1123/TurboIMS/releases) 下载最新 APK
-2. 在你的 Pixel 设备上安装 APK
-3. 授予必要的权限
+可为每个 slot 选填：
 
-### 方法 2：从源码构建
-```bash
-# 克隆仓库
-git clone https://github.com/Turbo1123/TurboIMS.git
-cd TurboIMS
+- 国家或地区代码
+- 运营商显示名称
+- Carrier test MCC/MNC
 
-# 构建 debug APK
-./gradlew assembleDebug
+Carrier test MCC/MNC 留空时使用实际 SIM 身份。仅在确认该值适用于选定运营商并能自行验证结果时填写。Binder 调用被接受，不代表平台可以可靠读回实际生效的运营商身份。
 
-# 安装到已连接的设备
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+### 恢复与诊断
 
-## 📖 使用指南
+请使用状态和诊断区分：
 
-### 前置准备
+- 配置写入与读回验证
+- Carrier test override 请求结果
+- IMS 注册结果
+- 实际通话结果
 
-1. **安装 Shizuku**
-   - 从 [GitHub](https://github.com/RikkaApps/Shizuku/releases) 或 Google Play 下载
-   - 启动 Shizuku 服务（通过无线调试或 Root）
+恢复操作仅针对本模块已记录的状态。无法确认归属的运营商或系统覆盖不会被清除。
 
-2. **授予权限**
-   - 打开 Turbo IMS
-   - 在提示时授予 Shizuku 权限
+## 安全与 root 边界
 
-### 配置 IMS 功能
+KernelSU Next 为模块提供 root 权限，因此模块将作用范围限制在必要操作内：
 
-1. **检查系统状态**
-   - 确认显示了 Android 版本
-   - 确保 Shizuku 状态显示"✅ 已就绪"
+- root runner 仅接受固定动作集合，并验证配置载荷。
+- 模块配置、状态和日志保存在 `/data/adb/turboims-next`，并使用仅 root 可读写的权限。
+- CarrierConfig 使用非持久化覆盖，不请求仅系统应用可用的持久化覆盖。
+- runner 是 `app_process` 容器，不是已安装应用，也没有导出的 Android 组件。
+- WebUI 使用本地资源，不发起网络请求。
 
-2. **选择 SIM 卡**
-   - 点击"选择 SIM 卡"按钮
-   - 选择 SIM 1、SIM 2 或"应用到所有 SIM 卡"
+这不会让已 root 的设备变得不可检测。TurboIMS Next 不管理 root 隐藏，并保留 KernelSU 模块在 `/data/adb` 下的正常痕迹。已经具备 root 权限的应用或进程仍可检查该目录。
 
-3. **启用功能**
-   - 切换所需 IMS 功能的开关
-   - 所有功能默认已启用
+## 已知限制
 
-4. **应用配置**
-   - 点击蓝色的"应用配置"按钮
-   - 等待 3 秒完成配置
-   - 应用会自动返回前台
-   - 选择"前往网络设置"验证功能
+- 当前 `master` 的安装脚本会阻止 Android 17 安装，因此 Android 17 尚不是可用发布路径。
+- 并非每个 Android 版本都提供可靠的 carrier test override 读回接口。
+- IMS reset 或网络切换后，运营商注册可能继续变化；有上限的轮询可能早于运营商完成注册。
+- 卸载时的恢复为尽力而为；重启会清除模块的非持久化 CarrierConfig 覆盖，但若恢复失败，请检查诊断信息。
+- 必须在实际 Pixel、Android 版本、SIM、运营商和网络上验证通话表现。
 
-### 重要提示
+## 开发与构建
 
-⚠️ **Android 16 QPR2 Beta 3+ 用户**
-- Android 16 Beta 版本上配置不是持久化的
-- 重启后设置会重置
-- 每次重启后需要重新应用配置
+仓库通过 GitHub Actions 打包模块。构建会生成可刷入 KernelSU Next 的产物、校验 runner 哈希并执行打包检查。构建成功不代表实际设备已通过语音通话验证。
 
-✅ **验证配置**
-- 进入 设置 → 网络和互联网 → SIM 卡
-- 检查 VoLTE、VoWiFi 选项是否可见
-- 拨打测试电话验证功能
+## 相关项目
 
-## 🛠️ 技术细节
+- [TurboIMS 上游](https://github.com/Turbo1123/TurboIMS)
+- [Carrier IMS for Pixel 参考实现](https://github.com/Pew2018/carrier-ims-for-pixel)
 
-### 架构
-- **特权进程**：使用 Android Instrumentation 以系统权限运行
-- **Shizuku 集成**：利用 Shizuku 框架进行权限提升
-- **CarrierConfigManager**：直接修改运营商配置包
-- **Shell 权限委托**：临时获取 NETWORK_SETTINGS 权限
+## 问题反馈
 
-### 修改的配置键
-应用会修改以下运营商配置键：
-- `KEY_CARRIER_VOLTE_AVAILABLE_BOOL`
-- `KEY_CARRIER_VT_AVAILABLE_BOOL`
-- `KEY_CARRIER_WFC_IMS_AVAILABLE_BOOL`
-- `KEY_ENHANCED_4G_LTE_ON_BY_DEFAULT_BOOL`
-- `KEY_EDITABLE_ENHANCED_4G_LTE_BOOL`
-- `KEY_HIDE_ENHANCED_4G_LTE_BOOL`
-- 还有更多...（完整列表请查看源代码）
-
-### 包详情
-- **包名**：`io.github.turboims.pixel`
-- **最低 SDK**：Android 14 (API 34)
-- **目标 SDK**：Android 15 (API 35)
-- **版本**：3.0 (Build 5)
-
-## 🤝 致谢
-
-### 原始项目
-本项目是优秀的 [**IMS by vvb2060**](https://github.com/vvb2060/Ims) 的分支。
-
-特别感谢：
-- **[@vvb2060](https://github.com/vvb2060)** - IMS 配置工具的原作者和创建者
-- 原 IMS 项目让成千上万的 Pixel 用户能够使用运营商功能
-
-### 上游项目
-请访问原项目：**[https://github.com/vvb2060/Ims](https://github.com/vvb2060/Ims)**
-
-如果这个工具对你有帮助，请考虑为本仓库和原项目点个星！⭐
-
-### 依赖项目
-- [Shizuku](https://github.com/RikkaApps/Shizuku) by RikkaApps - 权限提升框架
-- [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass) by LSPosed - 访问隐藏的 Android API
-
-## 📄 许可证
-
-```
-Copyright 2024 Turbo IMS Contributors
-Copyright 2023 vvb2060 (Original IMS Project)
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
-
-## ⚠️ 免责声明
-
-- 本工具会修改系统级运营商配置
-- 使用风险自负
-- 作者不对可能出现的任何问题负责
-- 在依赖 IMS 功能之前，请务必验证其是否与你的运营商兼容
-- 这是一个非官方工具，未经 Google 或任何运营商认可
-
-## 🐛 问题反馈与支持
-
-如果你遇到任何问题或有功能请求：
-1. 查看 [现有 Issues](https://github.com/Turbo1123/TurboIMS/issues)
-2. 创建新 Issue 并提供详细信息：
-   - 设备型号
-   - Android 版本
-   - Shizuku 版本
-   - 复现步骤
-   - Logcat 输出（如适用）
-
-## 🌟 贡献
-
-欢迎贡献！请随时提交 Pull Request 或创建 Issue：
-- Bug 修复
-- 新功能
-- UI 改进
-- 翻译
-- 文档
-
-## 💬 社区
-
-- **酷安**：可以在酷安分享使用体验
-- **XDA Developers**：国际技术交流论坛
-- **Reddit r/GooglePixel**：Pixel 用户社区
-
----
-
-<div align="center">
-
-  **用 ❤️ 为 Pixel 社区制作**
-
-  如果这个项目帮到了你，请给个 ⭐！
-
-</div>
+反馈问题时请提供 Android 版本、设备代号、所选模式、目标 SIM/slot、是否设置过 SIM 配置或 carrier test MCC/MNC，以及导出的诊断信息。请不要公开电话号码、IMSI、ICCID 或其他用户标识。

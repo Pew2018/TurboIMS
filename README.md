@@ -1,230 +1,111 @@
-# Turbo IMS
+# TurboIMS Next
 
-<div align="center">
-  <img src="Turboims.png" width="200" alt="Turbo IMS Logo"/>
+[简体中文](README_CN.md)
 
-  <h3>Enhanced IMS Configuration Tool for Google Pixel Devices</h3>
+TurboIMS Next is a standalone **KernelSU Next module** for supported arm64 Google Pixel devices. It applies selected IMS-related CarrierConfig values through a local WebUI and a root runner. It does not install a companion Android app and does not require Shizuku, Sui, Zygisk, LSPosed, or an external service.
 
-  [![Android](https://img.shields.io/badge/Android-14%2B-green.svg)](https://www.android.com/)
-  [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-  [![Version](https://img.shields.io/badge/Version-3.0-brightgreen.svg)](https://github.com/Turbo1123/TurboIMS/releases)
+> **Compatibility notice:** the current `master` installer accepts Android 13–16 (API 33–36) on arm64. CI also compiles an SDK 37 runner, but the current installer rejects Android 17. Do not treat an SDK 37 artifact as installable Android 17 support. Voice-call validation is device, carrier, SIM, and network dependent.
 
-  English | [简体中文](README_CN.md)
-</div>
+## What it does
 
----
+- Keeps **TurboIMS** as the default implementation mode.
+- Provides an optional **Carrier IMS** mode for devices and releases that need a Carrier IMS compatibility path.
+- Applies supported IMS feature flags: VoLTE, VoWiFi, video telephony, VoNR, cross-SIM IMS, UT, and 5G NR availability.
+- Selects all active subscriptions or an individual SIM, and maps subscription IDs to slots before acting.
+- Applies CarrierConfig as a nonpersistent override and reads the requested values back when the platform API permits it.
+- Can optionally set a per-SIM carrier test MCC/MNC in Carrier IMS mode. An empty value uses the native SIM identity.
+- Reads IMS registration status, can request an IMS reset, and reports bounded polling results.
+- Stores module-owned state so a mode switch or restore only targets overrides that TurboIMS Next recorded as its own.
+- Provides boot application, optional periodic checking, status export, logs, diagnostics, and per-feature restore controls.
 
-## 📱 About
+## What it does not do
 
-**Turbo IMS** is an enhanced fork of the original [IMS project by vvb2060](https://github.com/vvb2060/Ims), designed to enable VoLTE, VoWiFi, VoNR, and other advanced IMS features on Google Pixel phones through privileged system configuration.
+- It does **not** edit APNs automatically.
+- It does **not** modify the system partition, SELinux policy, root-hide settings, or system properties.
+- It does **not** send data to a network service.
+- It does **not** guarantee carrier registration, emergency calling, outgoing calls, incoming calls, or two-way audio. A successful CarrierConfig readback or an IMS registration result is not proof that calling works.
 
-This enhanced version includes a modernized UI, improved user experience, automatic language detection, and additional convenience features while maintaining full compatibility with the original implementation.
+## Requirements
 
-## ✨ New Features in Turbo IMS
+| Requirement | Current status |
+| --- | --- |
+| KernelSU Next | Required |
+| Device ABI | arm64 |
+| Android | Android 13–16 (API 33–36) accepted by the current installer |
+| Device | Google Pixel target; device and carrier testing remain required |
+| Root companion app | Not used |
+| Shizuku / Sui / Zygisk / LSPosed | Not used |
 
-### 🎨 **Modern UI Redesign**
-- Professional logo and branding
-- Clean, Material Design-inspired interface
-- Enhanced splash screen with version display
-- Improved visual feedback and status indicators
+Your carrier, SIM provisioning, region, modem state, and Android build still decide whether IMS calling can work.
 
-### 🌍 **Automatic Language Detection**
-- Automatically detects system language on first launch
-- Chinese interface for Chinese users (zh-CN, zh-TW, zh-HK, etc.)
-- English interface for all other regions
-- Manual language switching available
+## Install
 
-### 📡 **Quick Network Settings Access**
-- One-tap jump to network settings after successful configuration
-- Convenient dialog prompts after applying configuration
-- Streamlined workflow for testing IMS features
+1. Open **Actions** in this repository and download a successful `FLASHABLE-TurboIMS-Next-...` artifact for the supported build.
+2. Install the downloaded ZIP directly in KernelSU Next.
+3. Reboot.
+4. Open the module WebUI, inspect the detected SIMs and status, then enable and apply the desired configuration.
 
-### 🎯 **Per-SIM Configuration**
-- Select specific SIM card (SIM 1 or SIM 2)
-- Apply configuration to individual SIMs or all SIMs at once
-- Clear visual feedback for selected SIM
+The initial configuration is paused. Review the selected SIM and settings before applying a change.
 
-### 🔄 **Improved User Experience**
-- Auto-return to app after configuration
-- Clear success/failure notifications
-- Android version detection with QPR2 Beta 3+ warnings
-- Real-time Shizuku status monitoring
+## Use
 
-## 🎯 Key Features
+### Implementation mode
 
-### IMS Features Configuration
-- ✅ **VoLTE** (4G Voice) - High-definition voice calling over 4G LTE
-- ✅ **VoWiFi** (WiFi Calling) - Make calls over WiFi networks
-- ✅ **VT** (Video Calling) - IMS-based video calls
-- ✅ **VoNR** (5G Voice) - High-definition voice over 5G NR
-- ✅ **Cross-SIM Calling** - Dual-SIM interconnection
-- ✅ **UT Supplementary Services** - Call forwarding, waiting, etc.
-- ✅ **5G NR** (NSA/SA) - Enable 5G standalone/non-standalone networks
+- **TurboIMS** — default mode and the established KernelSU configuration path.
+- **Carrier IMS** — optional compatibility path. It may apply a carrier test MCC/MNC, request an IMS reset, and check IMS registration.
 
-### System Requirements
-- Google Pixel device (tested on Pixel 6+)
-- Android 14 or higher
-- [Shizuku](https://github.com/RikkaApps/Shizuku) installed and running
-- Shizuku permission granted to Turbo IMS
+Only one mode should own a subscription at a time. The module attempts to clean its own recorded override before applying the next mode. If cleanup, application, or readback fails, the operation reports the failed stage instead of reporting success.
 
-## 🚀 Installation
+### SIM profile
 
-### Method 1: Download APK (Recommended)
-1. Download the latest APK from [Releases](https://github.com/Turbo1123/TurboIMS/releases)
-2. Install the APK on your Pixel device
-3. Grant necessary permissions
+For each slot, you can optionally set:
 
-### Method 2: Build from Source
-```bash
-# Clone the repository
-git clone https://github.com/Turbo1123/TurboIMS.git
-cd TurboIMS
+- Country or region code
+- Carrier display name
+- Carrier test MCC/MNC
 
-# Build debug APK
-./gradlew assembleDebug
+Leave the carrier test MCC/MNC empty to use the actual SIM identity. Use an explicit test value only when it is appropriate for the selected carrier and you can validate the result. A Binder call being accepted does not provide a reliable platform readback of the effective carrier identity.
 
-# Install to connected device
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+### Restore and diagnostics
 
-## 📖 Usage Guide
+Use the status and diagnostic output to distinguish:
 
-### Prerequisites Setup
-1. **Install Shizuku**
-   - Download from [GitHub](https://github.com/RikkaApps/Shizuku/releases) or Google Play
-   - Start Shizuku service (via Wireless debugging or Root)
+- Configuration write/readback verification
+- Carrier test override request result
+- IMS registration result
+- Actual call behavior
 
-2. **Grant Permissions**
-   - Open Turbo IMS
-   - Grant Shizuku permission when prompted
+Restore targets the configuration state recorded by this module. It deliberately avoids clearing a carrier or system override whose ownership cannot be established.
 
-### Configuring IMS Features
+## Safety and root boundary
 
-1. **Check System Status**
-   - Verify Android version is displayed
-   - Ensure Shizuku status shows "✅ Ready"
+KernelSU Next grants this module root privileges, so the module is designed to keep its scope narrow:
 
-2. **Select SIM Card**
-   - Tap "Select SIM Card" button
-   - Choose SIM 1, SIM 2, or "Apply to All SIM Cards"
+- The root runner accepts only a fixed action set and validates configuration payloads.
+- Module state, logs, and configuration files are stored under `/data/adb/turboims-next` with root-only permissions.
+- CarrierConfig uses nonpersistent overrides; it does not request persistent system-app-only overrides.
+- The runner is an `app_process` container, not an installed app or exported Android component.
+- The WebUI uses local assets and does not make network requests.
 
-3. **Enable Features**
-   - Toggle switches for desired IMS features
-   - All features are enabled by default
+This does not make a rooted device undetectable. TurboIMS Next does not manage root hiding and leaves the normal KernelSU module footprint under `/data/adb`. Apps that already have root-level access can inspect that location.
 
-4. **Apply Configuration**
-   - Tap the blue "Apply Configuration" button
-   - Wait 3 seconds for configuration to complete
-   - App will automatically return to foreground
-   - Choose "Go to Network Settings" to verify features
+## Known limits
 
-### Important Notes
+- Android 17 installation is blocked by the current `master` installer guard and has not been accepted as a working release path.
+- Platform APIs do not provide reliable carrier-test-override readback on every Android build.
+- Carrier IMS state can change after a reset or network transition; a bounded poll may finish before a carrier completes registration.
+- Uninstall restore is best-effort. Reboot clears the module's nonpersistent CarrierConfig override, but review diagnostics if removal occurs during a failed restore.
+- Calling behavior must be validated on the actual Pixel, Android build, SIM, carrier, and network.
 
-⚠️ **Android 16 QPR2 Beta 3+ Users**
-- Configuration is non-persistent on Android 16 Beta builds
-- Settings will reset after reboot
-- You must reapply configuration after each restart
+## Development and build
 
-✅ **Verifying Configuration**
-- Go to Settings → Network & Internet → SIMs
-- Check that VoLTE, VoWiFi options are visible
-- Make a test call to verify functionality
+The repository packages the module through GitHub Actions. The build produces a flashable KernelSU Next artifact, verifies the runner hash, and runs packaging checks. Do not treat a successful build as device voice-call validation.
 
-## 🛠️ Technical Details
+## Related projects
 
-### Architecture
-- **Privileged Process**: Uses Android Instrumentation to run with system privileges
-- **Shizuku Integration**: Leverages Shizuku framework for privilege escalation
-- **CarrierConfigManager**: Directly modifies carrier configuration bundles
-- **Shell Permission Delegation**: Temporary NETWORK_SETTINGS permission
+- [TurboIMS upstream](https://github.com/Turbo1123/TurboIMS)
+- [Carrier IMS for Pixel reference](https://github.com/Pew2018/carrier-ims-for-pixel)
 
-### Configuration Keys Modified
-The app modifies the following carrier configuration keys:
-- `KEY_CARRIER_VOLTE_AVAILABLE_BOOL`
-- `KEY_CARRIER_VT_AVAILABLE_BOOL`
-- `KEY_CARRIER_WFC_IMS_AVAILABLE_BOOL`
-- `KEY_ENHANCED_4G_LTE_ON_BY_DEFAULT_BOOL`
-- `KEY_EDITABLE_ENHANCED_4G_LTE_BOOL`
-- `KEY_HIDE_ENHANCED_4G_LTE_BOOL`
-- And many more... (see source code for complete list)
+## Support information
 
-### Package Details
-- **Package Name**: `io.github.turboims.pixel`
-- **Min SDK**: Android 14 (API 34)
-- **Target SDK**: Android 15 (API 35)
-- **Version**: 3.0 (Build 5)
-
-## 🤝 Credits & Acknowledgments
-
-### Original Project
-This project is a fork of the excellent [**IMS by vvb2060**](https://github.com/vvb2060/Ims).
-
-Special thanks to:
-- **[@vvb2060](https://github.com/vvb2060)** - Original author and creator of the IMS configuration tool
-- The original IMS project enabled thousands of Pixel users to access carrier features
-
-### Upstream Project
-Please visit the original project: **[https://github.com/vvb2060/Ims](https://github.com/vvb2060/Ims)**
-
-If you find this tool useful, please consider starring both this repository and the original project! ⭐
-
-### Dependencies
-- [Shizuku](https://github.com/RikkaApps/Shizuku) by RikkaApps - Privilege escalation framework
-- [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass) by LSPosed - Accessing hidden Android APIs
-
-## 📄 License
-
-```
-Copyright 2024 Turbo IMS Contributors
-Copyright 2023 vvb2060 (Original IMS Project)
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
-
-## ⚠️ Disclaimer
-
-- This tool modifies system-level carrier configurations
-- Use at your own risk
-- The authors are not responsible for any issues that may arise
-- Always verify IMS features work with your carrier before relying on them
-- This is an unofficial tool not endorsed by Google or any carrier
-
-## 🐛 Issues & Support
-
-If you encounter any issues or have feature requests:
-1. Check [existing issues](https://github.com/Turbo1123/TurboIMS/issues)
-2. Create a new issue with detailed information:
-   - Device model
-   - Android version
-   - Shizuku version
-   - Steps to reproduce
-   - Logcat output (if applicable)
-
-## 🌟 Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues for:
-- Bug fixes
-- New features
-- UI improvements
-- Translations
-- Documentation
-
----
-
-<div align="center">
-
-  **Made with ❤️ for the Pixel Community**
-
-  If this project helped you, consider giving it a ⭐!
-
-</div>
+When reporting a problem, include the Android version, device codename, selected mode, selected SIM/slot, whether a SIM profile or carrier test MCC/MNC was applied, and exported diagnostics. Do not publish phone numbers, IMSIs, ICCIDs, or other subscriber identifiers.
