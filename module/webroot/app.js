@@ -17,6 +17,19 @@ const simCountries = [
   ["MX","墨西哥"],["BR","巴西"],["AR","阿根廷"],["ZA","南非"]
 ];
 const simCarriers = [["中国移动","China Mobile","CN"],["中国联通","China Unicom","CN"],["中国电信","China Telecom","CN"],["中国移动香港","CMHK","HK"],["香港电讯","HKT","HK"],["3香港","3HK","HK"],["SmarTone","SmarTone","HK"],["澳门电讯","CTM","MO"],["3澳门","3 Macau","MO"],["中华电信","Chunghwa Telecom","TW"],["台湾大哥大","Taiwan Mobile","TW"],["远传电信","FarEasTone","TW"],["NTT docomo","NTT docomo","JP"],["au","au by KDDI","JP"],["Softbank","Softbank","JP"],["Rakuten","Rakuten Mobile","JP"],["SK Telecom","SK Telecom","KR"],["KT","KT Corporation","KR"],["LG U+","LG U+","KR"],["AT&T","AT&T","US"],["T-Mobile","T-Mobile USA","US"],["Verizon","Verizon","US"],["Sprint","Sprint","US"],["EE","EE","GB"],["O2","O2 UK","GB"],["Three","Three UK","GB"],["Vodafone","Vodafone UK","GB"],["Singtel","Singtel","SG"],["StarHub","StarHub","SG"],["M1","M1","SG"],["Maxis","Maxis","MY"],["Celcom","Celcom","MY"],["Digi","Digi","MY"],["U Mobile","U Mobile","MY"],["AIS","AIS","TH"],["DTAC","DTAC","TH"],["True Move H","True Move H","TH"],["Viettel","Viettel Mobile","VN"],["Vinaphone","Vinaphone","VN"],["Mobifone","Mobifone","VN"],["Telkomsel","Telkomsel","ID"],["Indosat","Indosat Ooredoo","ID"],["XL Axiata","XL Axiata","ID"],["Globe","Globe Telecom","PH"],["Smart","Smart Communications","PH"],["DITO","DITO Telecommunity","PH"],["Jio","Reliance Jio","IN"],["Airtel","Bharti Airtel","IN"],["Vi","Vodafone Idea","IN"],["Telstra","Telstra","AU"],["Optus","Optus","AU"],["Vodafone","Vodafone AU","AU"],["Bell","Bell Mobility","CA"],["Rogers","Rogers Wireless","CA"],["Telus","Telus Mobility","CA"],["Telekom","T-Mobile DE","DE"],["Vodafone","Vodafone DE","DE"],["O2","O2 DE","DE"],["Orange","Orange FR","FR"],["SFR","SFR","FR"],["Free","Free Mobile","FR"],["Bouygues","Bouygues Telecom","FR"],["TIM","Telecom Italia","IT"],["Vodafone","Vodafone IT","IT"],["Wind Tre","Wind Tre","IT"],["Movistar","Movistar","ES"],["Vodafone","Vodafone ES","ES"],["Orange","Orange ES","ES"],["MTS","MTS","RU"],["MegaFon","MegaFon","RU"],["Beeline","Beeline","RU"],["Vivo","Vivo","BR"],["Claro","Claro","BR"],["TIM","TIM Brasil","BR"]];
+function encodeBase64Utf8(value) {
+  const encoded = encodeURIComponent(String(value));
+  let binary = "";
+  for (let i = 0; i < encoded.length;) {
+    if (encoded[i] === "%") {
+      binary += String.fromCharCode(parseInt(encoded.slice(i + 1, i + 3), 16));
+      i += 3;
+    } else {
+      binary += encoded[i++];
+    }
+  }
+  return btoa(binary);
+}
 let simProfiles = {};
 let simEditorProfiles = {};
 let simBackendSignature = null;
@@ -169,7 +182,7 @@ function simApplyConfig() {
   const config = {...savedConfig, sim_profiles:simEffectiveProfiles()};
   config.enabled = !!config.enabled;
   return operation(async () => {
-    const saved = await TurboBridge.call("save", btoa(JSON.stringify(config)));
+    const saved = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
     savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
     simBackendSignature = JSON.stringify(simProfiles); simPersistEditors();
     render(await TurboBridge.call("apply"), true);
@@ -182,7 +195,7 @@ function simRestore() {
   const nextEditors = {...simEditorProfiles}; delete nextEditors[String(selectedSimSlot)];
   const config = {...savedConfig, sim_profiles:next};
   return operation(async () => {
-    const saved = await TurboBridge.call("save", btoa(JSON.stringify(config)));
+    const saved = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
     savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
     simEditorProfiles = nextEditors; simBackendSignature = JSON.stringify(simProfiles); simPersistEditors();
     render(await TurboBridge.call("apply"), true);
@@ -282,6 +295,29 @@ function showAppearance() {
   const onAccent = actionDarkContrast >= 4.5 && actionDarkContrast >= actionWhiteContrast
     ? "#101010" : actionWhiteContrast >= 4.5 ? "#FFFFFF" : "#000000";
   root.style.setProperty("--on-accent",onAccent);
+
+  // Solid square action buttons use white labels consistently. If the selected
+  // accent is too light for white, derive a darker same-hue fill until the
+  // button reaches the WCAG AA 4.5:1 contrast target. The preference accent
+  // itself remains unchanged everywhere else.
+  let actionScale = 1;
+  if (relativeLuminance > .183333) {
+    let low = 0, high = 1;
+    for (let i = 0; i < 18; i++) {
+      const mid = (low + high) / 2;
+      const scaled = rgb.map(value => {
+        const channel = value * mid / 255;
+        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+      });
+      const scaledLuminance = scaled[0] * .2126 + scaled[1] * .7152 + scaled[2] * .0722;
+      if (scaledLuminance <= .183333) low = mid; else high = mid;
+    }
+    actionScale = low;
+  }
+  const actionFill = colorHex(rgb.map(value => value * actionScale));
+  root.style.setProperty("--action-fill",actionFill);
+  root.style.setProperty("--action-ripple","#ffffff");
+
   const tonalStrength = dark ? .18 : .14;
   const tonalSurfaceRgb = dark ? [33,33,33] : [255,255,255];
   const tonalRgb = rgb.map((value,index) => Math.round(value * tonalStrength + tonalSurfaceRgb[index] * (1 - tonalStrength)));
@@ -752,7 +788,7 @@ async function saveSchedule() {
   try {
     await operation(async () => {
       const config = {...savedConfig, periodic_check_enabled:periodic, interval_seconds:interval};
-      const result = await TurboBridge.call("save", btoa(JSON.stringify(config)));
+      const result = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
       savedConfig = result.config;
       render(await TurboBridge.call("status"));
     }, "正在更新定时任务…");
@@ -939,7 +975,7 @@ $("apply").onclick = async () => {
     message("已取消", false, "neutral", "当前设置未保存。"); return;
   }
   operation(async () => {
-    const saved = await TurboBridge.call("save", btoa(JSON.stringify(config)));
+    const saved = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
     savedConfig = saved.config;
     render(await TurboBridge.call("apply"), true);
   });
