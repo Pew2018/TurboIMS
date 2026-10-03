@@ -702,8 +702,8 @@ function clickablePreference(button) {
     if (!busy && !event.target.closest("button,input,select")) button.click();
   };
 }
-for (const id of ["selection-choice","interval-choice","theme-choice","accent-choice","accent-scope-choice"]) clickablePreference($(id));
-for (const [id,title] of [["selection","应用到"],["interval","检查间隔"]]) {
+for (const id of ["selection-choice","interval-choice","implementation-mode-choice","theme-choice","accent-choice","accent-scope-choice"]) clickablePreference($(id));
+for (const [id,title] of [["selection","应用到"],["interval","检查间隔"],["implementation_mode","执行方式"]]) {
   const button = $(id+"-choice"); button.dataset.title = title;
   choiceFor($(id),button);
 }
@@ -811,6 +811,8 @@ function form(config) {
   savedConfig = config;
   simProfiles = config.sim_profiles || {};
   $("enabled").checked = config.enabled;
+  $("implementation_mode").value = config.implementation_mode || "turboims";
+  choiceFor($("implementation_mode"),$("implementation-mode-choice"));
   $("periodic-check").checked = !!config.periodic_check_enabled;
   updatePeriodicControl();
   if (![...$("selection").options].some(x => x.value === config.selection)) {
@@ -833,7 +835,7 @@ function form(config) {
   }
 }
 function configFromForm() {
-  return { schema:1, enabled:$("enabled").checked,
+  return { schema:1, enabled:$("enabled").checked, implementation_mode:$("implementation_mode").value,
     periodic_check_enabled:$("periodic-check").checked, selection:$("selection").value,
     interval_seconds:Number($("interval").value),
     features:Object.fromEntries(features.map(([key]) => [key, $(key).value])),
