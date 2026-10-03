@@ -1,6 +1,6 @@
 id=turboims_next
 name=TurboIMS Next
-version=0.2.3
-versionCode=6
+version=0.2.4
+versionCode=7
 author=Pew2018
-description=Standalone KSU IMS controller with optional Carrier IMS reset and registration check. Android 13-16; device validation required.
+description=Standalone KSU IMS controller with optional Carrier IMS reset and registration check. Android 13-17; Carrier test override and voice-call validation required.
