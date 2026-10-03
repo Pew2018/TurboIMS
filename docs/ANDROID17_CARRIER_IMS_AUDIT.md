@@ -44,3 +44,5 @@ Android 版本门禁目前为 SDK 33..36，GitHub Actions 安装 Android 36 SDK�
 - Android 17 SDK 37 构建、CarrierConfig/覆盖状态事务、IMS 状态/reset、SIM 多卡、UI：未实现/未验证。
 - 实机通话与双向音频：未测试。
 - APN：本次只读源码审计，未执行修改。
+
+Actions 记录：审计提交期间连续推送触发工作流并取消较早运行；最终提交应单独检查状态后报告，不以已排队运行视为通过。
