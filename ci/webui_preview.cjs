@@ -264,7 +264,7 @@ let browser;
   await page.locator("#selection-choice").click();
   await capture("sim-dialog");
   await close();
-  await page.locator("#tab-settings-page").click();
+  await page.locator("#tab-home").click();
   await page.evaluate(()=>{window.nextReadDelay=300;});
   await page.locator("#probe").click();
   assert.equal(await page.locator("#probe").isDisabled(),true);
