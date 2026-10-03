@@ -51,6 +51,16 @@ public final class Engine {
         this.backend = backend; this.store = store; this.session = session; this.sleeper = sleeper;
     }
 
+    private static boolean canRebaseAfterCarrierReload(Map<String, Object> current,
+                                                       Snapshot old) {
+        if (!old.pending.isEmpty() || old.owned.isEmpty()) return false;
+        for (var entry : old.owned.entrySet()) {
+            if (FeatureConfig.same(current.get(entry.getKey()), entry.getValue()))
+                return false;
+        }
+        return true;
+    }
+
     public Result reconcile(CarrierBackend.Subscription sub, Map<String, Object> requested,
                             boolean allowWrite) throws Exception {
         Map<String, Object> current = backend.read(sub.id);
@@ -90,9 +100,12 @@ public final class Engine {
                 List<String> lost = new ArrayList<>();
                 for (String key : tracked)
                     if (!FeatureConfig.same(current.get(key), old.baseline.get(key))) lost.add(key);
-                if (!lost.isEmpty())
+                if (!lost.isEmpty() && !canRebaseAfterCarrierReload(current, old))
                     return new Result(sub, "ownership_lost", false, List.of(), lost, current);
-                // All tracked values returned to baseline, e.g. after a carrier reload.
+                // A reload can discard the complete non-persistent override and also
+                // change the carrier's native baseline. Rebase only when the marker
+                // is gone, no previous owned value remains, and there is no ambiguous
+                // interrupted write. Any partial or unknown ownership stays blocked.
             }
             for (String key : FeatureConfig.knownKeys())
                 if (current.containsKey(key)) baseline.put(key, current.get(key));
