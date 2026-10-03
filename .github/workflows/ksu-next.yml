@@ -2,7 +2,7 @@ name: Build TurboIMS Next module
 on:
   push:
     branches: ["feature/**", "fix/**", "master"]
-    paths: ["root-runner/**", "module/**", "ci/**", "docs/KERNELSU_NEXT.md", ".github/workflows/ksu-next.yml"]
+    paths: ["root-runner/**", "module/**", "ci/**", "docs/KERNELSU_NEXT.md", "docs/ANDROID17_CARRIER_IMS_AUDIT.md", ".github/workflows/ksu-next.yml"]
   pull_request:
     paths: ["root-runner/**", "module/**", "ci/**", "docs/KERNELSU_NEXT.md", ".github/workflows/ksu-next.yml"]
   workflow_dispatch:
