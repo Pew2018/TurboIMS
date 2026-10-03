@@ -135,9 +135,15 @@ public final class ModuleMain {
         if (!preview) {
             boolean hasOwnedOverride = subscriptions.stream()
                     .anyMatch(sub -> CarrierTestOverrideControl.hasRecord(sub.id));
-            // Resolve Binder compatibility before changing CarrierConfig, but write the
-            // carrier test identity only after CarrierConfig has been applied/read back.
-            if (carrierMode || hasOwnedOverride)
+            boolean hasExplicitTestIdentity = carrierMode && subscriptions.stream().anyMatch(sub -> {
+                FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
+                return config.selects(sub.slot) && profile != null
+                        && !profile.carrierTestMccMnc.trim().isEmpty();
+            });
+            // Resolve the Binder signature only when applying a requested test identity
+            // or cleaning an override that this module previously recorded as its own.
+            // An empty profile means use the SIM's native operator identity.
+            if (hasExplicitTestIdentity || hasOwnedOverride)
                 overrideControl = new CarrierTestOverrideControl(session);
         }
         Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
@@ -151,8 +157,8 @@ public final class ModuleMain {
             if (entry.selected && entry.error != null)
                 carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
         }
+        boolean configured = config.enabled || config.hasSimProfiles();
         if (!preview && overrideControl != null) {
-            boolean configured = config.enabled || config.hasSimProfiles();
             for (CarrierBackend.Subscription sub : subscriptions) {
                 if (!restore && carrierMode && configured && config.selects(sub.slot)
                         && carrierConfigErrors.containsKey(sub.id)) {
@@ -162,14 +168,25 @@ public final class ModuleMain {
                     continue;
                 }
                 try {
-                    if ((restore || !carrierMode) && CarrierTestOverrideControl.hasRecord(sub.id)) {
-                        overrideResults.put(new JSONObject(overrideControl.clearOwned(sub.id, sub.slot)));
-                    } else if (!restore && carrierMode && configured && config.selects(sub.slot)) {
-                        FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
-                        if (profile == null || profile.carrierTestMccMnc.isEmpty())
-                            throw new IllegalStateException("Carrier IMS requires an explicit carrier_test_mccmnc for slot " + sub.slot);
+                    FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
+                    String requestedMccMnc = profile == null ? "" : profile.carrierTestMccMnc.trim();
+                    boolean targetRequested = !requestedMccMnc.isEmpty();
+                    if (CarrierTestOverrideControl.hasRecord(sub.id)
+                            && (restore || !carrierMode || !configured
+                                    || !config.selects(sub.slot) || !targetRequested)) {
+                        String nativeMccMnc = backend.activeSubscriptionMccMnc(sub);
+                        overrideResults.put(new JSONObject(overrideControl.clearOwned(
+                                sub.id, sub.slot, nativeMccMnc)));
+                    } else if (!restore && carrierMode && configured && config.selects(sub.slot)
+                            && targetRequested) {
                         overrideResults.put(new JSONObject(overrideControl.apply(
-                                sub.id, sub.slot, profile.carrierTestMccMnc)));
+                                sub.id, sub.slot, requestedMccMnc)));
+                    } else if (!restore && carrierMode && configured && config.selects(sub.slot)
+                            && !targetRequested) {
+                        overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
+                                .put("mccmnc", "").put("phase", "not_requested_native_identity")
+                                .put("binder_accepted", false).put("readback_available", false)
+                                .put("readback_verified", false));
                     }
                 } catch (Throwable error) {
                     String detail = String.valueOf(error.getMessage());
@@ -178,6 +195,16 @@ public final class ModuleMain {
                             .put("phase", "apply_failed").put("binder_accepted", false)
                             .put("error", detail));
                     log("subId=" + sub.id + " carrier test override ERROR " + detail);
+                }
+            }
+        } else if (!preview && carrierMode && configured) {
+            for (CarrierBackend.Subscription sub : subscriptions) {
+                FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
+                if (config.selects(sub.slot) && (profile == null || profile.carrierTestMccMnc.trim().isEmpty())) {
+                    overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
+                            .put("mccmnc", "").put("phase", "not_requested_native_identity")
+                            .put("binder_accepted", false).put("readback_available", false)
+                            .put("readback_verified", false));
                 }
             }
         }

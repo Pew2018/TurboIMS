@@ -60,7 +60,7 @@ public final class CarrierTestOverrideControl {
     }
 
     public Map<String, Object> apply(int subId, int slot, String mccmnc) throws Exception {
-        if (mccmnc == null || !mccmnc.matches("[0-9]{5,6}"))
+        if (!isValidMccMnc(mccmnc))
             throw new IllegalArgumentException("Carrier test MCC/MNC must contain 5 or 6 digits");
         Path path = path(subId);
         JSONObject old = Files.exists(path) ? JsonIO.read(path) : null;
@@ -68,7 +68,8 @@ public final class CarrierTestOverrideControl {
         if (old != null) {
             if (!OWNER.equals(old.optString("owner")) || old.optInt("slot", -1) != slot)
                 throw new IllegalStateException("Carrier test override ownership/slot conflict");
-            if (!"applied".equals(old.optString("phase")))
+            String oldPhase = old.optString("phase");
+            if (!"applied".equals(oldPhase) && !"restored_fallback".equals(oldPhase))
                 throw new IllegalStateException("Previous Carrier test override state is uncertain; inspect diagnostics before retry");
             prior = old.optString("mccmnc", "");
             if (mccmnc.equals(prior) && session.equals(old.optString("session")))
@@ -91,19 +92,35 @@ public final class CarrierTestOverrideControl {
         }
     }
 
-    public Map<String, Object> clearOwned(int subId, int slot) throws Exception {
+    public Map<String, Object> clearOwned(int subId, int slot, String nativeMccMnc) throws Exception {
         Path path = path(subId);
         if (!Files.exists(path)) return result(subId, slot, "", "not_owned", true);
         JSONObject saved = JsonIO.read(path);
         if (!OWNER.equals(saved.optString("owner")) || saved.optInt("slot", -1) != slot)
             throw new IllegalStateException("Carrier test override ownership/slot conflict; refusing to clear");
-        if (!"applied".equals(saved.optString("phase")))
+        String savedPhase = saved.optString("phase");
+        if (!"applied".equals(savedPhase) && !"restored_fallback".equals(savedPhase))
             throw new IllegalStateException("Carrier test override ownership is uncertain; refusing to clear");
-        if (clearMethod == null)
-            throw new NoSuchMethodException("ITelephony.clearCarrierTestOverride is unavailable; refusing unsafe fallback");
-        invoke(clearMethod, telephony, subId);
-        Files.deleteIfExists(path);
-        return result(subId, slot, saved.optString("mccmnc", ""), "cleared_owned", true);
+        String previousCode = saved.optString("mccmnc", "");
+        if (clearMethod != null) {
+            invoke(clearMethod, telephony, subId);
+            Files.deleteIfExists(path);
+            return result(subId, slot, previousCode, "cleared_owned", true);
+        }
+
+        // Android 16 builds may not expose clearCarrierTestOverride. Mirror the
+        // reference implementation only when this module's ownership record proves
+        // that the current override is ours, and only with the active subscription's
+        // real MCC/MNC supplied by AndroidCarrierBackend's ISub SubscriptionInfo.
+        if (!isValidMccMnc(nativeMccMnc))
+            throw new IllegalStateException("clearCarrierTestOverride unavailable and active SIM MCC/MNC could not be read; retaining owned override state");
+        set(subId, nativeMccMnc);
+        JsonIO.write(path, record(subId, slot, nativeMccMnc, "restored_fallback"));
+        return result(subId, slot, nativeMccMnc, "restored_native_identity_fallback", true);
+    }
+
+    static boolean isValidMccMnc(String mccmnc) {
+        return mccmnc != null && mccmnc.matches("[0-9]{5,6}");
     }
 
     private void set(int subId, String code) throws Exception {
