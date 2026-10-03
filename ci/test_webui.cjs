@@ -58,12 +58,15 @@ async function appHarness(options = {}) {
     Object.defineProperty(el,"id",{get() { return this._id; },set(id) { this._id=id; elements.set(id,this); }});
     return el;
   }
+  const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+  const declaredIds=new Set([...html.matchAll(/\\bid=["']([^"']+)["']/g)].map(match=>match[1]));
   const elements=new Map();
   const doc={activeElement:null, body:{style:{}},
     documentElement:{dataset:{},style:{properties:{},setProperty(name,value) { this.properties[name]=value; },removeProperty(name) { delete this.properties[name]; }}},
     addEventListener() {}, createElement:element, querySelectorAll:()=>[],
     getElementById(id) {
       if(!elements.has(id)) {
+        if(options.strictIds && !declaredIds.has(id)) return null;
         const el=element();
         if(id==="sheet")el.hidden=true;
         if(id==="selection")el.options=[{value:"all",textContent:"所有活跃 SIM"},{value:"slot:0",textContent:"SIM 卡槽 1"},{value:"slot:1",textContent:"SIM 卡槽 2"}];
@@ -525,6 +528,11 @@ test("appearance refinements are opt-in and preserve current actions",()=>{
   assert.ok(settings.includes('id="device-heading"'));
   assert.ok(settings.includes("设备状态（IMS）"));
   assert.ok(!home.includes('id="device-heading"'));
+});
+
+test("startup uses only preference buttons declared in WebUI markup",async()=>{
+  const {calls}=await appHarness({strictIds:true});
+  assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
 
 test("initial view stays clean until status succeeds or fails",async()=>{
