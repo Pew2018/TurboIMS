@@ -680,7 +680,7 @@ test("IMS home shows config and actual registration states separately",async()=>
       ims:{slot:0,sub_id:1,phase:"ims_registered",registered:true}}]}},true);
   assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未查询");
 });
-test("Settings SIM status stays available and device status is on IMS home",()=>{
+test("Device status is on IMS home and Settings stays focused",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
   const settings=html.split('<main id="settings-page"')[1].split("</main>")[0];
   const home=html.split('<main id="home"')[1].split("</main>")[0];
@@ -688,9 +688,8 @@ test("Settings SIM status stays available and device status is on IMS home",()=>
   assert.ok(home.indexOf("IMS 模式") < home.indexOf("自动配置"));
   assert.ok(home.indexOf("自动配置") < home.indexOf("IMS 功能"));
   assert.ok(home.indexOf("IMS 功能") < home.indexOf("操作"));
-  assert.ok(settings.indexOf('id="sim-status-heading"') >= 0);
-  for(const id of ["sim-status-title","sim-status-country","sim-status-carrier"])
-    assert.ok(settings.includes('id="'+id+'"'));
+  assert.equal(settings.includes('id="sim-status-heading"'),false);
+  assert.equal(settings.includes('id="sim-status-title"'),false);
   const java=fs.readFileSync(path.join(__dirname,"../root-runner/src/main/java/io/github/turboims/ksu/ModuleMain.java"),"utf8");
   const backend=fs.readFileSync(path.join(__dirname,"../root-runner/src/main/java/io/github/turboims/ksu/AndroidCarrierBackend.java"),"utf8");
   assert.match(java,/New bottom-layer feature: this path only reads/);

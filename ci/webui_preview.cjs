@@ -102,7 +102,7 @@ let browser;
   assert.equal(await page.locator("#home #device-heading").innerText(),"设备状态");
   assert.equal(await page.locator("#home #ims-registration").count(),1);
   assert.equal(await page.locator("#home #implementation-mode-choice").innerText(),"TurboIMS");
-  assert.equal(await page.locator("#settings-page #sim-status-heading").innerText(),"SIM 卡状态");
+  assert.equal(await page.locator("#settings-page #sim-status-heading").count(),0);
   assert.equal(await page.locator("#settings-page #device-heading").count(),0);
   await page.locator("#tab-home").click();
 

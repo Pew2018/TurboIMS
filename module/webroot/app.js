@@ -955,35 +955,8 @@ function render(result, replaceForm = false) {
   // The one-shot worker exiting after a verified apply is normal.
   renderImsRegistrationStatus(result);
   renderDiagnosticSummary(result);
-  renderSimStatus(result);
   renderSimResults(result);
   renderSimPage(result);
-}
-function renderSimStatus(result) {
-  const state = result.status || result;
-  const cards = Array.isArray(result.sim_cards) ? result.sim_cards
-    : Array.isArray(state.sim_cards) ? state.sim_cards
-    : Array.isArray(state.subscriptions) ? state.subscriptions.map(sub => ({
-      slot:sub.slot, sub_id:sub.sub_id,
-      country_iso:sub.country_iso || sub.effective?.sim_country_iso_override_string || "",
-      carrier_name:sub.carrier_name || sub.effective?.carrier_name_string || "",
-      phase:sub.phase
-    })) : [];
-  const selected = cards.find(card => Number(card.slot) === selectedSimSlot) || cards[0];
-  if (!selected) {
-    $("sim-status-title").textContent = "未检测到 SIM 卡";
-    $("sim-status-subtitle").textContent = "";
-    $("sim-status-country").textContent = "未读取";
-    $("sim-status-carrier").textContent = "未读取";
-    return;
-  }
-  const count = cards.length > 1 ? " · 共 " + cards.length + " 张" : "";
-  $("sim-status-title").textContent = "SIM 卡 " + (Number(selected.slot) + 1);
-  $("sim-status-subtitle").textContent =
-    (selected.sub_id ? "subId " + selected.sub_id : "已检测") + count;
-  const country = String(selected.country_iso || "").toUpperCase();
-  $("sim-status-country").textContent = country ? simCountryLabel(country) : "未读取";
-  $("sim-status-carrier").textContent = selected.carrier_name || "未读取";
 }
 function renderImsRegistrationStatus(result) {
   const state = result.status || result;
