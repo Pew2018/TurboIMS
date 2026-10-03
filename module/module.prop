@@ -1,6 +1,6 @@
 id=turboims_next
 name=TurboIMS Next
-version=0.1.1-experimental
-versionCode=2
+version=0.2.0
+versionCode=3
 author=Pew2018
 description=Standalone root IMS CarrierConfig controller with WebUI. No Shizuku, Sui, Zygisk or companion app. Android 13-16; device validation required.
