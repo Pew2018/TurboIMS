@@ -86,7 +86,7 @@
   <section class="pref-group" aria-label="IMS 实现模式">
     <h2 class="category">IMS 实现模式</h2>
     <div class="setting-row"><span class="row-copy"><strong>执行方式</strong><small>Carrier IMS 可选应用 Carrier test MCC/MNC 并触发 IMS reset；留空沿用原运营商</small></span><button id="implementation-mode-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="implementation_mode" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="turboims">TurboIMS（当前 KSU）</option><option value="carrier_ims">Carrier IMS</option></select></div>
-    <p class="hint preference-footer">Carrier IMS 使用 SIM 卡信息中的运营商测试码；台湾 + 中华电信预设会自动推导 46692，其他配置请手动填写。APN 不会被自动修改。</p>
+    <p class="hint preference-footer">Carrier IMS 可选使用 SIM 卡信息中的运营商测试码；台湾 + 中华电信可自动推导 46692。留空沿用 SIM 原生身份，不设置 Carrier test override。APN 不会被自动修改。</p>
   </section>
   <section class="pref-group" aria-label="工具">
     <h2 class="category">工具</h2>
