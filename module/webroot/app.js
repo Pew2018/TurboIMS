@@ -35,7 +35,7 @@ let simEditorProfiles = {};
 let simBackendSignature = null;
 let simSlots = [];
 let selectedSimSlot = 0;
-function simProfile(slot) { return simProfiles[String(slot)] || {country_iso:"",carrier_name:""}; }
+function simProfile(slot) { return simProfiles[String(slot)] || {country_iso:"",carrier_name:"",carrier_test_mccmnc:""}; }
 function simEditorProfile(slot) {
   const key = String(slot);
   if (!simEditorProfiles[key]) {
@@ -48,7 +48,8 @@ function simEditorProfile(slot) {
       country_preset:countryPreset ? country : "",
       country_custom:country && !countryPreset ? country : "",
       carrier_preset:carrierPreset ? carrier : "",
-      carrier_custom:carrier && !carrierPreset ? carrier : ""
+      carrier_custom:carrier && !carrierPreset ? carrier : "",
+      carrier_test_mccmnc:String(saved.carrier_test_mccmnc || "")
     };
   }
   return simEditorProfiles[key];
@@ -56,7 +57,8 @@ function simEditorProfile(slot) {
 function simEffectiveProfile(slot) {
   const draft = simEditorProfile(slot);
   return {country_iso:(draft.country_custom || draft.country_preset || "").toUpperCase(),
-    carrier_name:draft.carrier_custom || draft.carrier_preset || ""};
+    carrier_name:draft.carrier_custom || draft.carrier_preset || "",
+    carrier_test_mccmnc:String(draft.carrier_test_mccmnc || "").trim()};
 }
 function simPersistEditors() {
   storage.write("turboims-sim-editors",JSON.stringify(simEditorProfiles));
@@ -68,15 +70,18 @@ function simReconcileEditors(profiles) {
     const draft = simEditorProfiles[slot];
     const effective = draft ? simEffectiveProfile(Number(slot)) : null;
     const actual = {country_iso:String(saved.country_iso || "").toUpperCase(),
-      carrier_name:String(saved.carrier_name || "")};
-    if (!draft || effective.country_iso !== actual.country_iso || effective.carrier_name !== actual.carrier_name) {
+      carrier_name:String(saved.carrier_name || ""),
+      carrier_test_mccmnc:String(saved.carrier_test_mccmnc || "")};
+    if (!draft || effective.country_iso !== actual.country_iso || effective.carrier_name !== actual.carrier_name
+        || effective.carrier_test_mccmnc !== actual.carrier_test_mccmnc) {
       const countryPreset = simCountries.some(([code]) => code === actual.country_iso);
       const carrierPreset = simCarriers.some(([,display]) => display === actual.carrier_name);
       simEditorProfiles[slot] = {
         country_preset:countryPreset ? actual.country_iso : "",
         country_custom:actual.country_iso && !countryPreset ? actual.country_iso : "",
         carrier_preset:carrierPreset ? actual.carrier_name : "",
-        carrier_custom:actual.carrier_name && !carrierPreset ? actual.carrier_name : ""
+        carrier_custom:actual.carrier_name && !carrierPreset ? actual.carrier_name : "",
+        carrier_test_mccmnc:actual.carrier_test_mccmnc
       };
     }
   }
@@ -98,6 +103,7 @@ function simSyncForm() {
     : "未设置";
   $("sim-custom-country-value").textContent = draft.country_custom || "未设置";
   $("sim-custom-carrier-value").textContent = draft.carrier_custom || "未设置";
+  $("sim-carrier-test-mccmnc-value").textContent = draft.carrier_test_mccmnc || "未设置";
   $("sim-country-summary").textContent = draft.country_custom
     ? (draft.country_preset ? "自定义值 " + draft.country_custom + " 覆盖上方预设" : "使用自定义国家码")
     : "设置系统读取的国家或地区";
@@ -168,6 +174,13 @@ function simEditCarrier() {
     draft.carrier_custom,value => value.length <= 128,
     value => simSetCustom("carrier_custom",value.trim()),
     draft.carrier_custom !== "", "名称不能超过 128 个字符");
+}
+function simEditCarrierTestMccMnc() {
+  const draft = simEditorProfile(selectedSimSlot);
+  editTextPreference("Carrier test MCC/MNC","Carrier IMS 模式必填；填写目标运营商的 5 或 6 位 MCC/MNC，不要填当前网络代码。",
+    draft.carrier_test_mccmnc,value => value === "" || /^[0-9]{5,6}$/.test(value),
+    value => simSetCustom("carrier_test_mccmnc",value.trim()),
+    draft.carrier_test_mccmnc !== "", "请输入 5 或 6 位数字，例如 46692");
 }
 function simEffectiveProfiles() {
   const profiles = {};
@@ -682,6 +695,7 @@ $("sim-country-choice").onclick = simChoiceCountry;
 $("sim-carrier-choice").onclick = simChoiceCarrier;
 $("sim-edit-country").onclick = simEditCountry;
 $("sim-edit-carrier").onclick = simEditCarrier;
+$("sim-edit-carrier-test-mccmnc").onclick = simEditCarrierTestMccMnc;
 $("sim-save").onclick = simApplyConfig;
 $("sim-restore").onclick = async () => {
   if (!await ask("恢复 SIM 信息？", "移除当前 SIM 的国家或地区及运营商覆盖，不清除 IMS 配置。")) return;

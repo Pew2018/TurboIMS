@@ -128,11 +128,26 @@ public final class ModuleMain {
                 ? new FeatureConfig(true, config.periodicCheckEnabled, config.selection,
                         config.intervalSeconds, config.modes, config.simProfiles, config.implementationMode) : config;
         AndroidCarrierBackend backend = backend();
-        Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
         List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
+        boolean carrierMode = "carrier_ims".equals(config.implementationMode);
+        JSONArray overrideResults = new JSONArray();
+        if (!preview) {
+            CarrierTestOverrideControl overrideControl = new CarrierTestOverrideControl(session);
+            boolean configured = config.enabled || config.hasSimProfiles();
+            for (CarrierBackend.Subscription sub : subscriptions) {
+                if (restore || !carrierMode) {
+                    overrideResults.put(new JSONObject(overrideControl.clearOwned(sub.id, sub.slot)));
+                } else if (configured && config.selects(sub.slot)) {
+                    FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
+                    if (profile == null || profile.carrierTestMccMnc.isEmpty())
+                        throw new IllegalStateException("Carrier IMS requires an explicit carrier_test_mccmnc for slot " + sub.slot + "; no CarrierConfig write was attempted");
+                    overrideResults.put(new JSONObject(overrideControl.apply(sub.id, sub.slot, profile.carrierTestMccMnc)));
+                }
+            }
+        }
+        Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
         BatchRunner.Report report = BatchRunner.run(subscriptions, effective, engine, preview, restore);
         JSONArray results = new JSONArray();
-        boolean carrierMode = "carrier_ims".equals(config.implementationMode);
         boolean imsFailure = false;
         boolean imsUnregistered = false;
         JSONArray imsResults = new JSONArray();
@@ -204,6 +219,7 @@ public final class ModuleMain {
                 .put("requires_manual_retry", report.requiresManualRetry || imsFailure)
                 .put("implementation_mode", config.implementationMode)
                 .put("carrier_ims_results", imsResults)
+                .put("carrier_test_override_results", overrideResults)
                 .put("config", JsonIO.config(config)).put("subscriptions", results)
                 .put("binder", new JSONObject(backend.capabilities()));
     }

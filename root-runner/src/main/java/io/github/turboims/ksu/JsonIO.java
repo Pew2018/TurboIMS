@@ -101,7 +101,8 @@ public final class JsonIO implements Engine.Store {
                 catch (NumberFormatException e) { throw new IllegalArgumentException("Invalid SIM profile slot"); }
                 JSONObject profile = simProfiles.getJSONObject(slot);
                 profiles.put(index, new FeatureConfig.SimProfile(
-                        profile.optString("country_iso", ""), profile.optString("carrier_name", "")));
+                        profile.optString("country_iso", ""), profile.optString("carrier_name", ""),
+                        profile.optString("carrier_test_mccmnc", "")));
             }
         }
         return new FeatureConfig(obj.getBoolean("enabled"),
@@ -116,7 +117,8 @@ public final class JsonIO implements Engine.Store {
         for (var entry : config.simProfiles.entrySet()) {
             profiles.put(String.valueOf(entry.getKey()), new JSONObject()
                     .put("country_iso", entry.getValue().countryIso)
-                    .put("carrier_name", entry.getValue().carrierName));
+                    .put("carrier_name", entry.getValue().carrierName)
+                    .put("carrier_test_mccmnc", entry.getValue().carrierTestMccMnc));
         }
         return new JSONObject().put("schema", 1).put("enabled", config.enabled)
                 .put("periodic_check_enabled", config.periodicCheckEnabled)

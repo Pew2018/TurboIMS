@@ -24,6 +24,15 @@ public class FeatureConfigTest {
     @Test public void implementationModeDefaultsToTurboIms() {
         assertEquals("turboims", config(true, FeatureConfig.Mode.ON).implementationMode);
     }
+    @Test public void carrierTestMccMncIsValidatedAndPreserved() {
+        FeatureConfig base = config(true, FeatureConfig.Mode.ON);
+        FeatureConfig carrier = new FeatureConfig(true, false, "all", 1800, base.modes,
+                Map.of(0, new FeatureConfig.SimProfile("tw", "Chunghwa Telecom", "46692")), "carrier_ims");
+        assertEquals("46692", carrier.simProfiles.get(0).carrierTestMccMnc);
+    }
+    @Test(expected = IllegalArgumentException.class) public void rejectsMalformedCarrierTestMccMnc() {
+        new FeatureConfig.SimProfile("tw", "Chunghwa Telecom", "4609");
+    }
     @Test public void carrierImsModeCanBeSelected() {
         FeatureConfig base = config(true, FeatureConfig.Mode.ON);
         FeatureConfig carrier = new FeatureConfig(true, false, "all", 1800, base.modes,

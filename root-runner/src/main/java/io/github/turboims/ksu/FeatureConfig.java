@@ -15,15 +15,19 @@ public final class FeatureConfig {
     public final Map<Integer, SimProfile> simProfiles;
     public final String implementationMode;
     public static final class SimProfile {
-        public final String countryIso; public final String carrierName;
-        public SimProfile(String countryIso, String carrierName) {
+        public final String countryIso; public final String carrierName; public final String carrierTestMccMnc;
+        public SimProfile(String countryIso, String carrierName) { this(countryIso, carrierName, ""); }
+        public SimProfile(String countryIso, String carrierName, String carrierTestMccMnc) {
             String iso = countryIso == null ? "" : countryIso.trim().toLowerCase(Locale.ROOT);
             if (!iso.isEmpty() && !iso.matches("[a-z]{2}")) throw new IllegalArgumentException("SIM country ISO must be two letters");
             String name = carrierName == null ? "" : carrierName.trim();
             if (name.length() > 128) throw new IllegalArgumentException("Carrier name is too long");
-            this.countryIso = iso; this.carrierName = name;
+            String numeric = carrierTestMccMnc == null ? "" : carrierTestMccMnc.trim();
+            if (!numeric.isEmpty() && !numeric.matches("[0-9]{5,6}"))
+                throw new IllegalArgumentException("Carrier test MCC/MNC must contain 5 or 6 digits");
+            this.countryIso = iso; this.carrierName = name; this.carrierTestMccMnc = numeric;
         }
-        public boolean isEmpty() { return countryIso.isEmpty() && carrierName.isEmpty(); }
+        public boolean isEmpty() { return countryIso.isEmpty() && carrierName.isEmpty() && carrierTestMccMnc.isEmpty(); }
     }
     public FeatureConfig(boolean enabled, String selection, int intervalSeconds, Map<String, Mode> modes) {
         this(enabled, false, selection, intervalSeconds, modes, Collections.emptyMap());

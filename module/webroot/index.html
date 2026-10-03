@@ -53,13 +53,14 @@
     <button id="sim-edit-country" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义国家码</strong><small>填写两位字母代码</small></span><span id="sim-custom-country-value" class="sim-pref-value">未设置</span></button>
     <div class="setting-row"><span class="row-copy"><strong>运营商名称</strong><small id="sim-carrier-summary">设置系统读取的名称</small></span><button id="sim-carrier-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
     <button id="sim-edit-carrier" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义运营商名称</strong><small>优先使用自定义名称</small></span><span id="sim-custom-carrier-value" class="sim-pref-value">未设置</span></button>
+    <button id="sim-edit-carrier-test-mccmnc" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>Carrier test MCC/MNC</strong><small>Carrier IMS 模式必填</small></span><span id="sim-carrier-test-mccmnc-value" class="sim-pref-value">未设置</span></button>
     <h3 class="category subcategory">操作</h3>
     <div class="action-group" role="group" aria-label="页面操作">
       <button id="sim-save" class="action-button action-button--primary" type="button"><span>应用信息</span></button>
       <button id="sim-restore" class="action-button action-button--secondary" type="button"><span>恢复原值</span></button>
     </div>
     <p class="hint action-summary">应用当前 SIM 信息；恢复原值仅移除本模块记录的 SIM 信息覆盖。</p>
-    <p class="hint preference-footer">仅修改系统读取的信息，不改变运营商服务。已保存配置会在重启后重新应用。</p>
+    <p class="hint preference-footer">Carrier test MCC/MNC 仅在 Carrier IMS 模式应用。Android 没有可靠的读取接口，诊断只报告 Binder 调用结果，不会伪称读回验证；未填写时应用会失败。已保存配置会在重启后重新应用。</p>
   </section>
 </main>
 <main id="settings-page" class="page" hidden>
@@ -84,8 +85,8 @@
   </section>
   <section class="pref-group" aria-label="IMS 实现模式">
     <h2 class="category">IMS 实现模式</h2>
-    <div class="setting-row"><span class="row-copy"><strong>执行方式</strong><small>Carrier IMS 会在应用配置后触发 IMS reset 并检查注册</small></span><button id="implementation-mode-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="implementation_mode" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="turboims">TurboIMS（当前 KSU）</option><option value="carrier_ims">Carrier IMS</option></select></div>
-    <p class="hint preference-footer">切换后点“应用配置”；APN 不会被自动修改。</p>
+    <div class="setting-row"><span class="row-copy"><strong>执行方式</strong><small>Carrier IMS 还会按 SIM 应用 Carrier test MCC/MNC，并触发 IMS reset</small></span><button id="implementation-mode-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="implementation_mode" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="turboims">TurboIMS（当前 KSU）</option><option value="carrier_ims">Carrier IMS</option></select></div>
+    <p class="hint preference-footer">Carrier IMS 必须先在 SIM 卡信息页填写目标运营商 MCC/MNC；缺失或 Binder 权限不足时应用失败。APN 不会被自动修改。</p>
   </section>
   <section class="pref-group" aria-label="工具">
     <h2 class="category">工具</h2>
