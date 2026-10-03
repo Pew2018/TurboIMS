@@ -177,7 +177,7 @@ let browser;
   assert.equal(await page.locator("#sim-custom-carrier-value").innerText(),"FarEasTone");
   await page.locator("#sim-edit-carrier-test-mccmnc").click();
   await page.locator("#text-editor-input").fill("46a6928");
-  assert.equal(await page.locator("#text-editor-input").inputValue(),"46692");
+  assert.equal(await page.locator("#text-editor-input").inputValue(),"466928");
   await page.locator("#text-editor-input").fill("46692");
   await page.locator("#text-editor-save").click();
   assert.equal(await page.locator("#sim-carrier-test-mccmnc-value").innerText(),"46692");
