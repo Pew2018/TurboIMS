@@ -66,7 +66,7 @@ public final class JsonIO implements Engine.Store {
         Set<String> required = Set.of("schema", "enabled", "selection", "interval_seconds", "features");
         if (!keys.containsAll(required)
                 || !keys.stream().allMatch(k -> required.contains(k)
-                    || k.equals("periodic_check_enabled") || k.equals("sim_profiles")))
+                    || k.equals("periodic_check_enabled") || k.equals("sim_profiles") || k.equals("implementation_mode"))))
             throw new IllegalArgumentException("Unexpected configuration fields");
         if (!(obj.get("schema") instanceof Integer) || obj.getInt("schema") != 1)
             throw new IllegalArgumentException("Unsupported config schema");
@@ -106,7 +106,7 @@ public final class JsonIO implements Engine.Store {
         }
         return new FeatureConfig(obj.getBoolean("enabled"),
                 obj.optBoolean("periodic_check_enabled", false), obj.getString("selection"),
-                interval, modes, profiles);
+                interval, modes, profiles, obj.optString("implementation_mode", "turboims"));
     }
     static JSONObject config(FeatureConfig config) throws Exception {
         JSONObject modes = new JSONObject();
@@ -121,7 +121,8 @@ public final class JsonIO implements Engine.Store {
         return new JSONObject().put("schema", 1).put("enabled", config.enabled)
                 .put("periodic_check_enabled", config.periodicCheckEnabled)
                 .put("selection", config.selection).put("interval_seconds", config.intervalSeconds)
-                .put("features", modes).put("sim_profiles", profiles);
+                .put("features", modes).put("sim_profiles", profiles)
+                .put("implementation_mode", config.implementationMode);
     }
 
     @Override public Engine.Snapshot load(int subId) throws Exception {
