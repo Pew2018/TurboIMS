@@ -1,8 +1,11 @@
 plugins { id("com.android.application") }
+val runnerCompileSdk = providers.gradleProperty("androidCompileSdk").orElse("36").get().toInt()
+val runnerBuildToolsVersion = providers.gradleProperty("androidBuildToolsVersion").orElse("36.0.0").get()
+
 android {
     namespace = "io.github.turboims.ksu"
-    compileSdk = 36
-    buildToolsVersion = "36.0.0"
+    compileSdk = runnerCompileSdk
+    buildToolsVersion = runnerBuildToolsVersion
     defaultConfig {
         applicationId = "io.github.turboims.ksu.runner"
         minSdk = 33
