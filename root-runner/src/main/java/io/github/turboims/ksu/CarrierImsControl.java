@@ -23,11 +23,15 @@ public final class CarrierImsControl {
     private final Object telephony;
     private final Method registeredMethod;
     private final Method resetMethod;
+    private final String serviceSource;
 
     public CarrierImsControl() throws Exception {
-        Class<?> sm = Class.forName("android.os.ServiceManager");
-        IBinder binder = (IBinder) invoke(sm.getMethod("getService", String.class),
-                null, "phone");
+        IBinder binder = frameworkTelephonyBinder();
+        serviceSource = binder != null ? "telephony_framework" : "service_manager_phone";
+        if (binder == null) {
+            Class<?> sm = Class.forName("android.os.ServiceManager");
+            binder = (IBinder) invoke(sm.getMethod("getService", String.class), null, "phone");
+        }
         if (binder == null || !binder.pingBinder())
             throw new java.io.IOException("Telephony Binder service is unavailable");
         Class<?> api = Class.forName("com.android.internal.telephony.ITelephony");
@@ -36,6 +40,13 @@ public final class CarrierImsControl {
         if (telephony == null) throw new java.io.IOException("ITelephony is unavailable");
         registeredMethod = api.getMethod("isImsRegistered", int.class);
         resetMethod = api.getMethod("resetIms", int.class);
+    }
+
+    public String serviceSource() { return serviceSource; }
+
+    static boolean isReadyForReset(String carrierConfigPhase) {
+        return "verified".equals(carrierConfigPhase) || "unchanged".equals(carrierConfigPhase)
+                || "restored".equals(carrierConfigPhase);
     }
 
     public boolean isRegistered(int subId) throws Exception {
@@ -65,6 +76,27 @@ public final class CarrierImsControl {
         }
         return new Registration(false, "ims_not_registered",
                 "IMS did not report registered before the bounded polling deadline");
+    }
+
+    /**
+     * Android 17's reference implementation resolves ITelephony through the
+     * framework service registerer. Older vendor images may not expose it to this
+     * process, so retain the established ServiceManager("phone") fallback.
+     */
+    private static IBinder frameworkTelephonyBinder() {
+        try {
+            Class<?> initializer = Class.forName("android.telephony.TelephonyFrameworkInitializer");
+            Object manager = initializer.getMethod("getTelephonyServiceManager").invoke(null);
+            if (manager == null) return null;
+            Object registerer = manager.getClass().getMethod("getTelephonyServiceRegisterer")
+                    .invoke(manager);
+            if (registerer == null) return null;
+            Object binder = registerer.getClass().getMethod("get").invoke(registerer);
+            return binder instanceof IBinder && ((IBinder) binder).pingBinder()
+                    ? (IBinder) binder : null;
+        } catch (Throwable unavailable) {
+            return null;
+        }
     }
 
     private static String message(Throwable error) {

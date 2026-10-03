@@ -107,7 +107,9 @@ public final class ModuleMain {
 
     private static AndroidCarrierBackend backend() throws Exception {
         if (!HiddenApiBypass.addHiddenApiExemptions("Landroid/os/ServiceManager;",
-                "Lcom/android/internal/telephony/", "Landroid/os/SystemProperties;"))
+                "Lcom/android/internal/telephony/", "Landroid/os/SystemProperties;",
+                "Landroid/telephony/TelephonyFrameworkInitializer;",
+                "Landroid/telephony/TelephonyServiceManager;"))
             throw new IllegalStateException("Hidden API access initialization failed");
         return new AndroidCarrierBackend();
     }
@@ -250,6 +252,15 @@ public final class ModuleMain {
                         imsRow.put("phase", "carrier_test_override_failed")
                                 .put("registered", JSONObject.NULL)
                                 .put("error", overrideErrors.get(sub.id));
+                    } else if (!preview && entry.selected
+                            && (entry.result == null
+                            || !CarrierImsControl.isReadyForReset(entry.result.phase)
+                            || !entry.result.unsupported.isEmpty()
+                            || !entry.result.conflicts.isEmpty())) {
+                        String configPhase = entry.result == null ? "unknown" : entry.result.phase;
+                        imsRow.put("phase", "carrier_config_not_ready")
+                                .put("registered", JSONObject.NULL)
+                                .put("error", "CarrierConfig is not ready for IMS reset: " + configPhase);
                     } else {
                         if (imsControl == null) throw new IllegalStateException(
                                 "Carrier IMS telephony methods are unavailable in this KSU runtime");
@@ -262,7 +273,8 @@ public final class ModuleMain {
                             registration = imsControl.resetAndAwait(sub.id, sub.slot, 20, 1000L);
                         }
                         imsRow.put("phase", registration.phase)
-                                .put("registered", registration.registered);
+                                .put("registered", registration.registered)
+                                .put("service_source", imsControl.serviceSource());
                         if (!registration.error.isEmpty()) imsRow.put("error", registration.error);
                         if (!registration.registered) {
                             imsFailure = true;
@@ -283,7 +295,7 @@ public final class ModuleMain {
         }
         boolean ok = report.ok && !imsFailure && !imsOverrideFailure;
         String phase = report.phase;
-        if (carrierMode && imsOverrideFailure && report.ok)
+        if (imsOverrideFailure && report.ok)
             phase = "carrier_test_override_failed";
         else if (carrierMode && imsFailure && report.ok)
             phase = imsUnregistered ? "ims_not_registered" : "ims_status_unavailable";
