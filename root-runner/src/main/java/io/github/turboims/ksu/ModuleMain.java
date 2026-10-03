@@ -146,9 +146,21 @@ public final class ModuleMain {
         boolean imsFailure = false;
         boolean imsUnregistered = false;
         Map<Integer, String> overrideErrors = new HashMap<>();
+        Map<Integer, String> carrierConfigErrors = new HashMap<>();
+        for (BatchRunner.Entry entry : report.entries) {
+            if (entry.selected && entry.error != null)
+                carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
+        }
         if (!preview && overrideControl != null) {
             boolean configured = config.enabled || config.hasSimProfiles();
             for (CarrierBackend.Subscription sub : subscriptions) {
+                if (!restore && carrierMode && configured && config.selects(sub.slot)
+                        && carrierConfigErrors.containsKey(sub.id)) {
+                    overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
+                            .put("phase", "skipped_carrier_config_failed")
+                            .put("error", carrierConfigErrors.get(sub.id)));
+                    continue;
+                }
                 try {
                     if ((restore || !carrierMode) && CarrierTestOverrideControl.hasRecord(sub.id)) {
                         overrideResults.put(new JSONObject(overrideControl.clearOwned(sub.id, sub.slot)));
