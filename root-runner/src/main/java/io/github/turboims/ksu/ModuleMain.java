@@ -126,7 +126,7 @@ public final class ModuleMain {
         // Manual apply and scheduled repair are independent from boot auto apply.
         FeatureConfig effective = forceApply && !restore && !preview && !config.hasSimProfiles()
                 ? new FeatureConfig(true, config.periodicCheckEnabled, config.selection,
-                        config.intervalSeconds, config.modes, config.simProfiles) : config;
+                        config.intervalSeconds, config.modes, config.simProfiles, config.implementationMode) : config;
         AndroidCarrierBackend backend = backend();
         Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
         List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
