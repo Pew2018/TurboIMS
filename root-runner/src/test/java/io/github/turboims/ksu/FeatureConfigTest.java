@@ -21,6 +21,41 @@ public class FeatureConfigTest {
             assertEquals(seconds, new FeatureConfig(true, true, "all", seconds,
                     config(true, FeatureConfig.Mode.ON).modes).intervalSeconds);
     }
+    @Test public void implementationModeDefaultsToTurboIms() {
+        assertEquals("turboims", config(true, FeatureConfig.Mode.ON).implementationMode);
+    }
+    @Test public void carrierTestMccMncIsValidatedAndPreserved() {
+        FeatureConfig base = config(true, FeatureConfig.Mode.ON);
+        FeatureConfig carrier = new FeatureConfig(true, false, "all", 1800, base.modes,
+                Map.of(0, new FeatureConfig.SimProfile("tw", "Chunghwa Telecom", "46692")), "carrier_ims");
+        assertEquals("46692", carrier.simProfiles.get(0).carrierTestMccMnc);
+    }
+    @Test public void legacyTaiwanChunghwaProfileDerivesTestPlmn() {
+        FeatureConfig.SimProfile profile = new FeatureConfig.SimProfile("TW", "Chunghwa Telecom");
+        assertEquals("46692", profile.carrierTestMccMnc);
+    }
+    @Test public void explicitTestPlmnTakesPrecedence() {
+        FeatureConfig.SimProfile profile = new FeatureConfig.SimProfile("TW", "Chunghwa Telecom", "46601");
+        assertEquals("46601", profile.carrierTestMccMnc);
+    }
+    @Test public void doesNotGuessPlmnForOtherCarriersOrCountries() {
+        assertEquals("", new FeatureConfig.SimProfile("tw", "FarEasTone").carrierTestMccMnc);
+        assertEquals("", new FeatureConfig.SimProfile("cn", "Chunghwa Telecom").carrierTestMccMnc);
+    }
+    @Test(expected = IllegalArgumentException.class) public void rejectsMalformedCarrierTestMccMnc() {
+        new FeatureConfig.SimProfile("tw", "Chunghwa Telecom", "4609");
+    }
+    @Test public void carrierImsModeCanBeSelected() {
+        FeatureConfig base = config(true, FeatureConfig.Mode.ON);
+        FeatureConfig carrier = new FeatureConfig(true, false, "all", 1800, base.modes,
+                Collections.emptyMap(), "carrier_ims");
+        assertEquals("carrier_ims", carrier.implementationMode);
+    }
+    @Test(expected = IllegalArgumentException.class) public void rejectsUnknownImplementationMode() {
+        FeatureConfig base = config(true, FeatureConfig.Mode.ON);
+        new FeatureConfig(true, false, "all", 1800, base.modes,
+                Collections.emptyMap(), "unknown");
+    }
     @Test public void sevenFeatures() { assertEquals(7, FeatureConfig.FEATURES.size()); }
     @Test public void pausedDoesNotRequestOverrides() {
         assertTrue(config(false, FeatureConfig.Mode.ON).desired().isEmpty());

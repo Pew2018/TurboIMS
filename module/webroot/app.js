@@ -35,7 +35,7 @@ let simEditorProfiles = {};
 let simBackendSignature = null;
 let simSlots = [];
 let selectedSimSlot = 0;
-function simProfile(slot) { return simProfiles[String(slot)] || {country_iso:"",carrier_name:""}; }
+function simProfile(slot) { return simProfiles[String(slot)] || {country_iso:"",carrier_name:"",carrier_test_mccmnc:""}; }
 function simEditorProfile(slot) {
   const key = String(slot);
   if (!simEditorProfiles[key]) {
@@ -48,15 +48,19 @@ function simEditorProfile(slot) {
       country_preset:countryPreset ? country : "",
       country_custom:country && !countryPreset ? country : "",
       carrier_preset:carrierPreset ? carrier : "",
-      carrier_custom:carrier && !carrierPreset ? carrier : ""
+      carrier_custom:carrier && !carrierPreset ? carrier : "",
+      carrier_test_mccmnc:String(saved.carrier_test_mccmnc || "")
     };
   }
   return simEditorProfiles[key];
 }
 function simEffectiveProfile(slot) {
   const draft = simEditorProfile(slot);
-  return {country_iso:(draft.country_custom || draft.country_preset || "").toUpperCase(),
+  const profile = {country_iso:(draft.country_custom || draft.country_preset || "").toUpperCase(),
     carrier_name:draft.carrier_custom || draft.carrier_preset || ""};
+  const mccmnc = String(draft.carrier_test_mccmnc || "").trim();
+  if (mccmnc) profile.carrier_test_mccmnc = mccmnc;
+  return profile;
 }
 function simPersistEditors() {
   storage.write("turboims-sim-editors",JSON.stringify(simEditorProfiles));
@@ -69,14 +73,18 @@ function simReconcileEditors(profiles) {
     const effective = draft ? simEffectiveProfile(Number(slot)) : null;
     const actual = {country_iso:String(saved.country_iso || "").toUpperCase(),
       carrier_name:String(saved.carrier_name || "")};
-    if (!draft || effective.country_iso !== actual.country_iso || effective.carrier_name !== actual.carrier_name) {
+    const savedMccMnc = String(saved.carrier_test_mccmnc || "");
+    if (savedMccMnc) actual.carrier_test_mccmnc = savedMccMnc;
+    if (!draft || effective.country_iso !== actual.country_iso || effective.carrier_name !== actual.carrier_name
+        || effective.carrier_test_mccmnc !== actual.carrier_test_mccmnc) {
       const countryPreset = simCountries.some(([code]) => code === actual.country_iso);
       const carrierPreset = simCarriers.some(([,display]) => display === actual.carrier_name);
       simEditorProfiles[slot] = {
         country_preset:countryPreset ? actual.country_iso : "",
         country_custom:actual.country_iso && !countryPreset ? actual.country_iso : "",
         carrier_preset:carrierPreset ? actual.carrier_name : "",
-        carrier_custom:actual.carrier_name && !carrierPreset ? actual.carrier_name : ""
+        carrier_custom:actual.carrier_name && !carrierPreset ? actual.carrier_name : "",
+        carrier_test_mccmnc:actual.carrier_test_mccmnc
       };
     }
   }
@@ -98,6 +106,7 @@ function simSyncForm() {
     : "未设置";
   $("sim-custom-country-value").textContent = draft.country_custom || "未设置";
   $("sim-custom-carrier-value").textContent = draft.carrier_custom || "未设置";
+  $("sim-carrier-test-mccmnc-value").textContent = draft.carrier_test_mccmnc || "未设置";
   $("sim-country-summary").textContent = draft.country_custom
     ? (draft.country_preset ? "自定义值 " + draft.country_custom + " 覆盖上方预设" : "使用自定义国家码")
     : "设置系统读取的国家或地区";
@@ -168,6 +177,13 @@ function simEditCarrier() {
     draft.carrier_custom,value => value.length <= 128,
     value => simSetCustom("carrier_custom",value.trim()),
     draft.carrier_custom !== "", "名称不能超过 128 个字符");
+}
+function simEditCarrierTestMccMnc() {
+  const draft = simEditorProfile(selectedSimSlot);
+  editTextPreference("Carrier test MCC/MNC","Carrier IMS 模式必填；填写目标运营商的 5 或 6 位 MCC/MNC，不要填当前网络代码。",
+    draft.carrier_test_mccmnc,value => value === "" || /^[0-9]{5,6}$/.test(value),
+    value => simSetCustom("carrier_test_mccmnc",value.trim()),
+    draft.carrier_test_mccmnc !== "", "请输入 5 或 6 位数字，例如 46692");
 }
 function simEffectiveProfiles() {
   const profiles = {};
@@ -682,6 +698,7 @@ $("sim-country-choice").onclick = simChoiceCountry;
 $("sim-carrier-choice").onclick = simChoiceCarrier;
 $("sim-edit-country").onclick = simEditCountry;
 $("sim-edit-carrier").onclick = simEditCarrier;
+$("sim-edit-carrier-test-mccmnc").onclick = simEditCarrierTestMccMnc;
 $("sim-save").onclick = simApplyConfig;
 $("sim-restore").onclick = async () => {
   if (!await ask("恢复 SIM 信息？", "移除当前 SIM 的国家或地区及运营商覆盖，不清除 IMS 配置。")) return;
@@ -702,9 +719,15 @@ function clickablePreference(button) {
     if (!busy && !event.target.closest("button,input,select")) button.click();
   };
 }
-for (const id of ["selection-choice","interval-choice","theme-choice","accent-choice","accent-scope-choice"]) clickablePreference($(id));
-for (const [id,title] of [["selection","应用到"],["interval","检查间隔"]]) {
-  const button = $(id+"-choice"); button.dataset.title = title;
+for (const id of ["selection-choice","interval-choice","implementation-mode-choice","theme-choice","accent-choice","accent-scope-choice"]) clickablePreference($(id));
+for (const [id,title,buttonId] of [
+  ["selection","应用到","selection-choice"],
+  ["interval","检查间隔","interval-choice"],
+  ["implementation_mode","执行方式","implementation-mode-choice"]
+]) {
+  const button = $(buttonId);
+  if (!button) throw new Error("Missing WebUI preference button: " + buttonId);
+  button.dataset.title = title;
   choiceFor($(id),button);
 }
 const featureControls = new Map();
@@ -811,6 +834,8 @@ function form(config) {
   savedConfig = config;
   simProfiles = config.sim_profiles || {};
   $("enabled").checked = config.enabled;
+  $("implementation_mode").value = config.implementation_mode || "turboims";
+  choiceFor($("implementation_mode"),$("implementation-mode-choice"));
   $("periodic-check").checked = !!config.periodic_check_enabled;
   updatePeriodicControl();
   if (![...$("selection").options].some(x => x.value === config.selection)) {
@@ -833,7 +858,7 @@ function form(config) {
   }
 }
 function configFromForm() {
-  return { schema:1, enabled:$("enabled").checked,
+  return { schema:1, enabled:$("enabled").checked, implementation_mode:$("implementation_mode").value,
     periodic_check_enabled:$("periodic-check").checked, selection:$("selection").value,
     interval_seconds:Number($("interval").value),
     features:Object.fromEntries(features.map(([key]) => [key, $(key).value])),
@@ -851,6 +876,11 @@ function render(result, replaceForm = false) {
       ? ["IMS 配置已应用","已验证，通话仍需运营商支持。"]
       : ["无需重新写入","当前配置未发生变化，尚未确认写入结果。"],
     verified:["IMS 配置已验证","已验证，通话仍需运营商支持。"],
+    ims_not_registered:["IMS 尚未注册","CarrierConfig 已验证，但 IMS 在限定时间内仍未注册。"],
+    ims_status_unavailable:["无法读取 IMS 状态","查看逐卡诊断中的 Binder 权限或 API 错误。"],
+    carrier_test_override_failed:["运营商识别覆盖失败","CarrierConfig 已验证，但 Carrier test MCC/MNC 未应用；查看逐卡结果。"],
+    ims_reset_failed:["IMS reset 失败","查看逐卡诊断中的系统返回原因。"],
+
     paused:["自动应用已停止","当前不会自动更新 IMS 配置。"],
     partial:["部分配置未应用","部分配置项不受支持，请查看逐卡结果。"],
     ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
@@ -861,8 +891,8 @@ function render(result, replaceForm = false) {
     not_started:["尚未开始工作","安装后请重启设备，再运行检测。"],
     error:["操作失败","请查看诊断与验证中的详细原因。"]
   };
-  const warning = ["waiting","retry_timeout","conflict","partial"].includes(phase);
-  const danger = ["error","verification_failed","ownership_lost"].includes(phase) || !!result.blocked;
+  const warning = ["waiting","retry_timeout","conflict","partial","ims_not_registered"].includes(phase);
+  const danger = ["error","verification_failed","ownership_lost","carrier_test_override_failed","ims_status_unavailable","ims_reset_failed"].includes(phase) || !!result.blocked;
   const tone = danger ? "danger" : warning || (phase === "active" && !state.write_readback_verified)
     ? "warning" : ["active","verified","probe"].includes(phase) ? "success" : "neutral";
   const [title,detail] = texts[phase] || ["状态待确认","请查看诊断与验证。"];

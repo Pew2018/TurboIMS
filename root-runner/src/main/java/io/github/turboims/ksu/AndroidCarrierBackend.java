@@ -86,6 +86,81 @@ public final class AndroidCarrierBackend implements CarrierBackend {
         return result;
     }
 
+    /**
+     * Resolve the underlying active SIM identity from ISub's SubscriptionInfo. This
+     * deliberately avoids GSM SIM operator properties, which may already reflect a
+     * carrier-test override and are therefore unsafe as a restoration source.
+     */
+    public String activeSubscriptionMccMnc(CarrierBackend.Subscription subscription) throws Exception {
+        Object sub = service("isub", subType);
+        Method infoMethod = null;
+        for (Method method : subType.getMethods()) {
+            Class<?>[] parameters = method.getParameterTypes();
+            if (!method.getName().equals("getActiveSubscriptionInfo")
+                    || parameters.length < 1 || parameters[0] != int.class) continue;
+            boolean supported = true;
+            for (int i = 1; i < parameters.length; i++)
+                if (parameters[i] != String.class && parameters[i] != boolean.class) supported = false;
+            if (supported && (infoMethod == null || parameters.length > infoMethod.getParameterCount()))
+                infoMethod = method;
+        }
+        if (infoMethod == null)
+            throw new NoSuchMethodException("ISub.getActiveSubscriptionInfo signature unavailable");
+        Class<?>[] parameters = infoMethod.getParameterTypes();
+        Object[] args = new Object[parameters.length];
+        args[0] = subscription.id;
+        boolean packageAssigned = false;
+        for (int i = 1; i < parameters.length; i++) {
+            if (parameters[i] == String.class && !packageAssigned) {
+                args[i] = "android";
+                packageAssigned = true;
+            } else if (parameters[i] == boolean.class) {
+                args[i] = false;
+            } else {
+                args[i] = null;
+            }
+        }
+        Object info = invoke(infoMethod, sub, args);
+        if (info == null)
+            throw new java.io.IOException("No active SubscriptionInfo for subId=" + subscription.id);
+        String mcc = readString(info, "getMccString");
+        String mnc = readString(info, "getMncString");
+        if (mcc == null || mcc.isEmpty()) mcc = readNumeric(info, "getMcc", 3);
+        if (mnc == null || mnc.isEmpty()) mnc = readNumeric(info, "getMnc", 2);
+        String combined = normalizeMccMnc(mcc, mnc);
+        if (combined.isEmpty())
+            throw new java.io.IOException("Active SIM MCC/MNC is unavailable for subId=" + subscription.id);
+        return combined;
+    }
+
+    static String normalizeMccMnc(String mcc, String mnc) {
+        String cleanMcc = mcc == null ? "" : mcc.replaceAll("[^0-9]", "");
+        String cleanMnc = mnc == null ? "" : mnc.replaceAll("[^0-9]", "");
+        if (cleanMcc.length() != 3 || (cleanMnc.length() != 2 && cleanMnc.length() != 3)) return "";
+        return cleanMcc + cleanMnc;
+    }
+
+    private static String readString(Object target, String methodName) {
+        try {
+            Object value = target.getClass().getMethod(methodName).invoke(target);
+            return value == null ? "" : String.valueOf(value).trim();
+        } catch (Throwable unavailable) {
+            return "";
+        }
+    }
+
+    private static String readNumeric(Object target, String methodName, int minimumWidth) {
+        try {
+            Object value = target.getClass().getMethod(methodName).invoke(target);
+            if (!(value instanceof Number)) return "";
+            int number = ((Number) value).intValue();
+            if (number < 0 || number > 999) return "";
+            return String.format(Locale.ROOT, "%0" + minimumWidth + "d", number);
+        } catch (Throwable unavailable) {
+            return "";
+        }
+    }
+
     @Override public Map<String, Object> read(int subId) throws Exception {
         Object carrier = service("carrier_config", carrierType);
         PersistableBundle bundle = (PersistableBundle) (reader.getParameterCount() == 4

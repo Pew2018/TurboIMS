@@ -13,16 +13,26 @@ public final class FeatureConfig {
     public final int intervalSeconds;
     public final Map<String, Mode> modes;
     public final Map<Integer, SimProfile> simProfiles;
+    public final String implementationMode;
     public static final class SimProfile {
-        public final String countryIso; public final String carrierName;
-        public SimProfile(String countryIso, String carrierName) {
+        public final String countryIso; public final String carrierName; public final String carrierTestMccMnc;
+        public SimProfile(String countryIso, String carrierName) { this(countryIso, carrierName, ""); }
+        public SimProfile(String countryIso, String carrierName, String carrierTestMccMnc) {
             String iso = countryIso == null ? "" : countryIso.trim().toLowerCase(Locale.ROOT);
             if (!iso.isEmpty() && !iso.matches("[a-z]{2}")) throw new IllegalArgumentException("SIM country ISO must be two letters");
             String name = carrierName == null ? "" : carrierName.trim();
             if (name.length() > 128) throw new IllegalArgumentException("Carrier name is too long");
-            this.countryIso = iso; this.carrierName = name;
+            String numeric = carrierTestMccMnc == null ? "" : carrierTestMccMnc.trim();
+            // The SIM editor already exposes a Taiwan + Chunghwa Telecom profile. Keep
+            // legacy saved profiles usable by deriving the known test PLMN when the
+            // optional field was not present in their schema. Explicit user input wins.
+            if (numeric.isEmpty() && "tw".equals(iso) && "Chunghwa Telecom".equals(name))
+                numeric = "46692";
+            if (!numeric.isEmpty() && !numeric.matches("[0-9]{5,6}"))
+                throw new IllegalArgumentException("Carrier test MCC/MNC must contain 5 or 6 digits");
+            this.countryIso = iso; this.carrierName = name; this.carrierTestMccMnc = numeric;
         }
-        public boolean isEmpty() { return countryIso.isEmpty() && carrierName.isEmpty(); }
+        public boolean isEmpty() { return countryIso.isEmpty() && carrierName.isEmpty() && carrierTestMccMnc.isEmpty(); }
     }
     public FeatureConfig(boolean enabled, String selection, int intervalSeconds, Map<String, Mode> modes) {
         this(enabled, false, selection, intervalSeconds, modes, Collections.emptyMap());
@@ -31,8 +41,13 @@ public final class FeatureConfig {
         this(enabled, periodicCheckEnabled, selection, intervalSeconds, modes, Collections.emptyMap());
     }
     public FeatureConfig(boolean enabled, boolean periodicCheckEnabled, String selection, int intervalSeconds, Map<String, Mode> modes, Map<Integer, SimProfile> simProfiles) {
+        this(enabled, periodicCheckEnabled, selection, intervalSeconds, modes, simProfiles, "turboims");
+    }
+    public FeatureConfig(boolean enabled, boolean periodicCheckEnabled, String selection, int intervalSeconds, Map<String, Mode> modes, Map<Integer, SimProfile> simProfiles, String implementationMode) {
         if (!selection.equals("all") && !selection.matches("slot:[0-7]"))
             throw new IllegalArgumentException("SIM selection must be all or slot:0..7");
+        if (!Set.of("turboims", "carrier_ims").contains(implementationMode))
+            throw new IllegalArgumentException("Implementation mode must be turboims or carrier_ims");
         if (!Set.of(600, 1800, 3600, 7200).contains(intervalSeconds))
             throw new IllegalArgumentException("Interval must be 10, 30, 60 or 120 minutes");
         if (!modes.keySet().equals(new HashSet<>(FEATURES)) || modes.containsValue(null))
@@ -49,6 +64,7 @@ public final class FeatureConfig {
             profiles.put(entry.getKey(), entry.getValue());
         }
         this.simProfiles = Collections.unmodifiableMap(profiles);
+        this.implementationMode = implementationMode;
     }
 
     public boolean selects(int slot) {

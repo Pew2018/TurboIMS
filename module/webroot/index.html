@@ -53,13 +53,14 @@
     <button id="sim-edit-country" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义国家码</strong><small>填写两位字母代码</small></span><span id="sim-custom-country-value" class="sim-pref-value">未设置</span></button>
     <div class="setting-row"><span class="row-copy"><strong>运营商名称</strong><small id="sim-carrier-summary">设置系统读取的名称</small></span><button id="sim-carrier-choice" class="choice" type="button" aria-haspopup="dialog">未设置</button></div>
     <button id="sim-edit-carrier" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>自定义运营商名称</strong><small>优先使用自定义名称</small></span><span id="sim-custom-carrier-value" class="sim-pref-value">未设置</span></button>
+    <button id="sim-edit-carrier-test-mccmnc" class="setting-row sim-edit-row" type="button"><span class="row-copy"><strong>Carrier test MCC/MNC</strong><small>可选；留空沿用实际运营商</small></span><span id="sim-carrier-test-mccmnc-value" class="sim-pref-value">未设置</span></button>
     <h3 class="category subcategory">操作</h3>
     <div class="action-group" role="group" aria-label="页面操作">
       <button id="sim-save" class="action-button action-button--primary" type="button"><span>应用信息</span></button>
       <button id="sim-restore" class="action-button action-button--secondary" type="button"><span>恢复原值</span></button>
     </div>
     <p class="hint action-summary">应用当前 SIM 信息；恢复原值仅移除本模块记录的 SIM 信息覆盖。</p>
-    <p class="hint preference-footer">仅修改系统读取的信息，不改变运营商服务。已保存配置会在重启后重新应用。</p>
+    <p class="hint preference-footer">Carrier test MCC/MNC 仅在 Carrier IMS 模式应用。留空表示沿用 SIM 当前运营商身份；填写代码才会临时应用测试运营商。台湾 + 中华电信可自动推导 46692。Android 不提供可靠读回接口，诊断只报告 Binder 接受状态，不会伪称已验证。</p>
   </section>
 </main>
 <main id="settings-page" class="page" hidden>
@@ -81,6 +82,11 @@
   <section class="pref-group" aria-labelledby="more-heading">
     <h2 id="more-heading" class="category">界面</h2>
     <button id="open-appearance" class="pref-action" type="button"><span>外观<small>显示模式与强调色</small></span><span class="chevron" aria-hidden="true"></span></button>
+  </section>
+  <section class="pref-group" aria-label="IMS 实现模式">
+    <h2 class="category">IMS 实现模式</h2>
+    <div class="setting-row"><span class="row-copy"><strong>执行方式</strong><small>Carrier IMS 可选应用 Carrier test MCC/MNC 并触发 IMS reset；留空沿用原运营商</small></span><button id="implementation-mode-choice" class="choice" type="button" aria-haspopup="dialog"></button><select id="implementation_mode" class="visually-hidden" tabindex="-1" aria-hidden="true"><option value="turboims">TurboIMS（当前 KSU）</option><option value="carrier_ims">Carrier IMS</option></select></div>
+    <p class="hint preference-footer">Carrier IMS 可选使用 SIM 卡信息中的运营商测试码；台湾 + 中华电信可自动推导 46692。留空沿用 SIM 原生身份，不设置 Carrier test override。APN 不会被自动修改。</p>
   </section>
   <section class="pref-group" aria-label="工具">
     <h2 class="category">工具</h2>

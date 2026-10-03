@@ -1,6 +1,6 @@
 id=turboims_next
 name=TurboIMS Next
-version=0.2.0
-versionCode=3
+version=0.2.8
+versionCode=11
 author=Pew2018
-description=Standalone root IMS CarrierConfig controller with WebUI. No Shizuku, Sui, Zygisk or companion app. Android 13-16; device validation required.
+description=Standalone KSU IMS controller with optional Carrier IMS reset and registration check. Android 13-17; Carrier test PLMN is optional; empty uses the native SIM identity. Device voice-call validation required.
