@@ -703,8 +703,14 @@ function clickablePreference(button) {
   };
 }
 for (const id of ["selection-choice","interval-choice","implementation-mode-choice","theme-choice","accent-choice","accent-scope-choice"]) clickablePreference($(id));
-for (const [id,title] of [["selection","应用到"],["interval","检查间隔"],["implementation_mode","执行方式"]]) {
-  const button = $(id+"-choice"); button.dataset.title = title;
+for (const [id,title,buttonId] of [
+  ["selection","应用到","selection-choice"],
+  ["interval","检查间隔","interval-choice"],
+  ["implementation_mode","执行方式","implementation-mode-choice"]
+]) {
+  const button = $(buttonId);
+  if (!button) throw new Error("Missing WebUI preference button: " + buttonId);
+  button.dataset.title = title;
   choiceFor($(id),button);
 }
 const featureControls = new Map();
