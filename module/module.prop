@@ -1,6 +1,6 @@
 id=turboims_next
 name=TurboIMS Next
-version=0.2.6
-versionCode=9
+version=0.2.7
+versionCode=10
 author=Pew2018
 description=Standalone KSU IMS controller with optional Carrier IMS reset and registration check. Android 13-17; Carrier test PLMN inference for Chunghwa Telecom; device voice-call validation required.
