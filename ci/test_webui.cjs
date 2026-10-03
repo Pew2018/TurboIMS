@@ -309,14 +309,16 @@ test("homepage summarizes detection without pretending to verify writes",async()
     subscriptions:[{slot:0,sub_id:17,phase:"probe",unsupported:[]}]});
   assert.equal(elements.get("message").textContent,"检测完成");
   assert.match(elements.get("device").textContent,/只读检测.*尚未验证/);
-  assert.equal(elements.get("sim-summary").textContent,"已检测到 SIM 卡 1");
+  assert.deepEqual(elements.get("ims-registration").children.map(row => row.children[0].textContent),["SIM 卡 1"]);
   assert.doesNotMatch(elements.get("device").textContent,/UID|SDK|subId|husky/);
   context.render({phase:"active",write_readback_verified:false});
   assert.equal(elements.get("status-indicator").dataset.tone,"warning");
   assert.match(elements.get("device").textContent,/尚未确认写入/);
   context.render({phase:"active",write_readback_verified:true});
   assert.equal(elements.get("status-indicator").dataset.tone,"success");
-  assert.match(elements.get("device").textContent,/运营商支持/);
+  assert.equal(elements.get("message").textContent,"IMS 配置已验证");
+  assert.equal(elements.get("device").textContent,"");
+  assert.equal(elements.get("device").hidden,true);
 });
 test("technical failure details stay in diagnostics while home remains readable",async()=>{
   const {context,elements}=await appHarness();

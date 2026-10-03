@@ -845,6 +845,7 @@ function message(text, error = false, tone = error ? "danger" : "neutral", detai
   $("message").textContent = text;
   $("message").className = error && tone === "danger" ? "error" : "";
   $("device").textContent = detail;
+  $("device").hidden = !detail;
   $("status-indicator").dataset.tone = tone;
   if (currentPage === "diagnostics-page") $("diagnostic-notice").textContent = [text,detail].filter(Boolean).join("，");
 }
@@ -925,9 +926,9 @@ function render(result, replaceForm = false) {
   const texts = {
     probe:["检测完成","仅完成只读检测，尚未验证配置写入。"],
     active:state.write_readback_verified
-      ? ["IMS 配置已应用","已验证，通话仍需运营商支持。"]
+      ? ["IMS 配置已验证",""]
       : ["无需重新写入","当前配置未发生变化，尚未确认写入结果。"],
-    verified:["IMS 配置已验证","已验证，通话仍需运营商支持。"],
+    verified:["IMS 配置已验证",""],
     ims_not_registered:["IMS 尚未注册","CarrierConfig 已验证，但 IMS 在限定时间内仍未注册。"],
     ims_status_unavailable:["无法读取 IMS 状态","查看逐卡诊断中的 Binder 权限或 API 错误。"],
     carrier_test_override_failed:["运营商识别覆盖失败","CarrierConfig 已验证，但 Carrier test MCC/MNC 未应用；查看逐卡结果。"],
@@ -952,13 +953,6 @@ function render(result, replaceForm = false) {
   if (result.blocked) message(phase === "verification_failed" ? "验证失败" : "自动应用已停止",
     true, "danger", "已停止自动写入，请查看诊断与验证。");
   // The one-shot worker exiting after a verified apply is normal.
-  const subscriptions = state.subscriptions;
-  const slots = Array.isArray(subscriptions)
-    ? [...new Set(subscriptions.filter(sub => Number.isInteger(sub.slot) && sub.slot >= 0).map(sub => sub.slot + 1))]
-    : [];
-  $("sim-summary").textContent = slots.length ? "已检测到 SIM 卡 " + slots.join("、")
-    : Array.isArray(subscriptions) && subscriptions.length === 0 ? "暂未检测到活跃 SIM 卡" : "";
-  $("sim-summary").hidden = !$("sim-summary").textContent;
   renderImsRegistrationStatus(result);
   renderDiagnosticSummary(result);
   renderSimStatus(result);

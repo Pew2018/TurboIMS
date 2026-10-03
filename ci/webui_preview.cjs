@@ -274,7 +274,7 @@ let browser;
   await page.waitForFunction(()=>!document.getElementById("probe").disabled);
   assert.equal(await page.locator("#message").innerText(),"检测完成");
   assert.match(await page.locator("#device").innerText(),/只读检测.*尚未验证/);
-  assert.match(await page.locator("#sim-summary").innerText(),/SIM 卡 1、2/);
+  assert.deepEqual(await page.locator("#ims-registration dt").allTextContents(),["SIM 卡 1","SIM 卡 2"]);
   await capture("detected-status");
   await page.locator("#refresh").click();
   await page.waitForFunction(()=>!document.getElementById("refresh").disabled);

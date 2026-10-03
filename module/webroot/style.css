@@ -127,7 +127,7 @@ details .log-view { margin-top:12px; }
 .diagnostic-summary,.sim-list { user-select:text; -webkit-user-select:text; }
 
 .status-actions { display:flex; align-items:center; gap:8px; margin:0 -12px 4px; }
-#sim-summary { margin-top:5px; font-size:12px; }
+
 .setting-row[data-feedback],.feature[data-feedback],label.setting-row { cursor:pointer; }
 [data-feedback="row"],label.setting-row,.bottom-tab,.text-action,.pref-action,.choice,.option,.swatch-item {
   touch-action: manipulation;
@@ -293,6 +293,7 @@ input[role="switch"]:disabled { opacity:.42; }
 /* IMS and SIM status summaries share the same compact status-card rhythm. */
 .device-status-group .status-row,
 .sim-status-group .status-card-body { min-height:57px; padding:12px 0 8px; }
+.device-status-group .subcategory { padding-top:16px; }
 .status-note { margin:0; padding:0 0 8px; }
 .status-card-title strong { display:block; font-size:15px; font-weight:400; line-height:1.3; }
 .status-card-title small { margin-top:3px; }
