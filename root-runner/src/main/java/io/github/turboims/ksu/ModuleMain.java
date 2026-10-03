@@ -201,22 +201,34 @@ public final class ModuleMain {
             if (carrierMode && (entry.selected || restore)) {
                 JSONObject imsRow = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot);
                 try {
-                    if (imsControl == null) throw new IllegalStateException(
-                            "Carrier IMS telephony methods are unavailable in this KSU runtime");
-                    CarrierImsControl.Registration registration;
-                    if (preview) {
-                        boolean registered = imsControl.isRegistered(sub.id);
-                        registration = new CarrierImsControl.Registration(registered,
-                                registered ? "ims_registered" : "ims_not_registered", "");
-                    } else {
-                        registration = imsControl.resetAndAwait(sub.id, sub.slot, 20, 1000L);
-                    }
-                    imsRow.put("phase", registration.phase)
-                            .put("registered", registration.registered);
-                    if (!registration.error.isEmpty()) imsRow.put("error", registration.error);
-                    if (!registration.registered) {
+                    if (!restore && entry.selected && entry.error != null) {
                         imsFailure = true;
-                        imsUnregistered |= registration.phase.equals("ims_not_registered");
+                        imsRow.put("phase", "carrier_config_failed")
+                                .put("registered", JSONObject.NULL)
+                                .put("error", String.valueOf(entry.error.getMessage()));
+                    } else if (!restore && entry.selected && overrideErrors.containsKey(sub.id)) {
+                        imsFailure = true;
+                        imsRow.put("phase", "carrier_test_override_failed")
+                                .put("registered", JSONObject.NULL)
+                                .put("error", overrideErrors.get(sub.id));
+                    } else {
+                        if (imsControl == null) throw new IllegalStateException(
+                                "Carrier IMS telephony methods are unavailable in this KSU runtime");
+                        CarrierImsControl.Registration registration;
+                        if (preview) {
+                            boolean registered = imsControl.isRegistered(sub.id);
+                            registration = new CarrierImsControl.Registration(registered,
+                                    registered ? "ims_registered" : "ims_not_registered", "");
+                        } else {
+                            registration = imsControl.resetAndAwait(sub.id, sub.slot, 20, 1000L);
+                        }
+                        imsRow.put("phase", registration.phase)
+                                .put("registered", registration.registered);
+                        if (!registration.error.isEmpty()) imsRow.put("error", registration.error);
+                        if (!registration.registered) {
+                            imsFailure = true;
+                            imsUnregistered |= registration.phase.equals("ims_not_registered");
+                        }
                     }
                     row.put("ims", imsRow);
                 } catch (Throwable error) {
@@ -230,13 +242,15 @@ public final class ModuleMain {
             }
             results.put(row);
         }
-        boolean ok = report.ok && !imsFailure;
+        boolean ok = report.ok && !imsFailure && !imsOverrideFailure;
         String phase = report.phase;
-        if (carrierMode && imsFailure && report.ok)
+        if (carrierMode && imsOverrideFailure && report.ok)
+            phase = "carrier_test_override_failed";
+        else if (carrierMode && imsFailure && report.ok)
             phase = imsUnregistered ? "ims_not_registered" : "ims_status_unavailable";
         return identity().put("ok", ok).put("phase", phase)
                 .put("changed", report.changed).put("write_readback_verified", report.verified)
-                .put("requires_manual_retry", report.requiresManualRetry || imsFailure)
+                .put("requires_manual_retry", report.requiresManualRetry || imsFailure || imsOverrideFailure)
                 .put("implementation_mode", config.implementationMode)
                 .put("carrier_ims_results", imsResults)
                 .put("carrier_test_override_results", overrideResults)
