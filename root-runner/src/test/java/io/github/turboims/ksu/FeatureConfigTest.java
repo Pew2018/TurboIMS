@@ -21,6 +21,20 @@ public class FeatureConfigTest {
             assertEquals(seconds, new FeatureConfig(true, true, "all", seconds,
                     config(true, FeatureConfig.Mode.ON).modes).intervalSeconds);
     }
+    @Test public void implementationModeDefaultsToTurboIms() {
+        assertEquals("turboims", config(true, FeatureConfig.Mode.ON).implementationMode);
+    }
+    @Test public void carrierImsModeCanBeSelected() {
+        FeatureConfig base = config(true, FeatureConfig.Mode.ON);
+        FeatureConfig carrier = new FeatureConfig(true, false, "all", 1800, base.modes,
+                Collections.emptyMap(), "carrier_ims");
+        assertEquals("carrier_ims", carrier.implementationMode);
+    }
+    @Test(expected = IllegalArgumentException.class) public void rejectsUnknownImplementationMode() {
+        FeatureConfig base = config(true, FeatureConfig.Mode.ON);
+        new FeatureConfig(true, false, "all", 1800, base.modes,
+                Collections.emptyMap(), "unknown");
+    }
     @Test public void sevenFeatures() { assertEquals(7, FeatureConfig.FEATURES.size()); }
     @Test public void pausedDoesNotRequestOverrides() {
         assertTrue(config(false, FeatureConfig.Mode.ON).desired().isEmpty());
