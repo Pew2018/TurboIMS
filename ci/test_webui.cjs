@@ -159,7 +159,7 @@ test("accent colors apply immediately and extended targets stay opt-in",async()=
   assert.equal(field.value,"#123456");
   elements.get("accent-toolbar").checked=true;elements.get("accent-toolbar").onchange();
   assert.equal(doc.documentElement.dataset.accentToolbar,"true");
-  assert.equal(doc.documentElement.style.properties["--toolbar-foreground"],"#ffffff");
+  assert.equal(doc.documentElement.style.properties["--toolbar-foreground"],"#FFFFFF");
   elements.get("accent-navigation-icons").checked=true;elements.get("accent-navigation-icons").onchange();
   assert.equal(doc.documentElement.dataset.accentNavigationIcons,"false");
   elements.get("accent-toolbar").checked=false;elements.get("accent-toolbar").onchange();
@@ -517,7 +517,7 @@ test("appearance refinements are opt-in and preserve current actions",()=>{
   assert.ok(app.includes('visualViewport.addEventListener("resize",updateDialogViewport)'));
   assert.match(css,/data-ime="true"/);
   assert.match(app,/system-status-bg/);
-  assert.match(app,/statusRgb = accentToolbar/);
+  assert.match(app,/const statusColor = toolbarColor/);
   assert.ok(css.includes(':root[data-card-groups="true"] .pref-group'));
   assert.match(css,/system-navigation-bg/);
   const settings=html.split('<main id="settings-page"')[1].split("</main>")[0];
@@ -554,6 +554,11 @@ test("operation buttons use short single-line labels and retain separate actions
 });
 test("toolbar palette is independent, readable and updates with accent",async()=>{
   const {context,doc}=await appHarness();
+  const luminance=hex=>{
+    const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255)
+      .map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
+    return c[0]*.2126+c[1]*.7152+c[2]*.0722;
+  };
   for(const color of ["#42A5F5","#E6A545","#7DC22F","#FFFFFF","#000000","#123456"]){
     context.testAccent=color;
     require("node:vm").runInContext('accent=testAccent; accentToolbar=true; showAppearance();',context);
@@ -561,14 +566,12 @@ test("toolbar palette is independent, readable and updates with accent",async()=
     assert.equal(properties["--accent"],color);
     const toolbar=properties["--toolbar-tint"];
     if(color!=="#000000")assert.notEqual(toolbar,color);
-    const rgb=[1,3,5].map(i=>parseInt(toolbar.slice(i,i+2),16)/255)
-      .map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4);
-    const luminance=rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;
     const foreground=properties["--toolbar-foreground"];
-    const fc=16/255;
-    const fg=foreground==="#ffffff"?1:((fc+.055)/1.055)**2.4;
-    const contrast=(Math.max(luminance,fg)+.05)/(Math.min(luminance,fg)+.05);
+    assert.ok(["#FFFFFF","#111111"].includes(foreground));
+    const contrast=(Math.max(luminance(toolbar),luminance(foreground))+.05)/
+      (Math.min(luminance(toolbar),luminance(foreground))+.05);
     assert.ok(contrast>=4.5,color+" toolbar contrast "+contrast);
+    assert.equal(doc.documentElement.style.properties["--system-status-bg"],toolbar);
   }
 });
 
