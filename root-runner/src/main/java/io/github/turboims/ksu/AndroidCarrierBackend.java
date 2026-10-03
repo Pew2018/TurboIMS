@@ -6,6 +6,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.*;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 public final class AndroidCarrierBackend implements CarrierBackend {
     private final Class<?> serviceManager, carrierType, subType;
@@ -149,22 +150,35 @@ public final class AndroidCarrierBackend implements CarrierBackend {
 
     private static String propertyAtSlot(String property, int slot) {
         try {
-            Process process = new ProcessBuilder("getprop", property)
-                    .redirectErrorStream(true).start();
-            String line;
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
-                line = reader.readLine();
-            }
-            process.waitFor();
-            if (line == null) return "";
-            String value = line.trim();
+            // SystemProperties is already exempted by ModuleMain and avoids spawning
+            // a shell process for every 250 ms readiness sample.
+            Class<?> type = Class.forName("android.os.SystemProperties");
+            Method get = type.getMethod("get", String.class);
+            String value = String.valueOf(get.invoke(null, property)).trim();
             if (value.startsWith("[") && value.endsWith("]"))
                 value = value.substring(1, value.length() - 1);
             String[] slots = value.split(",", -1);
             return slot >= 0 && slot < slots.length ? slots[slot].trim() : "";
-        } catch (Throwable ignored) {
-            return "";
+        } catch (Throwable hiddenApiUnavailable) {
+            // Keep a bounded fallback for vendor builds that hide SystemProperties.
+            try {
+                Process process = new ProcessBuilder("getprop", property)
+                        .redirectErrorStream(true).start();
+                String line;
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream()))) {
+                    line = reader.readLine();
+                }
+                if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly();
+                if (line == null) return "";
+                String value = line.trim();
+                if (value.startsWith("[") && value.endsWith("]"))
+                    value = value.substring(1, value.length() - 1);
+                String[] slots = value.split(",", -1);
+                return slot >= 0 && slot < slots.length ? slots[slot].trim() : "";
+            } catch (Throwable ignored) {
+                return "";
+            }
         }
     }
 }
