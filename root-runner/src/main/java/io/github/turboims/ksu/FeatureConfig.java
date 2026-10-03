@@ -23,6 +23,11 @@ public final class FeatureConfig {
             String name = carrierName == null ? "" : carrierName.trim();
             if (name.length() > 128) throw new IllegalArgumentException("Carrier name is too long");
             String numeric = carrierTestMccMnc == null ? "" : carrierTestMccMnc.trim();
+            // The SIM editor already exposes a Taiwan + Chunghwa Telecom profile. Keep
+            // legacy saved profiles usable by deriving the known test PLMN when the
+            // optional field was not present in their schema. Explicit user input wins.
+            if (numeric.isEmpty() && "tw".equals(iso) && "Chunghwa Telecom".equals(name))
+                numeric = "46692";
             if (!numeric.isEmpty() && !numeric.matches("[0-9]{5,6}"))
                 throw new IllegalArgumentException("Carrier test MCC/MNC must contain 5 or 6 digits");
             this.countryIso = iso; this.carrierName = name; this.carrierTestMccMnc = numeric;
