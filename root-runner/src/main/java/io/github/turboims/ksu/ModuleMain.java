@@ -132,6 +132,15 @@ public final class ModuleMain {
         List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
         BatchRunner.Report report = BatchRunner.run(subscriptions, effective, engine, preview, restore);
         JSONArray results = new JSONArray();
+        boolean carrierMode = "carrier_ims".equals(config.implementationMode);
+        boolean imsFailure = false;
+        boolean imsUnregistered = false;
+        JSONArray imsResults = new JSONArray();
+        CarrierImsControl imsControl = null;
+        if (carrierMode && (!preview || !restore)) {
+            try { imsControl = new CarrierImsControl(); }
+            catch (Throwable ignored) { /* Per-SIM result below reports the capability error. */ }
+        }
         for (BatchRunner.Entry entry : report.entries) {
             CarrierBackend.Subscription sub = entry.sub;
             JSONObject row = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
@@ -154,11 +163,47 @@ public final class ModuleMain {
                     log("subId=" + sub.id + " phase=" + r.phase
                             + " conflicts=" + r.conflicts + " unsupported=" + r.unsupported);
             }
+            if (carrierMode && (entry.selected || restore)) {
+                JSONObject imsRow = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot);
+                try {
+                    if (imsControl == null) throw new IllegalStateException(
+                            "Carrier IMS telephony methods are unavailable in this KSU runtime");
+                    CarrierImsControl.Registration registration;
+                    if (preview) {
+                        boolean registered = imsControl.isRegistered(sub.id);
+                        registration = new CarrierImsControl.Registration(registered,
+                                registered ? "ims_registered" : "ims_not_registered", "");
+                    } else {
+                        registration = imsControl.resetAndAwait(sub.id, sub.slot, 20, 1000L);
+                    }
+                    imsRow.put("phase", registration.phase)
+                            .put("registered", registration.registered);
+                    if (!registration.error.isEmpty()) imsRow.put("error", registration.error);
+                    if (!registration.registered) {
+                        imsFailure = true;
+                        imsUnregistered |= registration.phase.equals("ims_not_registered");
+                    }
+                    row.put("ims", imsRow);
+                } catch (Throwable error) {
+                    imsFailure = true;
+                    imsRow.put("phase", "ims_status_unavailable")
+                            .put("registered", JSONObject.NULL)
+                            .put("error", String.valueOf(error.getMessage()));
+                    row.put("ims", imsRow);
+                }
+                imsResults.put(imsRow);
+            }
             results.put(row);
         }
-        return identity().put("ok", report.ok).put("phase", report.phase)
+        boolean ok = report.ok && !imsFailure;
+        String phase = report.phase;
+        if (carrierMode && imsFailure && report.ok)
+            phase = imsUnregistered ? "ims_not_registered" : "ims_status_unavailable";
+        return identity().put("ok", ok).put("phase", phase)
                 .put("changed", report.changed).put("write_readback_verified", report.verified)
-                .put("requires_manual_retry", report.requiresManualRetry)
+                .put("requires_manual_retry", report.requiresManualRetry || imsFailure)
+                .put("implementation_mode", config.implementationMode)
+                .put("carrier_ims_results", imsResults)
                 .put("config", JsonIO.config(config)).put("subscriptions", results)
                 .put("binder", new JSONObject(backend.capabilities()));
     }
