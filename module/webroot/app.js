@@ -259,13 +259,18 @@ function contrastRatio(a,b) {
   return (lighter + .05) / (darker + .05);
 }
 const LIGHT_FOREGROUND = "#FFFFFF";
-const DARK_FOREGROUND = "#111111";
-const DARK_FOREGROUND_LUMINANCE = relativeLuminance([17,17,17]);
+const DARK_FOREGROUND = "#000000";
+const MIN_TEXT_CONTRAST = 4.5;
 function foregroundForRgb(rgb) {
   const background = relativeLuminance(rgb);
   const lightContrast = contrastRatio(background,1);
-  const darkContrast = contrastRatio(background,DARK_FOREGROUND_LUMINANCE);
-  return darkContrast >= lightContrast ? DARK_FOREGROUND : LIGHT_FOREGROUND;
+  const darkContrast = contrastRatio(background,0);
+  // Material pairs a colored container with a dedicated "on" color. Using
+  // the higher-contrast black/white role guarantees AA contrast for normal
+  // toolbar and button text, including arbitrary user-supplied HEX colors.
+  const foreground = darkContrast >= lightContrast ? DARK_FOREGROUND : LIGHT_FOREGROUND;
+  const contrast = Math.max(lightContrast,darkContrast);
+  return {color:foreground,contrast};
 }
 function showAppearance() {
   const dark = themeMode === "dark" || (themeMode === "system" && !!media?.matches);
@@ -286,18 +291,20 @@ function showAppearance() {
   const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
   const surfaceRgb = dark ? [18,18,18] : [255,255,255];
 
-  // Keep the established restrained tint, but calculate foreground from the
-  // final rendered toolbar color rather than from the raw accent.
-  const neutral = rgb[0]*.2126 + rgb[1]*.7152 + rgb[2]*.0722;
+  // A colored toolbar is a primary surface: preserve the selected hue instead
+  // of muting it toward grey. In dark mode, blend it slightly toward the dark
+  // surface to avoid an excessively bright large area while keeping its hue.
   const toolbarRgb = accentToolbar
-    ? rgb.map(value => Math.round((value*.55 + neutral*.45) * (dark ? .72 : .82)))
+    ? (dark ? rgb.map(value => Math.round(value*.78 + 18*.22)) : rgb)
     : surfaceRgb;
   const toolbarColor = accentToolbar ? colorHex(toolbarRgb) : chromeColor;
   const statusColor = toolbarColor;
-  const toolbarForeground = foregroundForRgb(toolbarRgb);
+  const toolbarOnColor = foregroundForRgb(toolbarRgb);
+  const toolbarForeground = toolbarOnColor.color;
 
   root.style.setProperty("--toolbar-tint",toolbarColor);
   root.style.setProperty("--toolbar-foreground",toolbarForeground);
+  root.style.setProperty("--toolbar-contrast",toolbarOnColor.contrast.toFixed(3));
   root.style.setProperty("--system-status-bg",statusColor);
   root.style.setProperty("--system-navigation-bg",dark ? "#121212" : "#FFFFFF");
 
@@ -316,9 +323,11 @@ function showAppearance() {
   root.style.setProperty("--press-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
   root.style.setProperty("--accent-track", "rgba(" + rgb.join(",") + ",.35)");
 
-  const onAccent = foregroundForRgb(rgb);
+  const accentOnColor = foregroundForRgb(rgb);
+  const onAccent = accentOnColor.color;
   root.style.setProperty("--accent-text",onAccent);
   root.style.setProperty("--on-accent",onAccent);
+  root.style.setProperty("--on-accent-contrast",accentOnColor.contrast.toFixed(3));
   root.style.setProperty("--action-fill",accent);
   root.style.setProperty("--action-ripple",onAccent);
 
