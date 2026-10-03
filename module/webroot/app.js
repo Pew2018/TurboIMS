@@ -853,6 +853,10 @@ function render(result, replaceForm = false) {
       ? ["IMS 配置已应用","已验证，通话仍需运营商支持。"]
       : ["无需重新写入","当前配置未发生变化，尚未确认写入结果。"],
     verified:["IMS 配置已验证","已验证，通话仍需运营商支持。"],
+    ims_not_registered:["IMS 尚未注册","CarrierConfig 已验证，但 IMS 在限定时间内仍未注册。"],
+    ims_status_unavailable:["无法读取 IMS 状态","查看逐卡诊断中的 Binder 权限或 API 错误。"],
+    ims_reset_failed:["IMS reset 失败","查看逐卡诊断中的系统返回原因。"],
+
     paused:["自动应用已停止","当前不会自动更新 IMS 配置。"],
     partial:["部分配置未应用","部分配置项不受支持，请查看逐卡结果。"],
     ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
@@ -863,8 +867,8 @@ function render(result, replaceForm = false) {
     not_started:["尚未开始工作","安装后请重启设备，再运行检测。"],
     error:["操作失败","请查看诊断与验证中的详细原因。"]
   };
-  const warning = ["waiting","retry_timeout","conflict","partial"].includes(phase);
-  const danger = ["error","verification_failed","ownership_lost"].includes(phase) || !!result.blocked;
+  const warning = ["waiting","retry_timeout","conflict","partial","ims_not_registered"].includes(phase);
+  const danger = ["error","verification_failed","ownership_lost","ims_status_unavailable","ims_reset_failed"].includes(phase) || !!result.blocked;
   const tone = danger ? "danger" : warning || (phase === "active" && !state.write_readback_verified)
     ? "warning" : ["active","verified","probe"].includes(phase) ? "success" : "neutral";
   const [title,detail] = texts[phase] || ["状态待确认","请查看诊断与验证。"];
