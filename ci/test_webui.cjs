@@ -59,7 +59,7 @@ async function appHarness(options = {}) {
     return el;
   }
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
-  const declaredIds=new Set([...html.matchAll(/\\bid=["']([^"']+)["']/g)].map(match=>match[1]));
+  const declaredIds=new Set([...html.matchAll(/id=["']([^"']+)["']/g)].map(match=>match[1]));
   const elements=new Map();
   const doc={activeElement:null, body:{style:{}},
     documentElement:{dataset:{},style:{properties:{},setProperty(name,value) { this.properties[name]=value; },removeProperty(name) { delete this.properties[name]; }}},
