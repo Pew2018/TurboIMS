@@ -56,9 +56,11 @@ function simEditorProfile(slot) {
 }
 function simEffectiveProfile(slot) {
   const draft = simEditorProfile(slot);
-  return {country_iso:(draft.country_custom || draft.country_preset || "").toUpperCase(),
-    carrier_name:draft.carrier_custom || draft.carrier_preset || "",
-    carrier_test_mccmnc:String(draft.carrier_test_mccmnc || "").trim()};
+  const profile = {country_iso:(draft.country_custom || draft.country_preset || "").toUpperCase(),
+    carrier_name:draft.carrier_custom || draft.carrier_preset || ""};
+  const mccmnc = String(draft.carrier_test_mccmnc || "").trim();
+  if (mccmnc) profile.carrier_test_mccmnc = mccmnc;
+  return profile;
 }
 function simPersistEditors() {
   storage.write("turboims-sim-editors",JSON.stringify(simEditorProfiles));
@@ -70,8 +72,9 @@ function simReconcileEditors(profiles) {
     const draft = simEditorProfiles[slot];
     const effective = draft ? simEffectiveProfile(Number(slot)) : null;
     const actual = {country_iso:String(saved.country_iso || "").toUpperCase(),
-      carrier_name:String(saved.carrier_name || ""),
-      carrier_test_mccmnc:String(saved.carrier_test_mccmnc || "")};
+      carrier_name:String(saved.carrier_name || "")};
+    const savedMccMnc = String(saved.carrier_test_mccmnc || "");
+    if (savedMccMnc) actual.carrier_test_mccmnc = savedMccMnc;
     if (!draft || effective.country_iso !== actual.country_iso || effective.carrier_name !== actual.carrier_name
         || effective.carrier_test_mccmnc !== actual.carrier_test_mccmnc) {
       const countryPreset = simCountries.some(([code]) => code === actual.country_iso);
