@@ -674,7 +674,7 @@ test("IMS home shows config and actual registration states separately",async()=>
   assert.equal(status[0].children[0].textContent,"SIM 卡 1");
   assert.equal(status[0].children[1].textContent,"已注册");
   assert.equal(status[1].children[1].textContent,"未注册");
-  assert.equal(elements.get("message").textContent,"IMS 配置已应用");
+  assert.equal(elements.get("message").textContent,"IMS 配置已验证");
   context.render({config:{...config,implementation_mode:"turboims"},status:{...config,implementation_mode:"turboims",
     config:{...config,implementation_mode:"turboims"},phase:"active",subscriptions:[{slot:0,sub_id:1,
       ims:{slot:0,sub_id:1,phase:"ims_registered",registered:true}}]}},true);
