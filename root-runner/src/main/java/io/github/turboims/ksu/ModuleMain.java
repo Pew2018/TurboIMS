@@ -131,7 +131,22 @@ public final class ModuleMain {
                 ? new FeatureConfig(true, config.periodicCheckEnabled, config.selection,
                         config.intervalSeconds, config.modes, config.simProfiles, config.implementationMode) : config;
         AndroidCarrierBackend backend = backend();
-        List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
+        List<CarrierBackend.Subscription> subscriptions;
+        // Read-only readiness gate: do not mutate test identity while the loader
+        // is still starting, and let the bounded boot policy retry absent Binders.
+        try {
+            backend.capabilities();
+            subscriptions = backend.subscriptions();
+            for (CarrierBackend.Subscription sub : subscriptions) {
+                if ((restore || effective.selects(sub.slot))
+                        && !Boolean.TRUE.equals(backend.read(sub.id).get(Engine.LOADED)))
+                    return waitingForFramework(config, "carrier_config_not_loaded");
+            }
+        } catch (IOException notReady) {
+            if (String.valueOf(notReady.getMessage()).startsWith("Binder service not ready:"))
+                return waitingForFramework(config, notReady.getMessage());
+            throw notReady;
+        }
         boolean carrierMode = "carrier_ims".equals(config.implementationMode);
         JSONArray overrideResults = new JSONArray();
         CarrierTestOverrideControl overrideControl = null;
@@ -343,6 +358,13 @@ public final class ModuleMain {
                 .put("carrier_test_override_results", overrideResults)
                 .put("config", JsonIO.config(config)).put("subscriptions", results)
                 .put("binder", new JSONObject(backend.capabilities()));
+    }
+
+    private static JSONObject waitingForFramework(FeatureConfig config, String reason) throws Exception {
+        return identity().put("ok", false).put("phase", "waiting").put("changed", false)
+                .put("write_readback_verified", false).put("requires_manual_retry", false)
+                .put("implementation_mode", config.implementationMode).put("config", JsonIO.config(config))
+                .put("reason", reason).put("subscriptions", new JSONArray());
     }
 
     private static void awaitCarrierIdentityReload(AndroidCarrierBackend backend, Set<Integer> ids)
