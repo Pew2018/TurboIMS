@@ -255,17 +255,17 @@ public final class ModuleMain {
             if (carrierMode && (entry.selected || restore)) {
                 JSONObject imsRow = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot);
                 try {
-                    if (!restore && entry.selected && entry.error != null) {
+                    if ((entry.selected || restore) && entry.error != null) {
                         imsFailure = true;
                         imsRow.put("phase", "carrier_config_failed")
                                 .put("registered", JSONObject.NULL)
                                 .put("error", String.valueOf(entry.error.getMessage()));
-                    } else if (!restore && entry.selected && overrideErrors.containsKey(sub.id)) {
+                    } else if ((entry.selected || restore) && overrideErrors.containsKey(sub.id)) {
                         imsFailure = true;
                         imsRow.put("phase", "carrier_test_override_failed")
                                 .put("registered", JSONObject.NULL)
                                 .put("error", overrideErrors.get(sub.id));
-                    } else if (!preview && entry.selected
+                    } else if (!preview && (entry.selected || restore)
                             && (entry.result == null
                             || !CarrierImsControl.isReadyForReset(entry.result.phase)
                             || !entry.result.unsupported.isEmpty()
@@ -304,9 +304,7 @@ public final class ModuleMain {
                             if (!row.optBoolean("final_readback_verified"))
                                 throw new Engine.VerificationException("Final CarrierConfig did not settle: " + finalConfig.phase);
                             finalConfigVerified = true;
-                            if (finalConfig.changed || !registration.registered) {
-                                registration = imsControl.awaitRegistered(sub.id, 20, 1000L);
-                            }
+                            registration = imsControl.awaitRegistered(sub.id, 20, 1000L);
                         }
                         imsRow.put("phase", registration.phase)
                                 .put("registered", registration.registered)
@@ -359,13 +357,16 @@ public final class ModuleMain {
                                                      Map<String, Object> desired) throws Exception {
         Engine.Result result = null;
         int stable = 0;
+        boolean changed = false;
         for (int i = 0; i < 24; i++) {
             Thread.sleep(250);
             result = engine.reconcile(sub, desired, true, true);
+            changed |= result.changed;
             if (!result.conflicts.isEmpty() || !result.unsupported.isEmpty()) return result;
             if (CarrierImsControl.isReadyForReset(result.phase) && !result.changed) stable++;
             else stable = 0;
-            if (stable >= 8) return result;
+            if (stable >= 8) return new Engine.Result(sub, result.phase, changed,
+                    result.unsupported, result.conflicts, result.effective);
         }
         throw new Engine.VerificationException("CarrierConfig did not remain stable for subId=" + sub.id);
     }
