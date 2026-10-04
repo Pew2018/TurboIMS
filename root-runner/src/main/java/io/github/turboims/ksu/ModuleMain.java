@@ -114,7 +114,8 @@ public final class ModuleMain {
         if (!HiddenApiBypass.addHiddenApiExemptions("Landroid/os/ServiceManager;",
                 "Lcom/android/internal/telephony/", "Landroid/os/SystemProperties;",
                 "Landroid/telephony/TelephonyFrameworkInitializer;",
-                "Landroid/telephony/TelephonyServiceManager;"))
+                "Landroid/telephony/TelephonyServiceManager;",
+                "Landroid/os/ServiceManager$ServiceRegisterer;"))
             throw new IllegalStateException("Hidden API access initialization failed");
         return new AndroidCarrierBackend();
     }
