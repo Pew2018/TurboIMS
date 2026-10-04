@@ -159,6 +159,17 @@ public class EngineTest {
         assertEquals(writes,f.writes);assertTrue(f.snapshot.owned.isEmpty());
         assertTrue(f.snapshot.pending.isEmpty());
     }
+    @Test public void knownCarrierIdentityReloadCanRebasePartialNativeProfile() throws Exception {
+        Fake f=new Fake(); String name="carrier_name_string"; f.values.put(name,"Native Carrier");
+        Map<String,Object> wanted=new LinkedHashMap<>();
+        wanted.put(KEY,true); wanted.put(name,"Chunghwa Telecom");
+        assertRun(f,"verified",wanted,true); f.values.remove(Engine.MARKER);
+        f.values.put(name,"中華電信");
+        Engine.Result result=f.engine("boot-b").reconcile(SUB,wanted,true,true);
+        assertEquals("verified",result.phase);
+        assertEquals("Chunghwa Telecom",f.values.get(name));
+        assertEquals("中華電信",f.snapshot.baseline.get(name));
+    }
     @Test public void lostMarkerDoesNotRebaseOnOurOwnModifiedValue() throws Exception {
         Fake f=new Fake();assertRun(f,"verified",on(),true);f.values.remove(Engine.MARKER);
         int writes=f.writes;assertRun(f,"ownership_lost",Map.of(),true);
@@ -173,13 +184,17 @@ public class EngineTest {
         assertEquals("boot-b",f.values.get(Engine.MARKER));
         assertEquals("boot-b",f.snapshot.session);
     }
-    @Test public void missingMarkerAfterRebootDoesNotReclaimModifiedValue() throws Exception {
+    @Test public void newBootApplyReassertsMarkerAndKeepsOriginalBaseline() throws Exception {
         Fake f=new Fake();
         assertEquals("verified",f.engine("boot-a").reconcile(SUB,on(),true).phase);
         f.values.remove(Engine.MARKER);
         Engine.Result result=f.engine("boot-b").reconcile(SUB,on(),true);
-        assertEquals("ownership_lost",result.phase);
+        assertEquals("verified",result.phase);
         assertEquals(true,f.values.get(KEY));
+        assertEquals("boot-b",f.values.get(Engine.MARKER));
+        assertEquals(false,f.snapshot.baseline.get(KEY));
+        assertEquals("restored",f.engine("boot-b").reconcile(SUB,Map.of(),true).phase);
+        assertEquals(false,f.values.get(KEY));
     }
     @Test public void mutationWithoutMarkerStopsForManualRecovery() throws Exception {
         Fake f=new Fake();f.dropMarker=true;
@@ -195,6 +210,47 @@ public class EngineTest {
         int saves=f.saves;
         assertRun(f,"preview",Map.of(),false);assertEquals(saves,f.saves);
         assertFalse(f.snapshot.pending.isEmpty());
+    }
+
+    @Test public void rebootMixedNativeProfileReappliesVoiceAndSimIdentity() throws Exception {
+        Fake f=new Fake();
+        String iso="sim_country_iso_override_string", name="carrier_name_string";
+        f.values.put(iso,"cn"); f.values.put(name,"China Mobile");
+        Map<String,Object> wanted=new LinkedHashMap<>(FeatureConfigTest.config(true,FeatureConfig.Mode.ON).desired());
+        wanted.put(iso,"tw"); wanted.put(name,"Chunghwa Telecom");
+        assertEquals("verified",f.engine("boot-a").reconcile(SUB,wanted,true).phase);
+        f.values.remove(Engine.MARKER);
+        f.values.put(iso,""); f.values.put(name,"中華電信");
+        f.values.put("hide_enhanced_4g_lte_bool",true);
+        Engine.Result r=f.engine("boot-b").reconcile(SUB,wanted,true);
+        assertEquals("verified",r.phase);
+        for(var e:wanted.entrySet()) assertTrue(FeatureConfig.same(e.getValue(),r.effective.get(e.getKey())));
+        assertEquals("",f.snapshot.baseline.get(iso));
+        assertEquals("中華電信",f.snapshot.baseline.get(name));
+        assertEquals("unchanged",f.engine("boot-b").reconcile(SUB,wanted,true).phase);
+    }
+    @Test public void sameBootNativeIdentityReloadKeepsOwnedRestorationBaseline() throws Exception {
+        Fake f=new Fake(); assertRun(f,"verified",on(),true); f.values.remove(Engine.MARKER);
+        Engine.Result r=f.engine().reconcile(SUB,on(),true,true);
+        assertEquals("verified",r.phase);
+        assertEquals(false,f.snapshot.baseline.get(KEY));
+        assertRun(f,"restored",Map.of(),true);
+        assertEquals(false,f.values.get(KEY));
+    }
+    @Test public void identityAuthorityCannotOverwriteForeignMarker() throws Exception {
+        Fake f=new Fake(); assertRun(f,"verified",on(),true);
+        f.values.put(Engine.MARKER,"foreign"); f.values.put(KEY,true);
+        int writes=f.writes;
+        assertEquals("ownership_lost",f.engine("boot-b").reconcile(SUB,on(),true,true).phase);
+        assertEquals(writes,f.writes);
+    }
+    @Test public void pendingWriteCannotBeRebasedAfterReload() throws Exception {
+        Fake f=new Fake(); f.throwAfter=true;
+        try { f.engine().reconcile(SUB,on(),true); fail(); } catch(IllegalStateException expected) {}
+        f.throwAfter=false; f.values.remove(Engine.MARKER);
+        int writes=f.writes;
+        assertEquals("ownership_lost",f.engine("boot-b").reconcile(SUB,on(),true,true).phase);
+        assertEquals(writes,f.writes); assertFalse(f.snapshot.pending.isEmpty());
     }
     private static void assertRun(Fake fake,String phase,Map<String,Object> desired,boolean write){
         try{assertEquals(phase,fake.engine().reconcile(SUB,desired,write).phase);}

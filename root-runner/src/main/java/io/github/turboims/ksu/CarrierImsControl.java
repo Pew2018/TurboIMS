@@ -49,16 +49,40 @@ public final class CarrierImsControl {
                 || "restored".equals(carrierConfigPhase);
     }
 
+    /** A freshly verified CarrierConfig override needs a short framework settle window. */
+    static long settleDelayMillis(String carrierConfigPhase, boolean changed) {
+        return changed && "verified".equals(carrierConfigPhase) ? 1500L : 0L;
+    }
+
     public boolean isRegistered(int subId) throws Exception {
         return Boolean.TRUE.equals(invoke(registeredMethod, telephony, subId));
     }
 
     public Registration resetAndAwait(int subId, int slot, int attempts, long intervalMs) {
+        return resetAndAwait(subId, slot, attempts, intervalMs, 0L);
+    }
+
+    public Registration resetAndAwait(int subId, int slot, int attempts, long intervalMs,
+                                      long settleDelayMillis) {
+        long settle = Math.max(0L, Math.min(5000L, settleDelayMillis));
+        if (settle > 0L) {
+            try { Thread.sleep(settle); }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new Registration(false, "ims_settle_interrupted",
+                        "CarrierConfig settle wait was interrupted");
+            }
+        }
         try {
             invoke(resetMethod, telephony, slot);
         } catch (Throwable error) {
             return new Registration(false, "ims_reset_failed", message(error));
         }
+        return awaitRegistered(subId, attempts, intervalMs);
+    }
+
+    /** Wait without resetting again after final CarrierConfig reconciliation. */
+    public Registration awaitRegistered(int subId, int attempts, long intervalMs) {
         for (int i = 0; i < attempts; i++) {
             try {
                 if (isRegistered(subId))
