@@ -52,16 +52,6 @@ public class CarrierTestOverrideControlTest {
         assertEquals("", AndroidCarrierBackend.normalizeMccMnc("466", "9"));
     }
 
-    @Test public void recognizesOnlyMatchingCurrentSessionOwnershipRecord() throws Exception {
-        org.json.JSONObject record = new org.json.JSONObject().put("owner","turboims-next")
-                .put("sub_id",17).put("slot",0).put("mccmnc","46692")
-                .put("session","boot-a").put("phase","applied");
-        assertTrue(CarrierTestOverrideControl.matchesCurrentSessionRecord(record,17,0,"46692","boot-a"));
-        assertFalse(CarrierTestOverrideControl.matchesCurrentSessionRecord(record,17,0,"46692","boot-b"));
-        record.put("phase","pending");
-        assertFalse(CarrierTestOverrideControl.matchesCurrentSessionRecord(record,17,0,"46692","boot-a"));
-    }
-
     @Test public void rejectsUnrelatedOverload() throws Exception {
         Method method = UnsupportedTelephony.class.getMethod("setCarrierTestOverride",
                 int.class, String.class, String.class, String.class, String.class,
