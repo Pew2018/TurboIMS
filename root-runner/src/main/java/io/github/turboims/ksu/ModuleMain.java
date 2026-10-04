@@ -308,7 +308,9 @@ public final class ModuleMain {
                                 registration = new CarrierImsControl.Registration(true, "ims_registered", "");
                             } else {
                                 long settleDelay = CarrierImsControl.settleDelayMillis(
-                                        entry.result.phase, entry.result.changed);
+                                        entry.result.phase,
+                                        entry.result.changed || !alreadyRegistered
+                                                || identityReloads.contains(sub.id));
                                 registration = imsControl.resetAndAwait(
                                         sub.id, sub.slot, 20, 1000L, settleDelay);
                             }
