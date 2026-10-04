@@ -137,7 +137,6 @@ public final class ModuleMain {
         AndroidCarrierBackend backend = backend();
         List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
         boolean carrierMode = "carrier_ims".equals(config.implementationMode);
-        JSONArray overrideResults = new JSONArray();
         CarrierTestOverrideControl overrideControl = null;
         if (!preview) {
             boolean hasOwnedOverride = subscriptions.stream()
