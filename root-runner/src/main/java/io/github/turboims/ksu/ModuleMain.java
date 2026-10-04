@@ -213,12 +213,6 @@ public final class ModuleMain {
             if (entry.selected && entry.error != null)
                 carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
         }
-        boolean imsFailure = false;
-        boolean imsUnregistered = false;
-        for (BatchRunner.Entry entry : report.entries) {
-            if (entry.selected && entry.error != null)
-                carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
-        }
         boolean imsOverrideFailure = !overrideErrors.isEmpty();
         JSONArray imsResults = new JSONArray();
         CarrierImsControl imsControl = null;
