@@ -159,6 +159,17 @@ public class EngineTest {
         assertEquals(writes,f.writes);assertTrue(f.snapshot.owned.isEmpty());
         assertTrue(f.snapshot.pending.isEmpty());
     }
+    @Test public void knownCarrierIdentityReloadCanRebasePartialNativeProfile() throws Exception {
+        Fake f=new Fake(); String name="carrier_name_string";
+        Map<String,Object> wanted=new LinkedHashMap<>();
+        wanted.put(KEY,true); wanted.put(name,"Chunghwa Telecom");
+        assertRun(f,"verified",wanted,true); f.values.remove(Engine.MARKER);
+        f.values.put(name,"中華電信");
+        Engine.Result result=f.engine("boot-b").reconcile(SUB,wanted,true,true);
+        assertEquals("verified",result.phase);
+        assertEquals("Chunghwa Telecom",f.values.get(name));
+        assertEquals("中華電信",f.snapshot.baseline.get(name));
+    }
     @Test public void lostMarkerDoesNotRebaseOnOurOwnModifiedValue() throws Exception {
         Fake f=new Fake();assertRun(f,"verified",on(),true);f.values.remove(Engine.MARKER);
         int writes=f.writes;assertRun(f,"ownership_lost",Map.of(),true);

@@ -154,48 +154,37 @@ public final class ModuleMain {
                 overrideControl = new CarrierTestOverrideControl(session);
         }
         Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
-        BatchRunner.Report report = BatchRunner.run(subscriptions, effective, engine, preview, restore);
-        JSONArray results = new JSONArray();
-        boolean imsFailure = false;
-        boolean imsUnregistered = false;
+        JSONArray overrideResults = new JSONArray();
         Map<Integer, String> overrideErrors = new HashMap<>();
-        Map<Integer, String> carrierConfigErrors = new HashMap<>();
-        for (BatchRunner.Entry entry : report.entries) {
-            if (entry.selected && entry.error != null)
-                carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
-        }
-        boolean configured = config.enabled || config.hasSimProfiles();
+        Set<Integer> knownModuleCarrierIdentityReload = new HashSet<>();
+        boolean carrierIdentityChanged = false;
+        boolean configured = effective.enabled || effective.hasSimProfiles();
+
+        // Set or clear our carrier-test identity before applying CarrierConfig:
+        // Android may asynchronously load a partial native profile after this call.
         if (!preview && overrideControl != null) {
             for (CarrierBackend.Subscription sub : subscriptions) {
-                if (!restore && carrierMode && configured && config.selects(sub.slot)
-                        && carrierConfigErrors.containsKey(sub.id)) {
-                    overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
-                            .put("phase", "skipped_carrier_config_failed")
-                            .put("error", carrierConfigErrors.get(sub.id)));
-                    continue;
-                }
                 try {
-                    FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
-                    String requestedMccMnc = profile == null ? "" : profile.carrierTestMccMnc.trim();
-                    boolean targetRequested = !requestedMccMnc.isEmpty();
+                    FeatureConfig.SimProfile profile = effective.simProfiles.get(sub.slot);
+                    String code = profile == null ? "" : profile.carrierTestMccMnc.trim();
+                    boolean wantsCode = !code.isEmpty();
+                    boolean selected = !restore && carrierMode && configured && config.selects(sub.slot);
                     if (CarrierTestOverrideControl.hasRecord(sub.id)
                             && (restore || !carrierMode || !configured
-                                    || !config.selects(sub.slot) || !targetRequested)) {
-                        String nativeMccMnc = backend.activeSubscriptionMccMnc(sub);
+                                    || !config.selects(sub.slot) || !wantsCode)) {
                         overrideResults.put(new JSONObject(overrideControl.clearOwned(
-                                sub.id, sub.slot, nativeMccMnc)));
-                    } else if (!restore && carrierMode && configured && config.selects(sub.slot)
-                            && targetRequested) {
-                        overrideResults.put(new JSONObject(overrideControl.apply(
-                                sub.id, sub.slot, requestedMccMnc)));
-                    } else if (!restore && carrierMode && configured && config.selects(sub.slot)
-                            && !targetRequested) {
-                        overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
-                                .put("mccmnc", "").put("phase", "not_requested_native_identity")
-                                .put("binder_accepted", false).put("request_accepted", false)
-                                .put("effective_identity_verification", "not_requested")
-                                .put("readback_available", false)
-                                .put("readback_verified", false));
+                                sub.id, sub.slot, backend.activeSubscriptionMccMnc(sub))));
+                        knownModuleCarrierIdentityReload.add(sub.id);
+                        carrierIdentityChanged = true;
+                    } else if (selected && wantsCode) {
+                        Map<String, Object> result = overrideControl.apply(sub.id, sub.slot, code);
+                        overrideResults.put(new JSONObject(result));
+                        if (overrideControl.isCurrentSessionOwned(sub.id, sub.slot, code))
+                            knownModuleCarrierIdentityReload.add(sub.id);
+                        if ("binder_accepted".equals(result.get("phase")))
+                            carrierIdentityChanged = true;
+                    } else if (selected) {
+                        overrideResults.put(nativeIdentityResult(sub));
                     }
                 } catch (Throwable error) {
                     String detail = String.valueOf(error.getMessage());
@@ -203,23 +192,35 @@ public final class ModuleMain {
                     overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                             .put("phase", "apply_failed").put("binder_accepted", false)
                             .put("request_accepted", false)
-                            .put("effective_identity_verification", "unavailable")
-                            .put("error", detail));
+                            .put("effective_identity_verification", "unavailable").put("error", detail));
                     log("subId=" + sub.id + " carrier test override ERROR " + detail);
                 }
             }
         } else if (!preview && carrierMode && configured) {
             for (CarrierBackend.Subscription sub : subscriptions) {
-                FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
-                if (config.selects(sub.slot) && (profile == null || profile.carrierTestMccMnc.trim().isEmpty())) {
-                    overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
-                            .put("mccmnc", "").put("phase", "not_requested_native_identity")
-                            .put("binder_accepted", false).put("request_accepted", false)
-                            .put("effective_identity_verification", "not_requested")
-                            .put("readback_available", false)
-                            .put("readback_verified", false));
-                }
+                FeatureConfig.SimProfile profile = effective.simProfiles.get(sub.slot);
+                if (config.selects(sub.slot) && (profile == null || profile.carrierTestMccMnc.trim().isEmpty()))
+                    overrideResults.put(nativeIdentityResult(sub));
             }
+        }
+        if (carrierIdentityChanged) awaitCarrierIdentityReload(backend, knownModuleCarrierIdentityReload);
+        BatchRunner.Report report = BatchRunner.run(subscriptions, effective, engine, preview, restore,
+                knownModuleCarrierIdentityReload::contains);
+        JSONArray results = new JSONArray();
+        boolean imsFailure = false;
+        boolean imsUnregistered = false;
+        Map<Integer, String> carrierConfigErrors = new HashMap<>();
+        for (BatchRunner.Entry entry : report.entries) {
+            if (entry.selected && entry.error != null)
+                carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
+        }
+        boolean imsFailure = false;
+        boolean imsUnregistered = false;
+        Map<Integer, String> overrideErrors = new HashMap<>();
+        Map<Integer, String> carrierConfigErrors = new HashMap<>();
+        for (BatchRunner.Entry entry : report.entries) {
+            if (entry.selected && entry.error != null)
+                carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
         }
         boolean imsOverrideFailure = !overrideErrors.isEmpty();
         JSONArray imsResults = new JSONArray();
@@ -320,6 +321,33 @@ public final class ModuleMain {
                 .put("config", JsonIO.config(config)).put("subscriptions", results)
                 .put("binder", new JSONObject(backend.capabilities()));
     }
+
+    private static JSONObject nativeIdentityResult(CarrierBackend.Subscription sub) {
+        return new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
+                .put("mccmnc", "").put("phase", "not_requested_native_identity")
+                .put("binder_accepted", false).put("request_accepted", false)
+                .put("effective_identity_verification", "not_requested")
+                .put("readback_available", false).put("readback_verified", false);
+    }
+
+    private static void awaitCarrierIdentityReload(AndroidCarrierBackend backend,
+                                                   Set<Integer> affectedSubIds)
+            throws InterruptedException {
+        if (affectedSubIds.isEmpty()) return;
+        // CarrierConfig can say LOADED while the selected profile is still rebuilding.
+        // Keep the settling window bounded so boot cannot stall indefinitely.
+        for (int attempt = 0; attempt < 12; attempt++) {
+            for (int subId : affectedSubIds) {
+                try { backend.read(subId); }
+                catch (Throwable error) {
+                    log("CarrierConfig settling read failed for subId=" + subId + ": "
+                            + String.valueOf(error.getMessage()));
+                }
+            }
+            if (attempt + 1 < 12) Thread.sleep(250);
+        }
+    }
+
 
     /**
      * Read-only SIM status for the Settings card.

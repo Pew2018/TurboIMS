@@ -59,6 +59,24 @@ public final class CarrierTestOverrideControl {
         return Files.exists(JsonIO.STATE.resolve("carrier-test-override-" + subId + ".json"));
     }
 
+    /** Confirms only this boot's matching record; it is not a carrier identity read-back. */
+    public boolean isCurrentSessionOwned(int subId, int slot, String mccmnc) throws Exception {
+        Path path = path(subId);
+        return Files.exists(path)
+                && matchesCurrentSessionRecord(JsonIO.read(path), subId, slot, mccmnc, session);
+    }
+
+    static boolean matchesCurrentSessionRecord(JSONObject record, int subId, int slot,
+                                               String mccmnc, String session) {
+        return record != null
+                && OWNER.equals(record.optString("owner"))
+                && record.optInt("sub_id", -1) == subId
+                && record.optInt("slot", -1) == slot
+                && mccmnc.equals(record.optString("mccmnc"))
+                && session.equals(record.optString("session"))
+                && "applied".equals(record.optString("phase"));
+    }
+
     public Map<String, Object> apply(int subId, int slot, String mccmnc) throws Exception {
         if (!isValidMccMnc(mccmnc))
             throw new IllegalArgumentException("Carrier test MCC/MNC must contain 5 or 6 digits");

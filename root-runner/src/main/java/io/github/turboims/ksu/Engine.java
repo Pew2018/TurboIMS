@@ -52,11 +52,16 @@ public final class Engine {
     }
 
     private static boolean canRebaseAfterCarrierReload(Map<String, Object> current,
-                                                       Snapshot old) {
+                                                       Snapshot old,
+                                                       boolean knownModuleCarrierIdentityReload) {
         // A different TurboIMS session still owns the visible override. Never
         // reclaim it merely because the persisted snapshot belongs to this process.
         if (current.containsKey(MARKER) || !old.pending.isEmpty() || old.owned.isEmpty())
             return false;
+        // Android can reload a partial carrier profile after this module changes
+        // Carrier test identity. This exception remains limited to that matching
+        // module-owned operation in the same boot; foreign marker loss is blocked.
+        if (knownModuleCarrierIdentityReload) return true;
         for (var entry : old.owned.entrySet()) {
             if (FeatureConfig.same(current.get(entry.getKey()), entry.getValue()))
                 return false;
@@ -66,6 +71,11 @@ public final class Engine {
 
     public Result reconcile(CarrierBackend.Subscription sub, Map<String, Object> requested,
                             boolean allowWrite) throws Exception {
+        return reconcile(sub, requested, allowWrite, false);
+    }
+
+    public Result reconcile(CarrierBackend.Subscription sub, Map<String, Object> requested,
+                            boolean allowWrite, boolean knownModuleCarrierIdentityReload) throws Exception {
         Map<String, Object> current = backend.read(sub.id);
         if (!Boolean.TRUE.equals(current.get(LOADED)))
             return new Result(sub, "waiting", false, List.of(), List.of(), current);
@@ -103,7 +113,8 @@ public final class Engine {
                 List<String> lost = new ArrayList<>();
                 for (String key : tracked)
                     if (!FeatureConfig.same(current.get(key), old.baseline.get(key))) lost.add(key);
-                if (!lost.isEmpty() && !canRebaseAfterCarrierReload(current, old))
+                if (!lost.isEmpty() && !canRebaseAfterCarrierReload(current, old,
+                        knownModuleCarrierIdentityReload))
                     return new Result(sub, "ownership_lost", false, List.of(), lost, current);
                 // A reload can discard the complete non-persistent override and also
                 // change the carrier's native baseline. Rebase only when the marker
