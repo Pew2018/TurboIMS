@@ -49,9 +49,14 @@ public final class CarrierImsControl {
                 || "restored".equals(carrierConfigPhase);
     }
 
-    /** A freshly verified CarrierConfig override needs a short framework settle window. */
-    static long settleDelayMillis(String carrierConfigPhase, boolean changed) {
-        return changed && "verified".equals(carrierConfigPhase) ? 1500L : 0L;
+    /**
+     * CarrierConfig can already be unchanged while IMS is still using the previous
+     * framework state (for example after a boot-time carrier reload). A reset that
+     * follows a verified/unchanged/restored state therefore still needs a short
+     * settle window whenever the caller knows that registration must be retried.
+     */
+    static long settleDelayMillis(String carrierConfigPhase, boolean needsReset) {
+        return needsReset && isReadyForReset(carrierConfigPhase) ? 1500L : 0L;
     }
 
     public boolean isRegistered(int subId) throws Exception {
