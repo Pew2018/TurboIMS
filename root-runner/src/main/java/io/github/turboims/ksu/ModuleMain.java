@@ -313,7 +313,7 @@ public final class ModuleMain {
                 .put("binder", new JSONObject(backend.capabilities()));
     }
 
-    private static JSONObject nativeIdentityResult(CarrierBackend.Subscription sub) {
+    private static JSONObject nativeIdentityResult(CarrierBackend.Subscription sub) throws Exception {
         return new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                 .put("mccmnc", "").put("phase", "not_requested_native_identity")
                 .put("binder_accepted", false).put("request_accepted", false)
@@ -323,7 +323,7 @@ public final class ModuleMain {
 
     private static void awaitCarrierIdentityReload(AndroidCarrierBackend backend,
                                                    Set<Integer> affectedSubIds)
-            throws InterruptedException {
+            throws Exception {
         if (affectedSubIds.isEmpty()) return;
         // CarrierConfig can say LOADED while the selected profile is still rebuilding.
         // Keep the settling window bounded so boot cannot stall indefinitely.
