@@ -123,6 +123,20 @@ public final class CarrierTestOverrideControl {
         return mccmnc != null && mccmnc.matches("[0-9]{5,6}");
     }
 
+    /**
+     * The reference Carrier IMS implementation changes only the country MCC and
+     * preserves the physical SIM's MNC. Replacing the full MCC/MNC (for example,
+     * 46001 -> 46692) selects a foreign carrier identity and can prevent the real
+     * operator's IMS credentials from registering.
+     */
+    static String preserveNativeMnc(String requestedMccMnc, String nativeMccMnc) {
+        if (!isValidMccMnc(requestedMccMnc))
+            throw new IllegalArgumentException("Requested Carrier test MCC/MNC is invalid");
+        if (!isValidMccMnc(nativeMccMnc))
+            throw new IllegalArgumentException("Native SIM MCC/MNC is unavailable");
+        return requestedMccMnc.substring(0, 3) + nativeMccMnc.substring(3);
+    }
+
     private void set(int subId, String code) throws Exception {
         invoke(setMethod, telephony, subId, code, "", "", "", "", "", "", null, null);
     }

@@ -114,7 +114,8 @@ public final class ModuleMain {
         if (!HiddenApiBypass.addHiddenApiExemptions("Landroid/os/ServiceManager;",
                 "Lcom/android/internal/telephony/", "Landroid/os/SystemProperties;",
                 "Landroid/telephony/TelephonyFrameworkInitializer;",
-                "Landroid/telephony/TelephonyServiceManager;"))
+                "Landroid/telephony/TelephonyServiceManager;",
+                "Landroid/os/ServiceManager$ServiceRegisterer;"))
             throw new IllegalStateException("Hidden API access initialization failed");
         return new AndroidCarrierBackend();
     }
@@ -206,8 +207,15 @@ public final class ModuleMain {
                         identityReloads.add(sub.id);
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && targetRequested) {
-                        overrideResults.put(new JSONObject(overrideControl.apply(
-                                sub.id, sub.slot, requestedMccMnc)));
+                        String nativeMccMnc = backend.activeSubscriptionMccMnc(sub);
+                        String effectiveMccMnc = CarrierTestOverrideControl.preserveNativeMnc(
+                                requestedMccMnc, nativeMccMnc);
+                        Map<String, Object> overrideResult = overrideControl.apply(
+                                sub.id, sub.slot, effectiveMccMnc);
+                        overrideResult.put("requested_country_mcc",
+                                requestedMccMnc.substring(0, 3));
+                        overrideResult.put("native_mnc_preserved", true);
+                        overrideResults.put(new JSONObject(overrideResult));
                         identityReloads.add(sub.id);
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && !targetRequested) {
@@ -308,7 +316,9 @@ public final class ModuleMain {
                                 registration = new CarrierImsControl.Registration(true, "ims_registered", "");
                             } else {
                                 long settleDelay = CarrierImsControl.settleDelayMillis(
-                                        entry.result.phase, entry.result.changed);
+                                        entry.result.phase,
+                                        entry.result.changed || !alreadyRegistered
+                                                || identityReloads.contains(sub.id));
                                 registration = imsControl.resetAndAwait(
                                         sub.id, sub.slot, 20, 1000L, settleDelay);
                             }
