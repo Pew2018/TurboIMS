@@ -23,11 +23,15 @@ public final class CarrierImsControl {
     private final Object telephony;
     private final Method registeredMethod;
     private final Method resetMethod;
+    private final String serviceSource;
 
     public CarrierImsControl() throws Exception {
-        Class<?> sm = Class.forName("android.os.ServiceManager");
-        IBinder binder = (IBinder) invoke(sm.getMethod("getService", String.class),
-                null, "phone");
+        IBinder binder = frameworkTelephonyBinder();
+        serviceSource = binder != null ? "telephony_framework" : "service_manager_phone";
+        if (binder == null) {
+            Class<?> sm = Class.forName("android.os.ServiceManager");
+            binder = (IBinder) invoke(sm.getMethod("getService", String.class), null, "phone");
+        }
         if (binder == null || !binder.pingBinder())
             throw new java.io.IOException("Telephony Binder service is unavailable");
         Class<?> api = Class.forName("com.android.internal.telephony.ITelephony");
@@ -38,16 +42,47 @@ public final class CarrierImsControl {
         resetMethod = api.getMethod("resetIms", int.class);
     }
 
+    public String serviceSource() { return serviceSource; }
+
+    static boolean isReadyForReset(String carrierConfigPhase) {
+        return "verified".equals(carrierConfigPhase) || "unchanged".equals(carrierConfigPhase)
+                || "restored".equals(carrierConfigPhase);
+    }
+
+    /** A freshly verified CarrierConfig override needs a short framework settle window. */
+    static long settleDelayMillis(String carrierConfigPhase, boolean changed) {
+        return changed && "verified".equals(carrierConfigPhase) ? 1500L : 0L;
+    }
+
     public boolean isRegistered(int subId) throws Exception {
         return Boolean.TRUE.equals(invoke(registeredMethod, telephony, subId));
     }
 
     public Registration resetAndAwait(int subId, int slot, int attempts, long intervalMs) {
+        return resetAndAwait(subId, slot, attempts, intervalMs, 0L);
+    }
+
+    public Registration resetAndAwait(int subId, int slot, int attempts, long intervalMs,
+                                      long settleDelayMillis) {
+        long settle = Math.max(0L, Math.min(5000L, settleDelayMillis));
+        if (settle > 0L) {
+            try { Thread.sleep(settle); }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new Registration(false, "ims_settle_interrupted",
+                        "CarrierConfig settle wait was interrupted");
+            }
+        }
         try {
             invoke(resetMethod, telephony, slot);
         } catch (Throwable error) {
             return new Registration(false, "ims_reset_failed", message(error));
         }
+        return awaitRegistered(subId, attempts, intervalMs);
+    }
+
+    /** Wait without resetting again after final CarrierConfig reconciliation. */
+    public Registration awaitRegistered(int subId, int attempts, long intervalMs) {
         for (int i = 0; i < attempts; i++) {
             try {
                 if (isRegistered(subId))
@@ -65,6 +100,27 @@ public final class CarrierImsControl {
         }
         return new Registration(false, "ims_not_registered",
                 "IMS did not report registered before the bounded polling deadline");
+    }
+
+    /**
+     * Android 17's reference implementation resolves ITelephony through the
+     * framework service registerer. Older vendor images may not expose it to this
+     * process, so retain the established ServiceManager("phone") fallback.
+     */
+    private static IBinder frameworkTelephonyBinder() {
+        try {
+            Class<?> initializer = Class.forName("android.telephony.TelephonyFrameworkInitializer");
+            Object manager = initializer.getMethod("getTelephonyServiceManager").invoke(null);
+            if (manager == null) return null;
+            Object registerer = manager.getClass().getMethod("getTelephonyServiceRegisterer")
+                    .invoke(manager);
+            if (registerer == null) return null;
+            Object binder = registerer.getClass().getMethod("get").invoke(registerer);
+            return binder instanceof IBinder && ((IBinder) binder).pingBinder()
+                    ? (IBinder) binder : null;
+        } catch (Throwable unavailable) {
+            return null;
+        }
     }
 
     private static String message(Throwable error) {

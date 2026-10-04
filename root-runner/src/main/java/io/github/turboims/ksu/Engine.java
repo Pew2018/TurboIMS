@@ -51,14 +51,39 @@ public final class Engine {
         this.backend = backend; this.store = store; this.session = session; this.sleeper = sleeper;
     }
 
+    private static boolean canRebaseAfterCarrierReload(Map<String, Object> current,
+                                                       Snapshot old,
+                                                       boolean knownModuleCarrierIdentityReload, boolean newBootApply) {
+        // A different TurboIMS session still owns the visible override. Never
+        // reclaim it merely because the persisted snapshot belongs to this process.
+        if (current.containsKey(MARKER) || !old.pending.isEmpty() || old.owned.isEmpty())
+            return false;
+        // Reapply nonpersistent settings on a new boot, or after this operation's
+        // identity/IMS reload. Restoration alone never grants this authority.
+        // Foreign markers and interrupted transactions remain blocked.
+        if (knownModuleCarrierIdentityReload || newBootApply) return true;
+        for (var entry : old.owned.entrySet()) {
+            if (FeatureConfig.same(current.get(entry.getKey()), entry.getValue()))
+                return false;
+        }
+        return true;
+    }
+
     public Result reconcile(CarrierBackend.Subscription sub, Map<String, Object> requested,
                             boolean allowWrite) throws Exception {
+        return reconcile(sub, requested, allowWrite, false);
+    }
+
+    public Result reconcile(CarrierBackend.Subscription sub, Map<String, Object> requested,
+                            boolean allowWrite, boolean knownModuleCarrierIdentityReload) throws Exception {
         Map<String, Object> current = backend.read(sub.id);
         if (!Boolean.TRUE.equals(current.get(LOADED)))
             return new Result(sub, "waiting", false, List.of(), List.of(), current);
         Snapshot old = store.load(sub.id);
-        boolean ours = old != null && session.equals(old.session)
-                && session.equals(current.get(MARKER));
+        // A non-persistent CarrierConfig override can survive long enough to be
+        // observed after reboot. Its marker is paired with the persisted snapshot,
+        // not with the current boot ID, so ownership remains explicit across boots.
+        boolean ours = old != null && old.session.equals(current.get(MARKER));
         Map<String, Object> baseline = new LinkedHashMap<>();
         Map<String, Object> previous = new LinkedHashMap<>();
         if (ours) {
@@ -82,19 +107,32 @@ public final class Engine {
                 }
             }
         } else {
-            if (old != null && session.equals(old.session)
-                    && (!old.owned.isEmpty() || !old.pending.isEmpty())) {
+            if (old != null && (!old.owned.isEmpty() || !old.pending.isEmpty())) {
                 Set<String> tracked = new LinkedHashSet<>(old.owned.keySet());
                 tracked.addAll(old.pending.keySet());
                 List<String> lost = new ArrayList<>();
                 for (String key : tracked)
                     if (!FeatureConfig.same(current.get(key), old.baseline.get(key))) lost.add(key);
-                if (!lost.isEmpty())
+                if (!lost.isEmpty() && !canRebaseAfterCarrierReload(current, old,
+                        knownModuleCarrierIdentityReload,
+                        allowWrite && !requested.isEmpty() && !session.equals(old.session)))
                     return new Result(sub, "ownership_lost", false, List.of(), lost, current);
-                // All tracked values returned to baseline, e.g. after a carrier reload.
+                // A new boot or our own identity/IMS operation can leave a mixed
+                // native profile. Preserve old restoration baselines for matching
+                // owned values while adopting genuinely changed native values.
             }
-            for (String key : FeatureConfig.knownKeys())
-                if (current.containsKey(key)) baseline.put(key, current.get(key));
+            for (String key : FeatureConfig.knownKeys()) {
+                if (!current.containsKey(key)) continue;
+                // A native profile may coincidentally equal a former override.
+                // Retain the original restoration baseline for those values instead
+                // of adopting our own value as the new baseline.
+                if (old != null && old.pending.isEmpty() && old.owned.containsKey(key)
+                        && FeatureConfig.same(current.get(key), old.owned.get(key))
+                        && old.baseline.containsKey(key)) {
+                    baseline.put(key, old.baseline.get(key));
+                    previous.put(key, old.owned.get(key));
+                } else baseline.put(key, current.get(key));
+            }
         }
         Map<String, Object> desired = new LinkedHashMap<>();
         List<String> unsupported = new ArrayList<>(), conflicts = new ArrayList<>();
@@ -134,7 +172,13 @@ public final class Engine {
         }
         if (!allowWrite)
             return new Result(sub, "preview", false, unsupported, conflicts, current);
+        if (!ours && !previous.isEmpty() && !desired.isEmpty() && conflicts.isEmpty())
+            payload.putAll(desired); // Reassert the lost marker with preserved restoration ownership.
         if (!payload.isEmpty()) {
+            // Verify the complete requested bundle, including values already equal
+            // to the native carrier profile, before declaring the operation ready.
+            for (var entry : desired.entrySet())
+                if (!conflicts.contains(entry.getKey())) payload.put(entry.getKey(), entry.getValue());
             // Snapshot BEFORE mutation; a crash/failure must still leave a recovery record.
             store.save(sub.id, new Snapshot(session, baseline, previous, payload));
             payload.put(MARKER, session);
@@ -153,8 +197,13 @@ public final class Engine {
             if (!verified) throw new VerificationException(
                     "CarrierConfig read-back mismatch for subId=" + sub.id);
         }
-        if (ours || !payload.isEmpty())
-            store.save(sub.id, new Snapshot(session, baseline, nextOwned));
+        if (ours || !payload.isEmpty()) {
+            // Keep the stored owner token aligned with the marker that is actually
+            // present. A changed payload writes this boot's marker; an unchanged
+            // cross-boot reconciliation deliberately retains the prior marker.
+            String ownerToken = !payload.isEmpty() ? session : old.session;
+            store.save(sub.id, new Snapshot(ownerToken, baseline, nextOwned));
+        }
         String phase = !conflicts.isEmpty() ? "conflict" :
                 (!payload.isEmpty() ? (desired.isEmpty() ? "restored" : "verified") : "unchanged");
         return new Result(sub, phase, !payload.isEmpty(), unsupported, conflicts, current);
