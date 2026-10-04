@@ -131,6 +131,37 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - 检查 VoLTE、VoWiFi 选项是否可见
 - 拨打测试电话验证功能
 
+
+## 🧹 彻底清理状态（卸载/重装）
+
+如果全新安装后没有执行开机自动配置，或者诊断中出现 `ownership_lost`、`blocked`、旧 snapshot 冲突或 `Another runner operation is busy`，请执行一次彻底清理。普通卸载会**有意保留** `/data/adb/turboims-next` 下的配置和诊断文件，方便排查恢复问题，因此仅卸载再安装可能继续使用旧的所有权快照。
+
+1. 在 KernelSU Next 中停用 TurboIMS Next，然后先重启一次，让 Android 清除非持久 CarrierConfig 覆盖。
+2. 在模块已停用的情况下卸载模块。
+3. 使用 root shell 显式删除旧状态文件：
+
+```sh
+su -c '
+STATE=/data/adb/turboims-next
+rm -f \
+  "$STATE"/config.json \
+  "$STATE"/snapshot-*.json \
+  "$STATE"/blocked.json \
+  "$STATE"/status.json \
+  "$STATE"/watcher.json \
+  "$STATE"/operation.lock \
+  "$STATE"/daemon.lock \
+  "$STATE"/launcher.log \
+  "$STATE"/runner.log
+'
+```
+
+4. 安装当前模块 ZIP，重启，打开 WebUI，重新开启“开机自动应用”，保存 SIM/功能设置，再重启一次验证首次开机任务。
+
+这会同时删除已保存的设置、所有权快照、锁文件、状态文件和日志；第 3 步之后必须重新配置 TurboIMS Next。不要对 `/data/adb` 或模块目录使用宽泛的 `rm -rf`。如果还需要保留诊断信息，请在清理前先复制 `launcher.log`、`runner.log` 和 `status.json`。
+
+验证方式：下一次开机后检查 `/data/adb/turboims-next/status.json`。成功运行后不应重新生成 `blocked.json`，状态应显示当前选中 SIM 已 `verified` 或 `active`。如果开机时 CarrierConfig 仍未就绪，请等 SIM 和运营商服务就绪后再手动重试。
+
 ## 🛠️ 技术细节
 
 ### 架构
