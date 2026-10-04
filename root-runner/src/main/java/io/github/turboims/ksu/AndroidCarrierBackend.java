@@ -81,30 +81,8 @@ public final class AndroidCarrierBackend implements CarrierBackend {
      */
     public Map<String, String> simIdentity(CarrierBackend.Subscription sub) {
         Map<String, String> result = new LinkedHashMap<>();
-        String country = propertyAtSlot("gsm.sim.operator.iso-country", sub.slot);
-        String carrier = propertyAtSlot("gsm.sim.operator.alpha", sub.slot);
-        // Some Pixel/vendor builds leave gsm.sim.operator.alpha empty after a
-        // CarrierConfig override even though the effective framework config is
-        // correct. Use that verified value for status/UI reporting only; this
-        // remains read-only and never becomes a restoration source.
-        try {
-            Map<String, Object> effective = read(sub.id);
-            if (country.trim().isEmpty()) {
-                Object value = effective.get("sim_country_iso_override_string");
-                if (value instanceof String && !((String) value).trim().isEmpty())
-                    country = (String) value;
-            }
-            if (carrier.trim().isEmpty()
-                    && Boolean.TRUE.equals(effective.get("carrier_name_override_bool"))) {
-                Object value = effective.get("carrier_name_string");
-                if (value instanceof String && !((String) value).trim().isEmpty())
-                    carrier = (String) value;
-            }
-        } catch (Throwable ignored) {
-            // Keep raw SIM properties when CarrierConfig is temporarily unavailable.
-        }
-        result.put("country_iso", country.toUpperCase(Locale.ROOT));
-        result.put("carrier_name", carrier);
+        result.put("country_iso", propertyAtSlot("gsm.sim.operator.iso-country", sub.slot).toUpperCase(Locale.ROOT));
+        result.put("carrier_name", propertyAtSlot("gsm.sim.operator.alpha", sub.slot));
         return result;
     }
 

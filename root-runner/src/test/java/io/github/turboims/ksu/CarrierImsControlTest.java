@@ -15,11 +15,4 @@ public class CarrierImsControlTest {
         assertFalse(CarrierImsControl.isReadyForReset("partial"));
         assertFalse(CarrierImsControl.isReadyForReset(null));
     }
-    @Test public void changedVerifiedConfigGetsFrameworkSettleWindow() {
-        assertEquals(1500L, CarrierImsControl.settleDelayMillis("verified", true));
-        assertEquals(1500L, CarrierImsControl.settleDelayMillis("unchanged", true));
-        assertEquals(1500L, CarrierImsControl.settleDelayMillis("restored", true));
-        assertEquals(0L, CarrierImsControl.settleDelayMillis("verified", false));
-    }
-
 }

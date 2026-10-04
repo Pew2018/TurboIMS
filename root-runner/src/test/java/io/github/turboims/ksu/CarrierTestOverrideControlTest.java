@@ -52,18 +52,6 @@ public class CarrierTestOverrideControlTest {
         assertEquals("", AndroidCarrierBackend.normalizeMccMnc("466", "9"));
     }
 
-    @Test public void countryOverridePreservesPhysicalSimMnc() {
-        assertEquals("46601",
-                CarrierTestOverrideControl.preserveNativeMnc("46692", "46001"));
-        assertEquals("310260",
-                CarrierTestOverrideControl.preserveNativeMnc("310999", "460260"));
-    }
-
-    @Test(expected = IllegalArgumentException.class)
-    public void countryOverrideRejectsUnavailableNativeIdentity() {
-        CarrierTestOverrideControl.preserveNativeMnc("46692", "");
-    }
-
     @Test public void rejectsUnrelatedOverload() throws Exception {
         Method method = UnsupportedTelephony.class.getMethod("setCarrierTestOverride",
                 int.class, String.class, String.class, String.class, String.class,

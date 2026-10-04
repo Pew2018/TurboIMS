@@ -93,16 +93,11 @@ public final class ModuleMain {
             if (result.has("ok") && !result.getBoolean("ok")) code = 2;
         } catch (Throwable e) {
             try {
-                boolean busy = "Another runner operation is busy".equals(String.valueOf(e.getMessage()));
-                JSONObject result = error(e).put("phase", busy ? "busy" : "error")
-                        .put("requires_manual_retry", !busy);
+                JSONObject result = error(e);
                 System.out.println(result.toString());
-                // A rejected manual request must not overwrite the last completed
-                // watcher result. Otherwise status hides the actual IMS failure
-                // behind a misleading operation-lock error.
                 if (module != null && Files.isDirectory(JsonIO.STATE)) {
-                    if (!busy) JsonIO.write(STATUS, result);
-                    log((busy ? "BUSY " : "ERROR ") + result.optString("error"));
+                    JsonIO.write(STATUS, result);
+                    log("ERROR " + result.optString("error"));
                 }
             } catch (Throwable ignored) { System.err.println(e.toString()); }
             code = 1;
@@ -114,8 +109,7 @@ public final class ModuleMain {
         if (!HiddenApiBypass.addHiddenApiExemptions("Landroid/os/ServiceManager;",
                 "Lcom/android/internal/telephony/", "Landroid/os/SystemProperties;",
                 "Landroid/telephony/TelephonyFrameworkInitializer;",
-                "Landroid/telephony/TelephonyServiceManager;",
-                "Landroid/os/ServiceManager$ServiceRegisterer;"))
+                "Landroid/telephony/TelephonyServiceManager;"))
             throw new IllegalStateException("Hidden API access initialization failed");
         return new AndroidCarrierBackend();
     }
@@ -137,22 +131,7 @@ public final class ModuleMain {
                 ? new FeatureConfig(true, config.periodicCheckEnabled, config.selection,
                         config.intervalSeconds, config.modes, config.simProfiles, config.implementationMode) : config;
         AndroidCarrierBackend backend = backend();
-        List<CarrierBackend.Subscription> subscriptions;
-        // Read-only readiness gate: do not mutate test identity while the loader
-        // is still starting, and let the bounded boot policy retry absent Binders.
-        try {
-            backend.capabilities();
-            subscriptions = backend.subscriptions();
-            for (CarrierBackend.Subscription sub : subscriptions) {
-                if ((restore || effective.selects(sub.slot))
-                        && !Boolean.TRUE.equals(backend.read(sub.id).get(Engine.LOADED)))
-                    return waitingForFramework(config, "carrier_config_not_loaded");
-            }
-        } catch (IOException notReady) {
-            if (String.valueOf(notReady.getMessage()).startsWith("Binder service not ready:"))
-                return waitingForFramework(config, notReady.getMessage());
-            throw notReady;
-        }
+        List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
         boolean carrierMode = "carrier_ims".equals(config.implementationMode);
         JSONArray overrideResults = new JSONArray();
         CarrierTestOverrideControl overrideControl = null;
@@ -173,8 +152,6 @@ public final class ModuleMain {
         Engine engine = new Engine(backend, new JsonIO(), session, () -> Thread.sleep(200));
         BatchRunner.Report report = BatchRunner.run(subscriptions, effective, engine, preview, restore);
         JSONArray results = new JSONArray();
-        boolean finalConfigChanged = false;
-        boolean finalConfigVerified = false;
         boolean imsFailure = false;
         boolean imsUnregistered = false;
         Map<Integer, String> overrideErrors = new HashMap<>();
@@ -183,8 +160,7 @@ public final class ModuleMain {
             if (entry.selected && entry.error != null)
                 carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
         }
-        boolean configured = effective.enabled || effective.hasSimProfiles();
-        Set<Integer> identityReloads = new HashSet<>();
+        boolean configured = config.enabled || config.hasSimProfiles();
         if (!preview && overrideControl != null) {
             for (CarrierBackend.Subscription sub : subscriptions) {
                 if (!restore && carrierMode && configured && config.selects(sub.slot)
@@ -204,19 +180,10 @@ public final class ModuleMain {
                         String nativeMccMnc = backend.activeSubscriptionMccMnc(sub);
                         overrideResults.put(new JSONObject(overrideControl.clearOwned(
                                 sub.id, sub.slot, nativeMccMnc)));
-                        identityReloads.add(sub.id);
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && targetRequested) {
-                        String nativeMccMnc = backend.activeSubscriptionMccMnc(sub);
-                        String effectiveMccMnc = CarrierTestOverrideControl.preserveNativeMnc(
-                                requestedMccMnc, nativeMccMnc);
-                        Map<String, Object> overrideResult = overrideControl.apply(
-                                sub.id, sub.slot, effectiveMccMnc);
-                        overrideResult.put("requested_country_mcc",
-                                requestedMccMnc.substring(0, 3));
-                        overrideResult.put("native_mnc_preserved", true);
-                        overrideResults.put(new JSONObject(overrideResult));
-                        identityReloads.add(sub.id);
+                        overrideResults.put(new JSONObject(overrideControl.apply(
+                                sub.id, sub.slot, requestedMccMnc)));
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && !targetRequested) {
                         overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
@@ -243,13 +210,6 @@ public final class ModuleMain {
                             .put("readback_verified", false));
                 }
             }
-        }
-        // Match #193/reference ordering, then settle and reconcile again because
-        // Carrier test identity can asynchronously invalidate CarrierConfig.
-        if (!preview && !identityReloads.isEmpty()) {
-            awaitCarrierIdentityReload(backend, identityReloads);
-            report = BatchRunner.run(subscriptions, effective, engine, false, restore,
-                    sub -> identityReloads.contains(sub.id));
         }
         boolean imsOverrideFailure = !overrideErrors.isEmpty();
         JSONArray imsResults = new JSONArray();
@@ -283,17 +243,17 @@ public final class ModuleMain {
             if (carrierMode && (entry.selected || restore)) {
                 JSONObject imsRow = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot);
                 try {
-                    if ((entry.selected || restore) && entry.error != null) {
+                    if (!restore && entry.selected && entry.error != null) {
                         imsFailure = true;
                         imsRow.put("phase", "carrier_config_failed")
                                 .put("registered", JSONObject.NULL)
                                 .put("error", String.valueOf(entry.error.getMessage()));
-                    } else if ((entry.selected || restore) && overrideErrors.containsKey(sub.id)) {
+                    } else if (!restore && entry.selected && overrideErrors.containsKey(sub.id)) {
                         imsFailure = true;
                         imsRow.put("phase", "carrier_test_override_failed")
                                 .put("registered", JSONObject.NULL)
                                 .put("error", overrideErrors.get(sub.id));
-                    } else if (!preview && (entry.selected || restore)
+                    } else if (!preview && entry.selected
                             && (entry.result == null
                             || !CarrierImsControl.isReadyForReset(entry.result.phase)
                             || !entry.result.unsupported.isEmpty()
@@ -311,33 +271,7 @@ public final class ModuleMain {
                             registration = new CarrierImsControl.Registration(registered,
                                     registered ? "ims_registered" : "ims_not_registered", "");
                         } else {
-                            boolean alreadyRegistered = imsControl.isRegistered(sub.id);
-                            if (alreadyRegistered && !entry.result.changed && !identityReloads.contains(sub.id)) {
-                                registration = new CarrierImsControl.Registration(true, "ims_registered", "");
-                            } else {
-                                long settleDelay = CarrierImsControl.settleDelayMillis(
-                                        entry.result.phase,
-                                        entry.result.changed || !alreadyRegistered
-                                                || identityReloads.contains(sub.id));
-                                registration = imsControl.resetAndAwait(
-                                        sub.id, sub.slot, 20, 1000L, settleDelay);
-                            }
-                            // A successful IMS reset is not final verification: it may
-                            // trigger a late carrier reload. Reconcile under this same
-                            // operation lock and require a stable complete read-back.
-                            Engine.Result finalConfig = verifySettledConfig(engine, sub,
-                                    entry.selected ? effective.desiredForSlot(sub.slot) : Collections.emptyMap());
-                            finalConfigChanged |= finalConfig.changed;
-                            row.put("phase", finalConfig.phase).put("changed", entry.result.changed || finalConfig.changed)
-                                    .put("unsupported", new JSONArray(finalConfig.unsupported))
-                                    .put("conflicts", new JSONArray(finalConfig.conflicts))
-                                    .put("effective", JsonIO.values(finalConfig.effective))
-                                    .put("final_readback_verified", CarrierImsControl.isReadyForReset(finalConfig.phase)
-                                            && finalConfig.conflicts.isEmpty() && finalConfig.unsupported.isEmpty());
-                            if (!row.optBoolean("final_readback_verified"))
-                                throw new Engine.VerificationException("Final CarrierConfig did not settle: " + finalConfig.phase);
-                            finalConfigVerified = true;
-                            registration = imsControl.awaitRegistered(sub.id, 20, 1000L);
+                            registration = imsControl.resetAndAwait(sub.id, sub.slot, 20, 1000L);
                         }
                         imsRow.put("phase", registration.phase)
                                 .put("registered", registration.registered)
@@ -367,67 +301,13 @@ public final class ModuleMain {
         else if (carrierMode && imsFailure && report.ok)
             phase = imsUnregistered ? "ims_not_registered" : "ims_status_unavailable";
         return identity().put("ok", ok).put("phase", phase)
-                .put("changed", report.changed || finalConfigChanged)
-                .put("write_readback_verified", report.verified && (!carrierMode || preview || !imsFailure))
-                .put("final_carrier_config_verified", finalConfigVerified && !imsFailure)
+                .put("changed", report.changed).put("write_readback_verified", report.verified)
                 .put("requires_manual_retry", report.requiresManualRetry || imsFailure || imsOverrideFailure)
                 .put("implementation_mode", config.implementationMode)
                 .put("carrier_ims_results", imsResults)
                 .put("carrier_test_override_results", overrideResults)
                 .put("config", JsonIO.config(config)).put("subscriptions", results)
                 .put("binder", new JSONObject(backend.capabilities()));
-    }
-
-    private static JSONObject waitingForFramework(FeatureConfig config, String reason) throws Exception {
-        return identity().put("ok", false).put("phase", "waiting").put("changed", false)
-                .put("write_readback_verified", false).put("requires_manual_retry", false)
-                .put("implementation_mode", config.implementationMode).put("config", JsonIO.config(config))
-                .put("reason", reason).put("subscriptions", new JSONArray());
-    }
-
-    private static void awaitCarrierIdentityReload(AndroidCarrierBackend backend, Set<Integer> ids)
-            throws Exception {
-        // Carrier test identity changes can briefly restart CarrierConfig. A single
-        // Binder read failure must not turn a recoverable reload into a blocked boot.
-        // Stop only after four consecutive failed samples (about one second).
-        Throwable lastFailure = null;
-        int consecutiveFailures = 0;
-        for (int i = 0; i < 20; i++) {
-            boolean sampleOk = true;
-            for (int id : ids) {
-                try {
-                    backend.read(id);
-                } catch (Throwable error) {
-                    sampleOk = false;
-                    lastFailure = error;
-                }
-            }
-            if (sampleOk) {
-                consecutiveFailures = 0;
-            } else if (++consecutiveFailures >= 4 && lastFailure != null) {
-                if (lastFailure instanceof Exception) throw (Exception) lastFailure;
-                throw new IllegalStateException("Carrier identity reload read failed", lastFailure);
-            }
-            Thread.sleep(250);
-        }
-    }
-
-    private static Engine.Result verifySettledConfig(Engine engine, CarrierBackend.Subscription sub,
-                                                     Map<String, Object> desired) throws Exception {
-        Engine.Result result = null;
-        int stable = 0;
-        boolean changed = false;
-        for (int i = 0; i < 24; i++) {
-            Thread.sleep(250);
-            result = engine.reconcile(sub, desired, true, true);
-            changed |= result.changed;
-            if (!result.conflicts.isEmpty() || !result.unsupported.isEmpty()) return result;
-            if (CarrierImsControl.isReadyForReset(result.phase) && !result.changed) stable++;
-            else stable = 0;
-            if (stable >= 8) return new Engine.Result(sub, result.phase, changed,
-                    result.unsupported, result.conflicts, result.effective);
-        }
-        throw new Engine.VerificationException("CarrierConfig did not remain stable for subId=" + sub.id);
     }
 
     /**
