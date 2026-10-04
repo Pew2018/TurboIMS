@@ -46,22 +46,46 @@ public final class Engine {
     private final Store store;
     private final String session;
     private final Sleeper sleeper;
+    private final boolean reapplyAfterReset;
 
     public Engine(CarrierBackend backend, Store store, String session, Sleeper sleeper) {
-        this.backend = backend; this.store = store; this.session = session; this.sleeper = sleeper;
+        this(backend, store, session, sleeper, false);
     }
 
-    private static boolean canRebaseAfterCarrierReload(Map<String, Object> current,
-                                                       Snapshot old) {
+    /** Only boot/application paths may reapply a saved request after a markerless reset. */
+    public Engine(CarrierBackend backend, Store store, String session, Sleeper sleeper,
+                  boolean reapplyAfterReset) {
+        this.backend = backend; this.store = store; this.session = session; this.sleeper = sleeper;
+        this.reapplyAfterReset = reapplyAfterReset;
+    }
+
+    private boolean canRebaseAfterCarrierReload(Map<String, Object> current,
+                                                Snapshot old, Map<String, Object> requested) {
         // A different TurboIMS session still owns the visible override. Never
         // reclaim it merely because the persisted snapshot belongs to this process.
         if (current.containsKey(MARKER) || !old.pending.isEmpty() || old.owned.isEmpty())
             return false;
+        // Native values often equal previously requested booleans/arrays by chance.
+        // Their equality cannot prove a nonpersistent override survived a reboot.
+        // Explicit application may acquire a fresh baseline only when the owner
+        // marker is absent and the previous transaction was fully verified.
+        // Restore/preview/periodic paths keep the conservative ownership rules.
+        if (reapplyAfterReset && !requested.isEmpty()) return true;
         for (var entry : old.owned.entrySet()) {
             if (FeatureConfig.same(current.get(entry.getKey()), entry.getValue()))
                 return false;
         }
         return true;
+    }
+
+    /** Classify fresh final read-back without writing or resolving ownership. */
+    static String readbackPhase(Map<String, Object> current, Map<String, Object> requested) {
+        if (!Boolean.TRUE.equals(current.get(LOADED))) return "carrier_config_reloaded";
+        boolean matches = true;
+        for (var entry : requested.entrySet())
+            matches &= FeatureConfig.same(current.get(entry.getKey()), entry.getValue());
+        if (matches) return "verified";
+        return current.containsKey(MARKER) ? "verification_failed" : "carrier_config_reloaded";
     }
 
     public Result reconcile(CarrierBackend.Subscription sub, Map<String, Object> requested,
@@ -74,6 +98,8 @@ public final class Engine {
         // observed after reboot. Its marker is paired with the persisted snapshot,
         // not with the current boot ID, so ownership remains explicit across boots.
         boolean ours = old != null && old.session.equals(current.get(MARKER));
+        if (!ours && current.containsKey(MARKER))
+            return new Result(sub, "ownership_lost", false, List.of(), List.of(MARKER), current);
         Map<String, Object> baseline = new LinkedHashMap<>();
         Map<String, Object> previous = new LinkedHashMap<>();
         if (ours) {
@@ -103,12 +129,11 @@ public final class Engine {
                 List<String> lost = new ArrayList<>();
                 for (String key : tracked)
                     if (!FeatureConfig.same(current.get(key), old.baseline.get(key))) lost.add(key);
-                if (!lost.isEmpty() && !canRebaseAfterCarrierReload(current, old))
+                if (!lost.isEmpty() && !canRebaseAfterCarrierReload(current, old, requested))
                     return new Result(sub, "ownership_lost", false, List.of(), lost, current);
-                // A reload can discard the complete non-persistent override and also
-                // change the carrier's native baseline. Rebase only when the marker
-                // is gone, no previous owned value remains, and there is no ambiguous
-                // interrupted write. Any partial or unknown ownership stays blocked.
+                // A markerless reset invalidates the old baseline. Boot/explicit
+                // apply reacquires the loaded baseline even if some native values
+                // coincide with owned values. Other paths remain conservative.
             }
             for (String key : FeatureConfig.knownKeys())
                 if (current.containsKey(key)) baseline.put(key, current.get(key));

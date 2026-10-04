@@ -10,7 +10,17 @@ public final class AutoApply {
     public interface Pause { void waitFor(long millis) throws Exception; }
 
     public static boolean isRetryablePhase(String value) {
-        return "waiting".equals(value) || "ims_not_registered".equals(value);
+        return "waiting".equals(value) || "ims_not_registered".equals(value)
+                || "carrier_config_reloaded".equals(value);
+    }
+
+    static boolean isFrameworkNotReady(Exception error) {
+        if (!(error instanceof java.io.IOException)) return false;
+        String message = error.getMessage();
+        return "Binder service not ready: isub".equals(message)
+                || "Binder service not ready: carrier_config".equals(message)
+                || "Telephony Binder service is unavailable".equals(message)
+                || "ITelephony is unavailable".equals(message);
     }
 
     public static <T> T untilReady(Attempt<T> attempt, Phase<T> phase, Pause pause)

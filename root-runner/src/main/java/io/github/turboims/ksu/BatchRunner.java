@@ -45,6 +45,12 @@ public final class BatchRunner {
                         || (!preview && target && r.phase.equals("unchanged")
                                 && r.unsupported.isEmpty() && r.conflicts.isEmpty());
             } catch (Exception error) {
+                if (AutoApply.isFrameworkNotReady(error)) {
+                    waiting |= target || restore;
+                    entries.add(new Entry(sub, target, new Engine.Result(sub, "waiting",
+                            false, List.of(), List.of(), Collections.emptyMap()), null));
+                    continue;
+                }
                 failed = true;
                 verificationFailed |= error instanceof Engine.VerificationException;
                 entries.add(new Entry(sub, target, null, error));

@@ -4,6 +4,25 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 public class AutoApplyTest {
+    @Test public void postResetReloadRetriesBeforeReportingSuccess() throws Exception {
+        AtomicInteger runs = new AtomicInteger(), waits = new AtomicInteger();
+        assertEquals("active", AutoApply.untilReady(
+                () -> runs.incrementAndGet() == 1 ? "carrier_config_reloaded" : "active",
+                result -> result, delay -> waits.incrementAndGet()));
+        assertEquals(2, runs.get());
+        assertEquals(1, waits.get());
+        assertFalse(AutoApply.isRetryablePhase("ownership_lost"));
+        assertFalse(AutoApply.isRetryablePhase("verification_failed"));
+    }
+
+    @Test public void onlyKnownServiceReadinessErrorsAreRetryable() {
+        assertTrue(AutoApply.isFrameworkNotReady(new java.io.IOException("Binder service not ready: isub")));
+        assertTrue(AutoApply.isFrameworkNotReady(new java.io.IOException("Binder service not ready: carrier_config")));
+        assertTrue(AutoApply.isFrameworkNotReady(new java.io.IOException("Telephony Binder service is unavailable")));
+        assertFalse(AutoApply.isFrameworkNotReady(new SecurityException("Binder service not ready: isub")));
+        assertFalse(AutoApply.isFrameworkNotReady(new java.io.IOException("disk failure")));
+    }
+
     @Test public void successExitsWithoutPeriodicRetry() throws Exception {
         AtomicInteger runs = new AtomicInteger(), waits = new AtomicInteger();
         String phase = AutoApply.untilReady(() -> {

@@ -196,6 +196,148 @@ public class EngineTest {
         assertRun(f,"preview",Map.of(),false);assertEquals(saves,f.saves);
         assertFalse(f.snapshot.pending.isEmpty());
     }
+
+    private static Engine applying(Fake f, String boot) {
+        return new Engine(f, f, boot, () -> {}, true);
+    }
+
+    @Test public void bootReappliesSimAndImsWithCoincidentNativeValues() throws Exception {
+        Fake f = new Fake();
+        String carrier = "carrier_name_string", iso = "sim_country_iso_override_string";
+        String nr = "carrier_nr_availabilities_int_array";
+        f.values.put(carrier, "original carrier");
+        f.values.put(iso, "");
+        f.values.put(nr, new int[]{1});
+        Map<String,Object> wanted = new LinkedHashMap<>();
+        wanted.put(KEY, true);
+        wanted.put(nr, new int[]{1,2});
+        wanted.put(carrier, "Chunghwa Telecom");
+        wanted.put(iso, "tw");
+        assertEquals("verified", applying(f, "boot-a").reconcile(SUB, wanted, true).phase);
+        // Reboot drops the marker. Native carrier data changed and VoLTE happens
+        // to equal our last requested value: equality is not retained ownership.
+        f.values.remove(Engine.MARKER);
+        f.values.put(KEY, true);
+        f.values.put(nr, new int[]{1});
+        f.values.put(carrier, "中華電信");
+        f.values.put(iso, "");
+        Engine.Result result = applying(f, "boot-b").reconcile(SUB, wanted, true);
+        assertEquals("verified", result.phase);
+        assertTrue(result.conflicts.isEmpty());
+        assertEquals("Chunghwa Telecom", f.values.get(carrier));
+        assertEquals("tw", f.values.get(iso));
+        assertArrayEquals(new int[]{1,2}, (int[])f.values.get(nr));
+        assertEquals("中華電信", f.snapshot.baseline.get(carrier));
+        assertEquals(true, f.snapshot.baseline.get(KEY));
+        // A further reboot also reacquires a fresh baseline.
+        f.values.remove(Engine.MARKER);
+        f.values.put(carrier, "中華電信");
+        f.values.put(iso, "");
+        assertEquals("verified", applying(f, "boot-c").reconcile(SUB, wanted, true).phase);
+        assertEquals("tw", f.values.get(iso));
+    }
+
+    @Test public void bootDoesNotUseArrayCoincidenceAsOwnershipEvidence() throws Exception {
+        Fake f = new Fake();
+        String nr = "carrier_nr_availabilities_int_array", carrier = "carrier_name_string";
+        f.values.put(carrier, "native");
+        Map<String,Object> wanted = Map.of(nr, new int[]{1,2}, carrier, "Chunghwa Telecom");
+        applying(f, "boot-a").reconcile(SUB, wanted, true);
+        f.values.remove(Engine.MARKER);
+        f.values.put(nr, new int[]{1,2});
+        f.values.put(carrier, "中華電信");
+        assertEquals("verified", applying(f, "boot-b").reconcile(SUB, wanted, true).phase);
+        assertEquals("Chunghwa Telecom", f.values.get(carrier));
+    }
+
+    @Test public void bootApplyStillRejectsForeignMarkerAtOldBaseline() throws Exception {
+        Fake f = new Fake();
+        applying(f, "boot-a").reconcile(SUB, on(), true);
+        f.values.put(KEY, false);
+        f.values.put(Engine.MARKER, "foreign-owner");
+        int writes = f.writes;
+        assertEquals("ownership_lost", applying(f, "boot-b").reconcile(SUB, on(), true).phase);
+        assertEquals(writes, f.writes);
+    }
+
+    @Test public void bootApplyRejectsForeignMarkerWithoutSnapshot() throws Exception {
+        Fake f = new Fake();
+        f.values.put(Engine.MARKER, "foreign-owner");
+        assertEquals("ownership_lost", applying(f, "boot-b").reconcile(SUB, on(), true).phase);
+        assertEquals(0, f.writes);
+        assertNull(f.snapshot);
+    }
+
+    @Test public void bootApplyDoesNotDiscardInterruptedMarkerlessWrite() throws Exception {
+        Fake f = new Fake();
+        f.dropMarker = true;
+        try { applying(f, "boot-a").reconcile(SUB, on(), true); fail(); }
+        catch (Engine.VerificationException expected) { }
+        int writes = f.writes;
+        assertEquals("ownership_lost", applying(f, "boot-b").reconcile(SUB, on(), true).phase);
+        assertEquals(writes, f.writes);
+        assertFalse(f.snapshot.pending.isEmpty());
+    }
+
+    @Test public void recoveryContextCannotRestoreUnownedCoincidentValues() throws Exception {
+        Fake f = new Fake();
+        applying(f, "boot-a").reconcile(SUB, on(), true);
+        f.values.remove(Engine.MARKER);
+        int writes = f.writes;
+        assertEquals("ownership_lost", applying(f, "boot-b").reconcile(SUB, Map.of(), true).phase);
+        assertEquals(writes, f.writes);
+    }
+
+    @Test public void bootRebasePreviewPreservesSnapshotAndState() throws Exception {
+        Fake f = new Fake();
+        applying(f, "boot-a").reconcile(SUB, on(), true);
+        f.values.remove(Engine.MARKER);
+        Engine.Snapshot before = f.snapshot;
+        int writes = f.writes, saves = f.saves;
+        assertEquals("preview", applying(f, "boot-b").reconcile(SUB, on(), false).phase);
+        assertSame(before, f.snapshot);
+        assertEquals(writes, f.writes);
+        assertEquals(saves, f.saves);
+    }
+
+    @Test public void sameMarkerConflictsStayBlockedDuringBootRecovery() throws Exception {
+        Fake f = new Fake();
+        applying(f, "boot-a").reconcile(SUB, on(), true);
+        f.values.put(KEY, false);
+        int writes = f.writes;
+        assertEquals("conflict", applying(f, "boot-b").reconcile(SUB, on(), true).phase);
+        assertEquals(writes, f.writes);
+    }
+
+
+    @Test public void finalReadbackDetectsPostResetLossOfSimFields() {
+        Map<String,Object> requested = Map.of("carrier_name_string", "Chunghwa Telecom",
+                "sim_country_iso_override_string", "tw");
+        Map<String,Object> current = new LinkedHashMap<>(requested);
+        current.put(Engine.LOADED, true);
+        current.put(Engine.MARKER, "boot-a");
+        assertEquals("verified", Engine.readbackPhase(current, requested));
+        current.remove(Engine.MARKER);
+        current.put("carrier_name_string", "中華電信");
+        current.put("sim_country_iso_override_string", "");
+        assertEquals("carrier_config_reloaded", Engine.readbackPhase(current, requested));
+        current.put(Engine.MARKER, "boot-a");
+        assertEquals("verification_failed", Engine.readbackPhase(current, requested));
+        current.put(Engine.LOADED, false);
+        assertEquals("carrier_config_reloaded", Engine.readbackPhase(current, requested));
+    }
+
+    @Test public void finalReadbackComparesArrayContents() {
+        Map<String,Object> current = new LinkedHashMap<>();
+        current.put(Engine.LOADED, true);
+        current.put(Engine.MARKER, "boot-a");
+        current.put("carrier_nr_availabilities_int_array", new int[]{1,2});
+        assertEquals("verified", Engine.readbackPhase(current,
+                Map.of("carrier_nr_availabilities_int_array", new int[]{1,2})));
+        assertEquals("verification_failed", Engine.readbackPhase(current,
+                Map.of("carrier_nr_availabilities_int_array", new int[]{1})));
+    }
+
     private static void assertRun(Fake fake,String phase,Map<String,Object> desired,boolean write){
         try{assertEquals(phase,fake.engine().reconcile(SUB,desired,write).phase);}
         catch(Exception e){throw new AssertionError(e);}
