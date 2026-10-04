@@ -215,8 +215,6 @@ public final class ModuleMain {
         }
         boolean imsFailure = false;
         boolean imsUnregistered = false;
-        Map<Integer, String> overrideErrors = new HashMap<>();
-        Map<Integer, String> carrierConfigErrors = new HashMap<>();
         for (BatchRunner.Entry entry : report.entries) {
             if (entry.selected && entry.error != null)
                 carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
