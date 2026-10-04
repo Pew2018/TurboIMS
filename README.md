@@ -130,6 +130,37 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - Check that VoLTE, VoWiFi options are visible
 - Make a test call to verify functionality
 
+
+## 🧹 Complete State Cleanup (Uninstall/Reinstall)
+
+If a fresh install does not run boot-time automatic configuration, or diagnostics show `ownership_lost`, `blocked`, stale snapshots, or `Another runner operation is busy`, perform a complete state cleanup. This is different from a normal uninstall: the module intentionally preserves `/data/adb/turboims-next` configuration and diagnostics so recovery can be investigated.
+
+1. Disable TurboIMS Next in KernelSU Next and reboot once. This lets Android clear non-persistent CarrierConfig overrides.
+2. Uninstall the module while it is disabled.
+3. From a root shell, remove the old state files explicitly:
+
+```sh
+su -c '
+STATE=/data/adb/turboims-next
+rm -f \
+  "$STATE"/config.json \
+  "$STATE"/snapshot-*.json \
+  "$STATE"/blocked.json \
+  "$STATE"/status.json \
+  "$STATE"/watcher.json \
+  "$STATE"/operation.lock \
+  "$STATE"/daemon.lock \
+  "$STATE"/launcher.log \
+  "$STATE"/runner.log
+'
+```
+
+4. Install the current module ZIP, reboot, open WebUI, enable automatic configuration, save the SIM/feature settings, and reboot again to verify the first boot run.
+
+This removes saved settings as well as ownership snapshots, lock files, status, and logs. You must configure TurboIMS Next again after step 3. Do not use a broad `rm -rf` on `/data/adb` or on the module directory. If diagnostics are still needed, copy `launcher.log`, `runner.log`, and `status.json` before cleanup.
+
+To verify the result, check `/data/adb/turboims-next/status.json` after the next boot. A successful run should not recreate `blocked.json`; the status should report a current `verified` or `active` result for the selected SIM. If CarrierConfig is still not ready at boot, retry only after the system SIM and carrier services are ready.
+
 ## 🛠️ Technical Details
 
 ### Architecture
