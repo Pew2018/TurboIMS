@@ -93,11 +93,16 @@ public final class ModuleMain {
             if (result.has("ok") && !result.getBoolean("ok")) code = 2;
         } catch (Throwable e) {
             try {
-                JSONObject result = error(e);
+                boolean busy = "Another runner operation is busy".equals(String.valueOf(e.getMessage()));
+                JSONObject result = error(e).put("phase", busy ? "busy" : "error")
+                        .put("requires_manual_retry", !busy);
                 System.out.println(result.toString());
+                // A rejected manual request must not overwrite the last completed
+                // watcher result. Otherwise status hides the actual IMS failure
+                // behind a misleading operation-lock error.
                 if (module != null && Files.isDirectory(JsonIO.STATE)) {
-                    JsonIO.write(STATUS, result);
-                    log("ERROR " + result.optString("error"));
+                    if (!busy) JsonIO.write(STATUS, result);
+                    log((busy ? "BUSY " : "ERROR ") + result.optString("error"));
                 }
             } catch (Throwable ignored) { System.err.println(e.toString()); }
             code = 1;
@@ -302,7 +307,10 @@ public final class ModuleMain {
                             if (alreadyRegistered && !entry.result.changed && !identityReloads.contains(sub.id)) {
                                 registration = new CarrierImsControl.Registration(true, "ims_registered", "");
                             } else {
-                                registration = imsControl.resetAndAwait(sub.id, sub.slot, 20, 1000L);
+                                long settleDelay = CarrierImsControl.settleDelayMillis(
+                                        entry.result.phase, entry.result.changed);
+                                registration = imsControl.resetAndAwait(
+                                        sub.id, sub.slot, 20, 1000L, settleDelay);
                             }
                             // A successful IMS reset is not final verification: it may
                             // trigger a late carrier reload. Reconcile under this same
@@ -369,8 +377,27 @@ public final class ModuleMain {
 
     private static void awaitCarrierIdentityReload(AndroidCarrierBackend backend, Set<Integer> ids)
             throws Exception {
+        // Carrier test identity changes can briefly restart CarrierConfig. A single
+        // Binder read failure must not turn a recoverable reload into a blocked boot.
+        // Stop only after four consecutive failed samples (about one second).
+        Throwable lastFailure = null;
+        int consecutiveFailures = 0;
         for (int i = 0; i < 20; i++) {
-            for (int id : ids) backend.read(id);
+            boolean sampleOk = true;
+            for (int id : ids) {
+                try {
+                    backend.read(id);
+                } catch (Throwable error) {
+                    sampleOk = false;
+                    lastFailure = error;
+                }
+            }
+            if (sampleOk) {
+                consecutiveFailures = 0;
+            } else if (++consecutiveFailures >= 4 && lastFailure != null) {
+                if (lastFailure instanceof Exception) throw (Exception) lastFailure;
+                throw new IllegalStateException("Carrier identity reload read failed", lastFailure);
+            }
             Thread.sleep(250);
         }
     }
