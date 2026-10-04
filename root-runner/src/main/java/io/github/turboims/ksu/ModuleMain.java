@@ -207,8 +207,15 @@ public final class ModuleMain {
                         identityReloads.add(sub.id);
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && targetRequested) {
-                        overrideResults.put(new JSONObject(overrideControl.apply(
-                                sub.id, sub.slot, requestedMccMnc)));
+                        String nativeMccMnc = backend.activeSubscriptionMccMnc(sub);
+                        String effectiveMccMnc = CarrierTestOverrideControl.preserveNativeMnc(
+                                requestedMccMnc, nativeMccMnc);
+                        Map<String, Object> overrideResult = overrideControl.apply(
+                                sub.id, sub.slot, effectiveMccMnc);
+                        overrideResult.put("requested_country_mcc",
+                                requestedMccMnc.substring(0, 3));
+                        overrideResult.put("native_mnc_preserved", true);
+                        overrideResults.put(new JSONObject(overrideResult));
                         identityReloads.add(sub.id);
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && !targetRequested) {
