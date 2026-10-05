@@ -660,7 +660,7 @@ test("operation buttons use short single-line labels and retain separate actions
     assert.ok(label.length>=4 && label.length<=5);
   }
 });
-test("toolbar uses Material-style on-color with AA contrast",async()=>{
+test("toolbar picks the higher contrast of white and #111111 on the final background",async()=>{
   const {context,doc}=await appHarness();
   const vm=require("node:vm");
   const luminance=hex=>{
@@ -677,11 +677,13 @@ test("toolbar uses Material-style on-color with AA contrast",async()=>{
     assert.equal(properties["--accent"],color);
     const toolbar=properties["--toolbar-tint"];
     const foreground=properties["--toolbar-foreground"];
-    assert.ok(["#FFFFFF","#000000"].includes(foreground));
+    assert.ok(["#FFFFFF","#111111"].includes(foreground));
     const contrast=(Math.max(luminance(toolbar),luminance(foreground))+.05)/
       (Math.min(luminance(toolbar),luminance(foreground))+.05);
-    assert.ok(contrast>=4.5,color+" toolbar contrast "+contrast);
-    assert.ok(Number(properties["--toolbar-contrast"])>=4.5);
+    const bg=luminance(toolbar),white=(1+.05)/(bg+.05),nearBlack=(bg+.05)/(luminance("#111111")+.05);
+    assert.ok(Math.abs(contrast-Math.max(white,nearBlack))<.000001,color+" best toolbar foreground");
+    assert.equal(Number(properties["--toolbar-contrast"]),Number(contrast.toFixed(3)));
+    assert.equal(doc.documentElement.dataset.statusBarIcons,foreground==="#111111" ? "dark" : "light");
     assert.equal(properties["--system-status-bg"],toolbar);
     if(mode==="light") assert.equal(toolbar,color);
   }
@@ -703,11 +705,16 @@ test("every preset and arbitrary RGB accent has readable action text in both the
     const vars=doc.documentElement.style.properties;
     assert.equal(vars["--accent"],color);
     const onAccent=vars["--on-accent"];
-    assert.ok(["#FFFFFF","#000000"].includes(onAccent));
+    assert.ok(["#FFFFFF","#111111"].includes(onAccent));
     const a=luminance(color),b=luminance(onAccent);
     const chosen=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
-    assert.ok(chosen>=4.5,color+" button contrast "+chosen);
-    assert.ok(Number(vars["--on-accent-contrast"])>=4.5);
+    const expected=Math.max((1+.05)/(a+.05),(a+.05)/(luminance("#111111")+.05));
+    assert.ok(Math.abs(chosen-expected)<.000001,color+" best action foreground");
+    assert.equal(Number(vars["--on-accent-contrast"]),Number(chosen.toFixed(3)));
+    for(const bg of [vars["--action-tonal"],vars["--action-tonal-pressed"]]){
+      const fg=luminance(vars["--on-action-tonal"]),surface=luminance(bg);
+      assert.ok((Math.max(fg,surface)+.05)/(Math.min(fg,surface)+.05)>=4.5,color+" secondary action");
+    }
     assert.ok(vars["--switch-on-track"].endsWith(",.35)"));
   }
   assert.deepEqual(calls.map(([action])=>action),["status"]);

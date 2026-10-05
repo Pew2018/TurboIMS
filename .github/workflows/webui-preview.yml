@@ -1,8 +1,8 @@
-name: Preview OnePlus WebUI
+name: Preview Classic WebUI polish
 on:
   push:
-    branches: ["feature/oneplus-webui", "feature/sim-preference-editors-accent-scope", "feature/webui-ux-cleanup"]
-    paths: ["module/webroot/**", "ci/webui_preview.cjs", ".github/workflows/webui-preview.yml"]
+    branches: ["feature/ui-polish-1.0.0"]
+    paths: ["module/webroot/**", "ci/ui_polish_preview.cjs", ".github/workflows/webui-preview.yml"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,11 +24,11 @@ jobs:
       - name: Capture mobile UI
         run: |
           python3 -m http.server 8765 --directory module/webroot > "$RUNNER_TEMP/webui-server.log" 2>&1 &
-          node ci/webui_preview.cjs
+          node ci/ui_polish_preview.cjs
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: oneplus-webui-preview
+          name: classic-webui-polish-preview
           path: preview/
           if-no-files-found: error

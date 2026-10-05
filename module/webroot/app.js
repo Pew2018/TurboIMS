@@ -302,18 +302,29 @@ function contrastRatio(a,b) {
   return (lighter + .05) / (darker + .05);
 }
 const LIGHT_FOREGROUND = "#FFFFFF";
-const DARK_FOREGROUND = "#000000";
-const MIN_TEXT_CONTRAST = 4.5;
+const DARK_FOREGROUND = "#111111";
+const DARK_FOREGROUND_LUMINANCE = relativeLuminance([17,17,17]);
 function foregroundForRgb(rgb) {
   const background = relativeLuminance(rgb);
   const lightContrast = contrastRatio(background,1);
-  const darkContrast = contrastRatio(background,0);
-  // Material pairs a colored container with a dedicated "on" color. Using
-  // the higher-contrast black/white role guarantees AA contrast for normal
-  // toolbar and button text, including arbitrary user-supplied HEX colors.
+  const darkContrast = contrastRatio(background,DARK_FOREGROUND_LUMINANCE);
+  // Compare both requested foregrounds against the final, opaque background.
+  // #111111 is softer than pure black; the best pair can fall just below 4.5
+  // for mid-luminance colors, so report the real ratio without changing the hue.
   const foreground = darkContrast >= lightContrast ? DARK_FOREGROUND : LIGHT_FOREGROUND;
   const contrast = Math.max(lightContrast,darkContrast);
   return {color:foreground,contrast};
+}
+// Keep small accent text readable on its actual surface while preserving hue.
+function accentInkForRgb(rgb, backgrounds, dark) {
+  const target = dark ? [255,255,255] : [17,17,17];
+  for (let step = 0; step <= 20; step++) {
+    const strength = step / 20;
+    const ink = rgb.map((value,index) => Math.round(value*(1-strength)+target[index]*strength));
+    if (backgrounds.every(bg => contrastRatio(relativeLuminance(ink),relativeLuminance(bg)) >= 4.5))
+      return colorHex(ink);
+  }
+  return colorHex(target);
 }
 function showAppearance() {
   const dark = themeMode === "dark" || (themeMode === "system" && !!media?.matches);
@@ -344,6 +355,9 @@ function showAppearance() {
   const statusColor = toolbarColor;
   const toolbarOnColor = foregroundForRgb(toolbarRgb);
   const toolbarForeground = toolbarOnColor.color;
+  // This describes the desired icon appearance. KernelSU Next owns the native
+  // system bars and currently exposes no API to set their icon mode.
+  root.dataset.statusBarIcons = toolbarForeground === DARK_FOREGROUND ? "dark" : "light";
 
   root.style.setProperty("--toolbar-tint",toolbarColor);
   root.style.setProperty("--toolbar-foreground",toolbarForeground);
@@ -374,7 +388,7 @@ function showAppearance() {
   root.style.setProperty("--action-fill",accent);
   root.style.setProperty("--action-ripple",onAccent);
 
-  const tonalStrength = dark ? .18 : .12;
+  const tonalStrength = .12;
   const tonalSurfaceRgb = dark ? [32,32,32] : [255,255,255];
   const tonalRgb = rgb.map((value,index) => Math.round(value * tonalStrength + tonalSurfaceRgb[index] * (1 - tonalStrength)));
   const pressedRgb = rgb.map((value,index) => Math.round(value * (tonalStrength + .06) + tonalSurfaceRgb[index] * (1 - tonalStrength - .06)));
@@ -387,9 +401,12 @@ function showAppearance() {
   const chosen = [...onePlusColors,...materialColors].find(([,hex]) => hex === accent);
   $("accent-label").textContent = chosen ? chosen[0] : accent;
   for (const [button,color] of swatchButtons) button.setAttribute("aria-pressed",String(color === accent));
-  const blend = (x,y,t) => Math.round(x*(1-t)+y*t);
-  const ink = rgb.map(x => blend(x,dark ? 255 : 0,dark ? .22 : .36));
-  root.style.setProperty("--accent-ink", "rgb(" + ink.join(",") + ")");
+  const contentSurfaceRgb = dark ? [33,33,33] : [255,255,255];
+  const cardSurfaceRgb = dark ? [32,32,32] : [250,250,250];
+  const pageSurfaceRgb = dark ? [18,18,18] : (cardGroups ? [238,238,238] : [255,255,255]);
+  root.style.setProperty("--accent-ink",accentInkForRgb(rgb,
+    [contentSurfaceRgb,cardSurfaceRgb,pageSurfaceRgb],dark));
+  root.style.setProperty("--on-action-tonal",accentInkForRgb(rgb,[tonalRgb,pressedRgb],dark));
   $("accent-swatch").style.setProperty("--accent",accent);
 }
 if (media) {
