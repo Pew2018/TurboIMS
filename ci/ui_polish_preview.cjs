@@ -69,7 +69,9 @@ const fs=require("node:fs");
     await capture("sim-light");
     for(const id of ["sim-save","sim-restore"]){
       const label=await page.locator("#"+id).innerText();
-      await click(id);await ready();assert.equal(await page.locator("#"+id).innerText(),label);
+      await click(id);
+      if(id==="sim-restore") await page.locator("#sheet-actions button").click();
+      await ready();assert.equal(await page.locator("#"+id).innerText(),label);
     }
     await openAppearance();
     await choose("theme-choice","深色模式");
