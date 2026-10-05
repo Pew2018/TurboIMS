@@ -365,7 +365,7 @@ function pressedSurface(rgb, foreground, dark) {
 // remain exact. Warm/yellow-green themes retain a bright surface and black ink.
 function primarySurfaceForRgb(rgb, dark) {
   const [L,a,b]=rgbToOklab(rgb);
-  let surface=dark ? toneRgb(rgb,Math.min(L,.58)) : rgb;
+  let surface=dark ? toneRgb(rgb,Math.min(L,.50)) : rgb;
   if(!dark && contrastRatio(relativeLuminance(surface),1)<4.65){
     const hue=(Math.atan2(b,a)*180/Math.PI+360)%360;
     const maxChange=hue>=35 && hue<=150 ? .065 : (hue>=180 && hue<=270 ? .19 : .13);
