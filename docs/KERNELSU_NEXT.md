@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-版本：0.3.6。**构建测试不等于手机上的 CarrierConfig 写入或 IMS 通话已经验证。**
+版本：1.0.0。功能和 WebUI 沿用用户实测完全可用的 [0.3.6 / Actions #249](https://github.com/Pew2018/TurboIMS/actions/runs/37331861530) 源码；本次仅更新发布版本与说明。实测设备为 Pixel 8 Pro、Android 16、KernelSU Next 3.3.0、中国联通。其他设备与运营商仍需实机验证。
 初始验证设备是 Pixel 8 Pro / husky / Android 16 / SDK 36 / SELinux Enforcing。
 SDK 36 构建产物供 Android 13–16 / arm64 使用；SDK 37 构建产物同时包含 Android 17 构建验证，兼容性仍需设备实测。
 
@@ -13,7 +13,7 @@ SDK 36 构建产物供 Android 13–16 / arm64 使用；SDK 37 构建产物同�
 
 ## 安装与首次验证
 
-1. 下载成功 Actions 中的 **FLASHABLE-TurboIMS-Next-0.3.6-sdk36** 产物（Android 16）。
+1. 下载成功 Actions 中的 **FLASHABLE-TurboIMS-Next-1.0.0-sdk36** 产物（Android 16）。
    在 KernelSU Next 直接选择此下载文件安装，**无需解压，不存在内层模块 ZIP**。
    必须等待 Verify actual downloadable ZIP and installer 检查通过。
    旧 0.1.0 的外层 artifact 和 test-reports ZIP 不是模块，不可直接安装。
@@ -72,7 +72,7 @@ SDK 36 构建产物供 Android 13–16 / arm64 使用；SDK 37 构建产物同�
 不能把 apply 的成功等同于 modem/IMS 已注册，更不能保证 VoNR/VoWiFi 可用；
 read-back verification 只证明 CarrierConfig 有效值已匹配。
 
-## SIM 显示与测试身份（0.3.6）
+## SIM 显示与测试身份（1.0.0）
 
 国家码和运营商名称通过 CarrierConfig 独立设置。选择台湾 / Chunghwa Telecom 不再推导 46692。
 TurboIMS 使用原有配置写入路径并只读检查 IMS 注册；Carrier IMS 额外进行有次数限制的 IMS reset，默认同样保留真实 SIM 身份。
@@ -218,7 +218,7 @@ artifact 不保留 Unix 权限，安装脚本会重新设置 runner=0444 和脚�
 - https://kernelsu.org/guide/module.html
 - https://github.com/actions/upload-artifact/tree/v4
 
-### Independent verification in 0.3.6 / 0.3.6 独立验证
+### Independent verification in 1.0.0 / 1.0.0 独立验证
 
 IMS registration, requested IMS CarrierConfig values, public SIM display properties and NR configuration have separate verification fields. A read-only probe can report registered without claiming continuous registration verification or a completed write.
 

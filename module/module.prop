@@ -1,6 +1,6 @@
 id=turboims_next
 name=TurboIMS Next
-version=0.3.6
-versionCode=18
+version=1.0.0
+versionCode=19
 author=Pew2018
 description=Standalone KSU IMS controller with native SIM identity by default, independent SIM display profiles and bounded boot registration checks. Android 13-17. Device voice-call validation required.
