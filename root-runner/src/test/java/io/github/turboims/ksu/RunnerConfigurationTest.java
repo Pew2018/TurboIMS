@@ -1,6 +1,7 @@
 package io.github.turboims.ksu;
 
 import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -10,11 +11,18 @@ public class RunnerConfigurationTest {
     @Rule public final TemporaryFolder directory = new TemporaryFolder();
     private Path file(String name) { return directory.getRoot().toPath().resolve(name); }
 
+    private static String read(Path path) throws Exception {
+        return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+    }
+    private static void write(Path path, String text) throws Exception {
+        Files.write(path, text.getBytes(StandardCharsets.UTF_8));
+    }
+
     private void save(String text) throws Exception {
         try (RunnerConfiguration.Locked ignored =
                 RunnerConfiguration.lock(file("config.lock"), true)) {
             Path replacement = file("config.tmp");
-            Files.writeString(replacement, text);
+            write(replacement, text);
             Files.move(replacement, file("config.json"), StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
         }
@@ -42,7 +50,7 @@ public class RunnerConfigurationTest {
         assertTrue(observed.resetAccepted);
         assertEquals(1, ops.resets);
         assertEquals(1, ops.reads);
-        assertTrue(Files.readString(file("config.json")).contains("turboims"));
+        assertTrue(read(file("config.json")).contains("turboims"));
         // The next manual apply can acquire the operation lock immediately.
         try (RunnerConfiguration.Locked next =
                 RunnerConfiguration.lock(file("operation.lock"), false)) {
@@ -61,14 +69,14 @@ public class RunnerConfigurationTest {
         assertFalse(observed.resetAccepted);
         assertEquals(0, ops.resets);
         assertEquals(0, ops.reads);
-        Files.writeString(file("status.json"), "new status");
+        write(file("status.json"), "new status");
         assertFalse(RunnerConfiguration.publish(file("config.json"), file("config.lock"),
-                old.revision, () -> Files.writeString(file("status.json"), "old failure")));
-        assertEquals("new status", Files.readString(file("status.json")));
+                old.revision, () -> write(file("status.json"), "old failure")));
+        assertEquals("new status", read(file("status.json")));
         RunnerConfiguration.Snapshot current = new RunnerConfiguration.Snapshot(file("config.json"));
         assertTrue(RunnerConfiguration.publish(file("config.json"), file("config.lock"),
-                current.revision, () -> Files.writeString(file("status.json"), "new applied")));
-        assertEquals("new applied", Files.readString(file("status.json")));
+                current.revision, () -> write(file("status.json"), "new applied")));
+        assertEquals("new applied", read(file("status.json")));
     }
 
     @Test public void operationLockStillSerializesTelephonyMutations() throws Exception {
