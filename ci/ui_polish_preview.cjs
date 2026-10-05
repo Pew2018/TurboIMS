@@ -92,6 +92,7 @@ const fs=require("node:fs");
     await page.locator("#accent-navigation-icons").check();
     const colors=await page.evaluate(()=>[...onePlusColors,...materialColors].map(x=>x[1]).concat(["#FFFFFF","#000000","#FFFF00","#00FF00","#00FFFF","#FF00FF","#FF0000","#0000FF","#808080","#F5F5F5","#212121","#FFF176","#004D40","#777777","#123456"]));
     const report=[];
+    await page.evaluate(()=>navigate("home"));
     for(const cards of [false,true])for(const theme of ["light","dark","system"])for(const color of colors){
       await page.evaluate(({theme,color,cards})=>{themeMode=theme;accent=color;cardGroups=cards;accentToolbar=true;showAppearance();},{theme,color,cards});
       const styles=await page.evaluate(()=>{
