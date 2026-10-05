@@ -939,7 +939,7 @@ function render(result, replaceForm = false) {
     ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
     waiting:["等待 SIM 卡","请等待 SIM 卡和运营商配置加载。"],
     retry_timeout:["等待超时","SIM 卡或运营商配置尚未就绪，已停止本次尝试。"],
-    verification_failed:["验证失败","写入后读取的值不一致，自动写入已停止。"],
+    verification_failed:["配置发生变化","写入验证后配置值发生变化，自动写入已停止；请导出诊断查看具体变化项。"],
     conflict:["存在配置冲突","冲突项已保留，请查看诊断与验证。"],
     not_started:["尚未开始工作","安装后请重启设备，再运行检测。"],
     error:["操作失败","请查看诊断与验证中的详细原因。"]
@@ -1035,6 +1035,12 @@ function renderDiagnosticSummary(result) {
     ["CarrierConfig", binder?.carrier_config === true ? "读取正常" :
       binder?.carrier_config === false ? "不可用" : "尚未检测"]
   ];
+  const origins = {watch:"开机自动配置","watch-periodic":"周期检查",apply:"手动应用",restore:"手动恢复",probe:"只读检测"};
+  if (state.action) rows.push(["任务来源",origins[state.action] || state.action]);
+  const changedKeys = (state.subscriptions || []).flatMap(row =>
+    Object.keys(row.verification_mismatches || {}).map(key => "SIM 卡 " + (row.slot + 1) + " · " + key));
+  if (changedKeys.length) rows.push(["变化项",changedKeys.join("；")]);
+  if (result.watcher?.mode === "interrupted") rows.push(["后台退出","进程已退出，但没有完成记录"]);
   if (state.error || result.error) rows.push(["错误",state.error || result.error]);
   if (result.blocked) rows.push(["停止原因",result.blocked.error || result.blocked.phase || "查看完整数据"]);
   $("diagnostic-summary").replaceChildren();
@@ -1050,9 +1056,6 @@ async function operation(work, progress = "正在处理…", trigger = null) {
   busy = true;
   document.querySelectorAll("button,input,select").forEach(x => { if (x.id !== "back" && !primaryPages.some(id => x.id === "tab-"+id)) x.disabled = true; });
   document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","true"));
-  const label = trigger?.querySelector(".action-label") || trigger;
-  const originalLabel = label?.textContent;
-  if (label) label.textContent = progress;
   message(progress, false, "neutral", "请稍候。");
   try { await work(); }
   catch (error) {
@@ -1061,7 +1064,6 @@ async function operation(work, progress = "正在处理…", trigger = null) {
     $("diagnostic-notice").textContent = "操作失败：" + error.message;
     if (!error.result) $("details").textContent = JSON.stringify({ok:false,error:error.message},null,2);
   } finally {
-    if (label) label.textContent = originalLabel;
     busy = false;
     document.querySelectorAll("button,input,select").forEach(x => x.disabled = false);
     updatePeriodicControl();

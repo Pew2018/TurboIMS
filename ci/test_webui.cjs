@@ -12,26 +12,86 @@ test("base64 config is passed as a single quoted argument",()=>{
   assert.equal(bridge.command("save",data),
     "/system/bin/sh '/data/adb/modules/turboims_next/control.sh' save '"+data+"'");
 });
-test("native async callback parses JSON",async()=>{
-  global.ksu={exec(cmd,opts,callback){assert.equal(opts,"{}");
-    global[callback](0,'{"ok":true,"phase":"probe"}',"");}};
-  const result=await bridge.call("probe");
+// Model KernelSU Next 3.3.0 spawn events, not an instantly returning exec.
+function streamHarness(spawn) {
+  const vm=require("node:vm");
+  const timers=new Map(); let timerId=0;
+  const root={
+    setTimeout(fn,ms) { const id=++timerId; timers.set(id,{fn,ms}); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    ksu:{spawn(...args) { spawn(root,...args); },
+      exec() { throw new Error("synchronous exec must never be used"); }}
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../module/webroot/bridge.js"),"utf8"),root);
+  return {root,timers,bridge:root.TurboBridge};
+}
+test("spawn streams JSON and cleans its callback after late exit/error events",async()=>{
+  let receiver;
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    assert.equal(cmd,"/system/bin/sh"); assert.equal(opts,"{}");
+    assert.deepEqual(JSON.parse(args),["'/data/adb/modules/turboims_next/control.sh'","probe"]);
+    receiver=root[callback];
+    receiver.stdout.emit("data",'{"ok":true,"phase":"probe"}');
+    receiver.emit("exit",0);
+    receiver.emit("error",{message:"late event"});
+  });
+  const result=await h.bridge.call("probe");
   assert.equal(result.phase,"probe");
-  assert.equal(Object.keys(global).filter(k=>k.startsWith("__turboims_cb_")).length,0);
-  delete global.ksu;
+  assert.equal(h.timers.size,1);
+  for(const {fn,ms} of h.timers.values()) {assert.equal(ms,1000);fn();}
+  assert.equal(Object.keys(h.root).filter(k=>k.startsWith("__turboims_cb_")).length,0);
 });
-test("nonzero exit retains structured diagnostics",async()=>{
-  global.ksu={exec(cmd,opts,callback){global[callback](2,
-    '{"ok":false,"phase":"waiting"}',"");}};
-  await assert.rejects(bridge.call("apply"),e=>e.result.phase==="waiting");
-  delete global.ksu;
+test("nonzero streamed exit retains structured diagnostics",async()=>{
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    const receiver=root[callback];
+    receiver.stdout.emit("data",'{"ok":false,"phase":"verification_failed"}');
+    receiver.emit("exit",2);
+    receiver.emit("error",{message:"must not replace the structured result"});
+  });
+  await assert.rejects(h.bridge.call("apply"),e=>e.result.phase==="verification_failed");
 });
-test("missing bridge never fabricates success",async()=>{
-  delete global.ksu;await assert.rejects(bridge.call("probe"),/KernelSU Next/);
+test("spawn joins stdout lines and safely passes base64 save arguments",async()=>{
+  const payload=Buffer.from('{"carrier_name":"Chunghwa Telecom"}').toString("base64");
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    assert.deepEqual(JSON.parse(args),["'/data/adb/modules/turboims_next/control.sh'","save","'"+payload+"'"]);
+    root[callback].stdout.emit("data","runner diagnostic line");
+    root[callback].stdout.emit("data",'{"ok":true}');
+    root[callback].emit("exit",0);
+  });
+  assert.equal((await h.bridge.call("save",payload)).ok,true);
 });
-test("malformed runner output is an error",async()=>{
-  global.ksu={exec(cmd,opts,callback){global[callback](1,"","ClassNotFound");}};
-  await assert.rejects(bridge.call("probe"),/ClassNotFound/);delete global.ksu;
+test("missing async bridge never falls back to blocking exec",async()=>{
+  const h=streamHarness(()=>{throw new Error("not reached");});
+  delete h.root.ksu.spawn;
+  await assert.rejects(h.bridge.call("probe"),/KernelSU Next/);
+});
+test("malformed streamed runner output retains stderr",async()=>{
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    root[callback].stderr.emit("data","ClassNotFound");
+    root[callback].emit("exit",1);
+  });
+  await assert.rejects(h.bridge.call("probe"),/ClassNotFound/);
+});
+test("spawn start error is reported and a late exit cannot invent success",async()=>{
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    root[callback].emit("error",{message:"root shell unavailable"});
+    root[callback].stdout.emit("data",'{"ok":true}');
+    root[callback].emit("exit",0);
+  });
+  await assert.rejects(h.bridge.call("apply"),/root shell unavailable/);
+});
+test("slow runner stays asynchronous and the bridge deadline outlives control.sh",async()=>{
+  let receiver;
+  const h=streamHarness((root,cmd,args,opts,callback)=>{receiver=root[callback];});
+  const pending=h.bridge.call("apply");
+  const deadline=[...h.timers.values()][0];
+  assert.equal(deadline.ms,190000);
+  let finished=false; pending.then(()=>{finished=true;},()=>{finished=true;});
+  await Promise.resolve(); assert.equal(finished,false);
+  const rejection=assert.rejects(pending,/期限内结束/);
+  deadline.fn(); await rejection;
+  receiver.stdout.emit("data",'{"ok":true}');
+  receiver.emit("exit",0);
 });
 test("WebUI has offline assets and no CDN dependencies",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
@@ -701,4 +761,31 @@ test("secondary page actions use accent-tonal surface",()=>{
   const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
   assert.match(css,/action-button--secondary[\s\S]*background:var\(--action-tonal\)/);
   assert.match(app,/--action-tonal/);
+});
+
+test("pending operation keeps its button label and navigation responsive",async()=>{
+  const {context,elements,doc}=await appHarness();
+  const apply=doc.getElementById("apply");
+  apply.textContent="应用配置";
+  const tab=doc.getElementById("tab-settings-page");
+  doc.querySelectorAll=selector=>selector==="button,input,select" ? [apply,tab] : [];
+  let finish; const wait=new Promise(resolve=>{finish=resolve;});
+  const task=context.operation(()=>wait,"正在处理…",apply);
+  assert.equal(apply.textContent,"应用配置");
+  assert.equal(apply.disabled,true); assert.notEqual(tab.disabled,true);
+  tab.onclick(); assert.equal(doc.getElementById("page-title").textContent,"设置");
+  finish(); await task;
+  assert.equal(apply.disabled,false); assert.equal(apply.textContent,"应用配置");
+});
+test("failed operation releases controls and preserves structured failure details",async()=>{
+  const {context,doc}=await appHarness();
+  const apply=doc.getElementById("apply");
+  apply.textContent="应用配置";
+  doc.querySelectorAll=selector=>selector==="button,input,select" ? [apply] : [];
+  const error=new Error("changed after verification");
+  error.result={ok:false,phase:"verification_failed",subscriptions:[{slot:0,
+    verification_mismatches:{carrier_nr_availabilities_int_array:{expected:[1,2],actual:[1]}}}]};
+  await context.operation(async()=>{throw error;},"正在处理…",apply);
+  assert.equal(apply.disabled,false); assert.equal(apply.textContent,"应用配置");
+  assert.match(doc.getElementById("details").textContent,/verification_mismatches/);
 });

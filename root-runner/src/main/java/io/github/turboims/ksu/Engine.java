@@ -106,11 +106,22 @@ public final class Engine {
         if (!Boolean.TRUE.equals(current.get(LOADED))) return "carrier_config_reloaded";
         if (!FeatureConfig.same(current.get(MARKER), verifiedMarker))
             return current.containsKey(MARKER) ? "verification_failed" : "carrier_config_reloaded";
-        boolean matches = true;
-        for (var entry : requested.entrySet())
-            matches &= FeatureConfig.same(current.get(entry.getKey()), entry.getValue());
-        if (matches) return "verified";
+        if (readbackMismatches(current, requested).isEmpty()) return "verified";
         return current.containsKey(MARKER) ? "verification_failed" : "carrier_config_reloaded";
+    }
+
+    /** Only requested public CarrierConfig keys; never SIM subscriber identifiers. */
+    static Map<String, Map<String, Object>> readbackMismatches(
+            Map<String, Object> current, Map<String, Object> requested) {
+        Map<String, Map<String, Object>> mismatches = new LinkedHashMap<>();
+        for (var entry : requested.entrySet()) {
+            if (FeatureConfig.same(current.get(entry.getKey()), entry.getValue())) continue;
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("expected", entry.getValue());
+            values.put("actual", current.get(entry.getKey()));
+            mismatches.put(entry.getKey(), values);
+        }
+        return mismatches;
     }
 
     public Result reconcile(CarrierBackend.Subscription sub, Map<String, Object> requested,

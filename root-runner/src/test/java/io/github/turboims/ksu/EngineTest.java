@@ -428,4 +428,39 @@ public class EngineTest {
         assertEquals("carrier_config_reloaded", Engine.readbackPhase(current, on(), "boot-a"));
         assertEquals("verified", Engine.readbackPhase(current, on(), null));
     }
+
+    @Test public void observedHuskyDriftListsBothKeysAndKeepsFailure() {
+        Map<String,Object> requested = new LinkedHashMap<>();
+        requested.put("hide_enhanced_4g_lte_bool", false);
+        requested.put("carrier_nr_availabilities_int_array", new int[]{1,2});
+        Map<String,Object> current = new LinkedHashMap<>();
+        current.put(Engine.LOADED, true);
+        current.put(Engine.MARKER, "boot-observed");
+        current.put("hide_enhanced_4g_lte_bool", true);
+        current.put("carrier_nr_availabilities_int_array", new int[]{1});
+        assertEquals("verification_failed",
+                Engine.readbackPhase(current, requested, "boot-observed"));
+        Map<String,Map<String,Object>> differences = Engine.readbackMismatches(current, requested);
+        assertEquals(requested.keySet(), differences.keySet());
+        assertEquals(false, differences.get("hide_enhanced_4g_lte_bool").get("expected"));
+        assertEquals(true, differences.get("hide_enhanced_4g_lte_bool").get("actual"));
+        assertArrayEquals(new int[]{1,2},
+                (int[]) differences.get("carrier_nr_availabilities_int_array").get("expected"));
+        assertArrayEquals(new int[]{1},
+                (int[]) differences.get("carrier_nr_availabilities_int_array").get("actual"));
+    }
+
+    @Test public void missingReadbackKeyIsReportedRatherThanOmitted() {
+        Map<String,Map<String,Object>> differences = Engine.readbackMismatches(
+                Map.of(), Map.of(KEY,true));
+        assertEquals(Set.of(KEY), differences.keySet());
+        assertTrue(differences.get(KEY).containsKey("actual"));
+        assertNull(differences.get(KEY).get("actual"));
+    }
+
+    @Test public void equalArrayContentsDoNotProduceADiagnosticMismatch() {
+        assertTrue(Engine.readbackMismatches(
+                Map.of("carrier_nr_availabilities_int_array", new int[]{1,2}),
+                Map.of("carrier_nr_availabilities_int_array", new int[]{1,2})).isEmpty());
+    }
 }

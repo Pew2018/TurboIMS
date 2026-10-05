@@ -16,6 +16,7 @@ import java.util.*;
 public final class ModuleMain {
     private static Path module;
     private static String session;
+    private static String actionName = "initializing";
     private static final Path STATUS = JsonIO.STATE.resolve("status.json");
     private static final Path BLOCKED = JsonIO.STATE.resolve("blocked.json");
 
@@ -40,6 +41,7 @@ public final class ModuleMain {
                 Os.chmod(JsonIO.CONFIG.toString(), 0600);
             }
             String action = args[1];
+            actionName = action;
             if (action.equals("watch") || action.equals("watch-periodic")) {
                 try { watch(action.equals("watch")); }
                 catch (IOException duplicate) {
@@ -96,8 +98,11 @@ public final class ModuleMain {
                 JSONObject result = error(e);
                 System.out.println(result.toString());
                 if (module != null && Files.isDirectory(JsonIO.STATE)) {
-                    JsonIO.write(STATUS, result);
-                    log("ERROR " + result.optString("error"));
+                    // A failed read-only probe/status or rejected save must not
+                    // replace the most recent boot/apply result.
+                    if (Set.of("apply", "restore", "watch", "watch-periodic").contains(actionName))
+                        JsonIO.write(STATUS, result);
+                    log("action=" + actionName + " ERROR " + result.optString("error"));
                 }
             } catch (Throwable ignored) { System.err.println(e.toString()); }
             code = 1;
@@ -120,7 +125,7 @@ public final class ModuleMain {
         return new JSONObject().put("uid", Os.getuid()).put("pid", Process.myPid())
                 .put("selinux_context", context).put("sdk", Build.VERSION.SDK_INT)
                 .put("device", Build.DEVICE).put("session", session)
-                .put("time_ms", System.currentTimeMillis());
+                .put("time_ms", System.currentTimeMillis()).put("action", actionName);
     }
 
     private static JSONObject runOnce(boolean preview, boolean restore, boolean forceApply) throws Exception {
@@ -129,6 +134,8 @@ public final class ModuleMain {
 
     private static JSONObject runOnce(boolean preview, boolean restore, boolean forceApply,
                                       boolean bootRecovery, CarrierImsControl.Task imsTask) throws Exception {
+        long started = SystemClock.elapsedRealtime();
+        if (!preview) log("action=" + actionName + " run_started pid=" + Process.myPid());
         FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
         // A user-triggered apply must cover IMS features even when boot automation
         // is off. Automatic boot/periodic passes keep the saved enabled state.
@@ -259,6 +266,13 @@ public final class ModuleMain {
             CarrierBackend.Subscription sub = entry.sub;
             JSONObject row = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                     .put("selected", entry.selected);
+            // These are public operator codes, not IMSI, ICCID or a phone number.
+            row.put("sim_operator_numeric", backend.simOperatorNumeric(sub))
+                    .put("network_operator_numeric", backend.networkOperatorNumeric(sub));
+            try { row.put("subscription_mccmnc", backend.activeSubscriptionMccMnc(sub)); }
+            catch (Exception unavailable) {
+                row.put("subscription_mccmnc_error", String.valueOf(unavailable.getMessage()));
+            }
             if (entry.error != null) {
                 row.put("phase", entry.error instanceof Engine.VerificationException
                         ? "verification_failed" : "error")
@@ -272,12 +286,16 @@ public final class ModuleMain {
                 row.put("phase", r.phase).put("changed", r.changed)
                         .put("unsupported", new JSONArray(r.unsupported))
                         .put("conflicts", new JSONArray(r.conflicts))
-                        .put("effective", JsonIO.values(r.effective));
+                        .put("effective", JsonIO.values(r.effective))
+                        .put("carrier_config_at_write_verification", JsonIO.values(r.effective));
                 if (!preview && (r.changed || !r.conflicts.isEmpty()))
                     log("subId=" + sub.id + " phase=" + r.phase
                             + " conflicts=" + r.conflicts + " unsupported=" + r.unsupported);
             }
+            long observationStarted = SystemClock.elapsedRealtime();
             if (carrierMode && (entry.selected || restore)) {
+                if (!preview) log("action=" + actionName + " subId=" + sub.id
+                        + " ims_observation_started");
                 JSONObject imsRow = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot);
                 try {
                     if (entry.error != null) {
@@ -336,7 +354,12 @@ public final class ModuleMain {
                             .put("error", String.valueOf(error.getMessage()));
                     row.put("ims", imsRow);
                 }
+                imsRow.put("observation_duration_ms",
+                        SystemClock.elapsedRealtime() - observationStarted);
                 imsResults.put(imsRow);
+                if (!preview) log("action=" + actionName + " subId=" + sub.id
+                        + " ims_observation_finished phase=" + imsRow.optString("phase")
+                        + " reset_accepted=" + imsRow.optBoolean("reset_accepted_this_attempt"));
             }
             if (!preview && entry.selected && entry.error == null
                     && entry.result != null && entry.result.conflicts.isEmpty()
@@ -347,7 +370,25 @@ public final class ModuleMain {
                 if (carrierMode) Thread.sleep(2000L);
                 try {
                     Map<String, Object> latest = backend.read(sub.id);
-                    row.put("effective", JsonIO.values(latest));
+                    row.put("effective", JsonIO.values(latest))
+                            .put("verification_stage", carrierMode
+                                    ? "after_ims_observation" : "final_readback");
+                    Map<String, Map<String, Object>> mismatches = Engine.readbackMismatches(
+                            latest, effective.desiredForSlot(sub.slot));
+                    JSONObject differences = new JSONObject();
+                    for (var mismatch : mismatches.entrySet()) {
+                        JSONObject values = JsonIO.values(mismatch.getValue());
+                        if (mismatch.getValue().get("actual") == null)
+                            values.put("actual", JSONObject.NULL);
+                        differences.put(mismatch.getKey(), values);
+                    }
+                    row.put("verification_mismatches", differences)
+                            .put("expected_owner_marker", entry.result.effective.get(Engine.MARKER))
+                            .put("observed_owner_marker", latest.containsKey(Engine.MARKER)
+                                    ? latest.get(Engine.MARKER) : JSONObject.NULL);
+                    if (!preview && !mismatches.isEmpty())
+                        log("action=" + actionName + " subId=" + sub.id
+                                + " final_readback_mismatches=" + differences);
                     String readbackPhase = Engine.readbackPhase(
                             latest, effective.desiredForSlot(sub.slot), entry.result.effective.get(Engine.MARKER));
                     if (!readbackPhase.equals("verified")) {
@@ -385,7 +426,10 @@ public final class ModuleMain {
                 imsServiceWaiting ? "waiting" : "",
                 simIdentityPending ? "sim_identity_pending" : "",
                 imsUnregistered ? "ims_not_registered" : "");
+        if (!preview) log("action=" + actionName + " run_finished pid=" + Process.myPid()
+                + " phase=" + phase + " duration_ms=" + (SystemClock.elapsedRealtime() - started));
         return identity().put("ok", ok).put("phase", phase)
+                .put("duration_ms", SystemClock.elapsedRealtime() - started)
                 .put("changed", report.changed).put("write_readback_verified",
                         report.verified && !postResetReload && !postResetMismatch)
                 .put("sim_profiles_verified",
@@ -448,6 +492,8 @@ public final class ModuleMain {
             int watcherPid = info.optInt("pid", -1);
             boolean alive = session.equals(info.optString("session")) && watcherPid > 0
                     && Files.isDirectory(Paths.get("/proc/" + watcherPid));
+            if (!alive && "running".equals(info.optString("mode")))
+                info.put("recorded_mode", "running").put("mode", "interrupted");
             result.put("watcher", info.put("alive", alive));
         }
         return result;
