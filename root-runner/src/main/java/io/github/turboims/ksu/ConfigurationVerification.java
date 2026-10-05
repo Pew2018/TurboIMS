@@ -56,7 +56,7 @@ final class ConfigurationVerification {
 
     static String registrationState(boolean preview, List<Boolean> observations) {
         if (observations.isEmpty()) return "not_checked";
-        if (observations.contains(null)) return "unavailable";
+        if (observations.stream().anyMatch(Objects::isNull)) return "unavailable";
         if (observations.contains(false)) return "not_registered";
         return preview ? "observed_registered" : "verified";
     }
