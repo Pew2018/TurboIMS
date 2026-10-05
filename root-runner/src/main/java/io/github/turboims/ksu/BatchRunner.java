@@ -25,6 +25,11 @@ public final class BatchRunner {
     }
     public static Report run(List<CarrierBackend.Subscription> subscriptions, FeatureConfig config,
                              Engine engine, boolean preview, boolean restore) {
+        return run(subscriptions, config, engine, preview, restore, Collections.emptySet());
+    }
+    public static Report run(List<CarrierBackend.Subscription> subscriptions, FeatureConfig config,
+                             Engine engine, boolean preview, boolean restore,
+                             Set<Integer> refreshSimIdentity) {
         List<Entry> entries = new ArrayList<>();
         boolean selected = false, waiting = false, conflict = false, unsupported = false;
         boolean failed = false, verificationFailed = false, changed = false, verified = false, lost = false;
@@ -34,7 +39,8 @@ public final class BatchRunner {
             selected |= target;
             try {
                 Engine.Result r = engine.reconcile(sub,
-                        target ? config.desiredForSlot(sub.slot) : Collections.emptyMap(), !preview);
+                        target ? config.desiredForSlot(sub.slot) : Collections.emptyMap(), !preview,
+                        target && refreshSimIdentity.contains(sub.id));
                 entries.add(new Entry(sub, target, r, null));
                 waiting |= r.phase.equals("waiting") && (target || restore);
                 conflict |= !r.conflicts.isEmpty();

@@ -124,11 +124,11 @@ public final class ModuleMain {
     }
 
     private static JSONObject runOnce(boolean preview, boolean restore, boolean forceApply) throws Exception {
-        return runOnce(preview, restore, forceApply, false);
+        return runOnce(preview, restore, forceApply, false, new CarrierImsControl.Task());
     }
 
     private static JSONObject runOnce(boolean preview, boolean restore, boolean forceApply,
-                                      boolean bootRecovery) throws Exception {
+                                      boolean bootRecovery, CarrierImsControl.Task imsTask) throws Exception {
         FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
         // A user-triggered apply must cover IMS features even when boot automation
         // is off. Automatic boot/periodic passes keep the saved enabled state.
@@ -161,23 +161,30 @@ public final class ModuleMain {
         // and may reload carrier settings or change public SIM properties.
         BatchRunner.Report preflight = BatchRunner.run(subscriptions, effective, engine, true, restore);
         boolean testIdentityChanged = false;
+        Set<Integer> refreshSimIdentity = new HashSet<>();
         JSONArray results = new JSONArray();
         boolean imsFailure = false;
         boolean imsUnregistered = false;
+        boolean imsServiceWaiting = false;
+        boolean imsTerminalFailure = false;
+        boolean simIdentityPending = false;
         Map<Integer, String> overrideErrors = new HashMap<>();
         Map<Integer, String> carrierConfigErrors = new HashMap<>();
         for (BatchRunner.Entry entry : preflight.entries) {
-            if (entry.selected && entry.error != null)
+            if (entry.error != null)
                 carrierConfigErrors.put(entry.sub.id, String.valueOf(entry.error.getMessage()));
-            else if (entry.selected && entry.result != null
+            else if (entry.result != null
                     && (entry.result.phase.equals("waiting") || !entry.result.conflicts.isEmpty()))
                 carrierConfigErrors.put(entry.sub.id, entry.result.phase);
+            if (!preview && entry.selected && !carrierConfigErrors.containsKey(entry.sub.id)
+                    && !Engine.simIdentityMatches(backend.simIdentity(entry.sub),
+                            effective.desiredForSlot(entry.sub.slot)))
+                refreshSimIdentity.add(entry.sub.id);
         }
         boolean configured = config.enabled || config.hasSimProfiles();
         if (!preview && overrideControl != null) {
             for (CarrierBackend.Subscription sub : subscriptions) {
-                if (!restore && carrierMode && configured && config.selects(sub.slot)
-                        && carrierConfigErrors.containsKey(sub.id)) {
+                if (carrierConfigErrors.containsKey(sub.id)) {
                     overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                             .put("phase", "skipped_carrier_config_failed")
                             .put("error", carrierConfigErrors.get(sub.id)));
@@ -195,12 +202,14 @@ public final class ModuleMain {
                                 sub.id, sub.slot, nativeMccMnc);
                         overrideResults.put(new JSONObject(cleared));
                         testIdentityChanged |= !cleared.get("phase").equals("not_owned");
+                        if (!cleared.get("phase").equals("not_owned")) refreshSimIdentity.add(sub.id);
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && targetRequested) {
                         Map<String, Object> applied = overrideControl.apply(
-                                sub.id, sub.slot, requestedMccMnc);
+                                sub.id, sub.slot, requestedMccMnc, backend.simOperatorNumeric(sub));
                         overrideResults.put(new JSONObject(applied));
                         testIdentityChanged |= applied.get("phase").equals("binder_accepted");
+                        if (applied.get("phase").equals("binder_accepted")) refreshSimIdentity.add(sub.id);
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && !targetRequested) {
                         overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
@@ -233,15 +242,16 @@ public final class ModuleMain {
         // CarrierConfig in the write pass; an unloaded bundle returns waiting.
         if (testIdentityChanged) Thread.sleep(5000L);
         BatchRunner.Report report = preview ? preflight
-                : BatchRunner.run(subscriptions, effective, engine, false, restore);
+                : BatchRunner.run(subscriptions, effective, engine, false, restore, refreshSimIdentity);
         boolean postResetReload = false;
         boolean postResetMismatch = false;
         boolean imsOverrideFailure = !overrideErrors.isEmpty();
         JSONArray imsResults = new JSONArray();
         CarrierImsControl imsControl = null;
+        Exception imsInitError = null;
         if (carrierMode) {
             try { imsControl = new CarrierImsControl(); }
-            catch (Throwable ignored) { /* Per-SIM result below reports the capability error. */ }
+            catch (Exception error) { imsInitError = error; }
         }
         for (BatchRunner.Entry entry : report.entries) {
             CarrierBackend.Subscription sub = entry.sub;
@@ -268,17 +278,17 @@ public final class ModuleMain {
             if (carrierMode && (entry.selected || restore)) {
                 JSONObject imsRow = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot);
                 try {
-                    if (!restore && entry.selected && entry.error != null) {
+                    if (entry.error != null) {
                         imsFailure = true;
                         imsRow.put("phase", "carrier_config_failed")
                                 .put("registered", JSONObject.NULL)
                                 .put("error", String.valueOf(entry.error.getMessage()));
-                    } else if (!restore && entry.selected && overrideErrors.containsKey(sub.id)) {
+                    } else if (overrideErrors.containsKey(sub.id)) {
                         imsFailure = true;
                         imsRow.put("phase", "carrier_test_override_failed")
                                 .put("registered", JSONObject.NULL)
                                 .put("error", overrideErrors.get(sub.id));
-                    } else if (!preview && entry.selected
+                    } else if (!preview
                             && (entry.result == null
                             || !CarrierImsControl.isReadyForReset(entry.result.phase)
                             || !entry.result.unsupported.isEmpty()
@@ -288,29 +298,38 @@ public final class ModuleMain {
                                 .put("registered", JSONObject.NULL)
                                 .put("error", "CarrierConfig is not ready for IMS reset: " + configPhase);
                     } else {
-                        if (imsControl == null) throw new IllegalStateException(
-                                "Carrier IMS telephony methods are unavailable in this KSU runtime");
+                        if (imsControl == null) {
+                            if (imsInitError != null) throw imsInitError;
+                            throw new IllegalStateException("Carrier IMS telephony methods are unavailable in this KSU runtime");
+                        }
                         CarrierImsControl.Registration registration;
                         if (preview) {
                             boolean registered = imsControl.isRegistered(sub.id);
                             registration = new CarrierImsControl.Registration(registered,
                                     registered ? "ims_registered" : "ims_not_registered", "");
                         } else {
-                            registration = imsControl.resetAndAwait(sub.id, sub.slot, 20, 1000L);
+                            registration = imsTask.observe(imsControl, sub.id, sub.slot, 20, 1000L);
                         }
                         imsRow.put("phase", registration.phase)
                                 .put("registered", registration.registered)
-                                .put("service_source", imsControl.serviceSource());
+                                .put("service_source", imsControl.serviceSource())
+                                .put("reset_accepted_this_attempt", registration.resetAccepted);
                         if (!registration.error.isEmpty()) imsRow.put("error", registration.error);
                         if (!registration.registered) {
                             imsFailure = true;
                             imsUnregistered |= registration.phase.equals("ims_not_registered");
+                            imsServiceWaiting |= registration.phase.equals("waiting");
+                            imsTerminalFailure |= !AutoApply.isRetryablePhase(registration.phase);
                         }
                     }
                     row.put("ims", imsRow);
                 } catch (Throwable error) {
                     imsFailure = true;
-                    imsRow.put("phase", "ims_status_unavailable")
+                    boolean waiting = error instanceof Exception
+                            && AutoApply.isFrameworkNotReady((Exception) error);
+                    imsServiceWaiting |= waiting;
+                    imsTerminalFailure |= !waiting;
+                    imsRow.put("phase", waiting ? "waiting" : "ims_status_unavailable")
                             .put("registered", JSONObject.NULL)
                             .put("error", String.valueOf(error.getMessage()));
                     row.put("ims", imsRow);
@@ -333,6 +352,16 @@ public final class ModuleMain {
                         postResetReload |= readbackPhase.equals("carrier_config_reloaded");
                         postResetMismatch |= readbackPhase.equals("verification_failed");
                         row.put("phase", readbackPhase);
+                    } else {
+                        Map<String, String> visible = backend.simIdentity(sub);
+                        boolean simVerified = Engine.simIdentityMatches(visible,
+                                effective.desiredForSlot(sub.slot));
+                        row.put("sim_properties", new JSONObject(visible))
+                                .put("sim_properties_verified", simVerified);
+                        if (!simVerified) {
+                            simIdentityPending = true;
+                            row.put("phase", "sim_identity_pending");
+                        }
                     }
                 } catch (Exception error) {
                     boolean waiting = AutoApply.isFrameworkNotReady(error);
@@ -345,19 +374,20 @@ public final class ModuleMain {
             results.put(row);
         }
         boolean ok = report.ok && !imsFailure && !imsOverrideFailure
-                && !postResetReload && !postResetMismatch;
-        String phase = report.phase;
-        if (postResetMismatch)
-            phase = "verification_failed";
-        else if (postResetReload && report.ok)
-            phase = "carrier_config_reloaded";
-        else if (imsOverrideFailure && report.ok)
-            phase = "carrier_test_override_failed";
-        else if (carrierMode && imsFailure && report.ok)
-            phase = imsUnregistered ? "ims_not_registered" : "ims_status_unavailable";
+                && !postResetReload && !postResetMismatch && !simIdentityPending;
+        String phase = AutoApply.resultPhase(report.phase,
+                postResetMismatch ? "verification_failed" : "",
+                imsOverrideFailure ? "carrier_test_override_failed" : "",
+                imsTerminalFailure ? "ims_status_unavailable" : "",
+                postResetReload ? "carrier_config_reloaded" : "",
+                imsServiceWaiting ? "waiting" : "",
+                simIdentityPending ? "sim_identity_pending" : "",
+                imsUnregistered ? "ims_not_registered" : "");
         return identity().put("ok", ok).put("phase", phase)
                 .put("changed", report.changed).put("write_readback_verified",
                         report.verified && !postResetReload && !postResetMismatch)
+                .put("sim_profiles_verified",
+                        report.ok && !postResetReload && !postResetMismatch && !simIdentityPending)
                 .put("requires_manual_retry",
                         !AutoApply.isRetryablePhase(phase)
                                 && (report.requiresManualRetry || imsFailure
@@ -431,11 +461,12 @@ public final class ModuleMain {
                 .start();
     }
 
-    private static JSONObject automaticAttempt(boolean bootRecovery) throws Exception {
+    private static JSONObject automaticAttempt(boolean bootRecovery,
+                                               CarrierImsControl.Task imsTask) throws Exception {
         try (Locked operation = lock("operation.lock", true)) {
             JSONObject result;
             try {
-                result = runOnce(false, false, false, bootRecovery);
+                result = runOnce(false, false, false, bootRecovery, imsTask);
             } catch (Exception error) {
                 if (!AutoApply.isFrameworkNotReady(error)) throw error;
                 result = identity().put("ok", false).put("phase", "waiting")
@@ -457,13 +488,14 @@ public final class ModuleMain {
     }
 
     private static JSONObject boundedApply(boolean bootOnly) throws Exception {
+        CarrierImsControl.Task imsTask = new CarrierImsControl.Task();
         JSONObject result = AutoApply.untilReady(() -> {
             FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
             if (!installedAndEnabled() || (bootOnly && !config.enabled && !config.hasSimProfiles())
                     || (!bootOnly && !config.periodicCheckEnabled))
                 return identity().put("ok", true).put("phase", "paused");
             if (Files.exists(BLOCKED)) return JsonIO.read(BLOCKED);
-            return automaticAttempt(bootOnly);
+            return automaticAttempt(bootOnly, imsTask);
         }, value -> value.optString("phase"), Thread::sleep);
         String finalPhase = result.optString("phase");
         if (AutoApply.isRetryablePhase(finalPhase)) {

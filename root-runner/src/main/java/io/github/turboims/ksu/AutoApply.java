@@ -11,16 +11,29 @@ public final class AutoApply {
 
     public static boolean isRetryablePhase(String value) {
         return "waiting".equals(value) || "ims_not_registered".equals(value)
-                || "carrier_config_reloaded".equals(value);
+                || "carrier_config_reloaded".equals(value) || "sim_identity_pending".equals(value);
     }
 
     static boolean isFrameworkNotReady(Exception error) {
+        if ("android.os.DeadObjectException".equals(error.getClass().getName())) return true;
         if (!(error instanceof java.io.IOException)) return false;
         String message = error.getMessage();
         return "Binder service not ready: isub".equals(message)
                 || "Binder service not ready: carrier_config".equals(message)
                 || "Telephony Binder service is unavailable".equals(message)
                 || "ITelephony is unavailable".equals(message);
+    }
+
+    /** A transient result from one SIM cannot hide a terminal error on another. */
+    static String resultPhase(String carrierPhase, String... observations) {
+        if (!isRetryablePhase(carrierPhase)
+                && !java.util.Set.of("active", "paused", "probe").contains(carrierPhase))
+            return carrierPhase;
+        for (String phase : observations)
+            if (!phase.isEmpty() && !isRetryablePhase(phase)) return phase;
+        for (String phase : observations)
+            if (!phase.isEmpty()) return phase;
+        return carrierPhase;
     }
 
     public static <T> T untilReady(Attempt<T> attempt, Phase<T> phase, Pause pause)

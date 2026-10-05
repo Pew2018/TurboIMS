@@ -59,7 +59,8 @@ public final class CarrierTestOverrideControl {
         return Files.exists(JsonIO.STATE.resolve("carrier-test-override-" + subId + ".json"));
     }
 
-    public Map<String, Object> apply(int subId, int slot, String mccmnc) throws Exception {
+    public Map<String, Object> apply(int subId, int slot, String mccmnc,
+                                     String observedMccMnc) throws Exception {
         if (!isValidMccMnc(mccmnc))
             throw new IllegalArgumentException("Carrier test MCC/MNC must contain 5 or 6 digits");
         Path path = path(subId);
@@ -72,7 +73,9 @@ public final class CarrierTestOverrideControl {
             if (!"applied".equals(oldPhase) && !"restored_fallback".equals(oldPhase))
                 throw new IllegalStateException("Previous Carrier test override state is uncertain; inspect diagnostics before retry");
             prior = old.optString("mccmnc", "");
-            if (mccmnc.equals(prior) && session.equals(old.optString("session")))
+            // A file from this boot is only a request record, not proof that
+            // telephony still exposes that identity after a phone-service restart.
+            if (canReuse(mccmnc, prior, session, old.optString("session"), observedMccMnc))
                 return result(subId, slot, mccmnc, "already_owned", true);
         }
         JsonIO.write(path, record(subId, slot, mccmnc, "pending"));
@@ -117,6 +120,12 @@ public final class CarrierTestOverrideControl {
         set(subId, nativeMccMnc);
         JsonIO.write(path, record(subId, slot, nativeMccMnc, "restored_fallback"));
         return result(subId, slot, nativeMccMnc, "restored_native_identity_fallback", true);
+    }
+
+    static boolean canReuse(String requested, String previous, String currentSession,
+                            String savedSession, String observedMccMnc) {
+        return requested.equals(previous) && currentSession.equals(savedSession)
+                && requested.equals(observedMccMnc);
     }
 
     static boolean isValidMccMnc(String mccmnc) {

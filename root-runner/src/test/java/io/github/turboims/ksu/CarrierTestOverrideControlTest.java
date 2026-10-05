@@ -58,4 +58,12 @@ public class CarrierTestOverrideControlTest {
                 String.class, String.class, String.class, String.class, int.class);
         assertFalse(CarrierTestOverrideControl.supportsCarrierTestOverrideSignature(method));
     }
+
+    @Test public void savedRecordNeedsMatchingObservedNumericToSkipBinderApply() {
+        assertTrue(CarrierTestOverrideControl.canReuse("46692", "46692", "boot-a", "boot-a", "46692"));
+        assertFalse(CarrierTestOverrideControl.canReuse("46692", "46692", "boot-a", "boot-a", ""));
+        assertFalse(CarrierTestOverrideControl.canReuse("46692", "46692", "boot-a", "boot-a", "46001"));
+        assertFalse(CarrierTestOverrideControl.canReuse("46692", "46692", "boot-b", "boot-a", "46692"));
+    }
+
 }

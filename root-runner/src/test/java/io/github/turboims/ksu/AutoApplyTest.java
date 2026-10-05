@@ -69,4 +69,24 @@ public class AutoApplyTest {
         assertEquals(1, fake.writes);
         assertEquals(1, fake.second.writes);
     }
+
+    @Test public void transientRegistrationCannotMaskTerminalSimFailure() {
+        assertEquals("verification_failed",
+                AutoApply.resultPhase("waiting", "ims_not_registered", "verification_failed"));
+        assertEquals("carrier_test_override_failed",
+                AutoApply.resultPhase("active", "waiting", "carrier_test_override_failed"));
+        assertEquals("ownership_lost",
+                AutoApply.resultPhase("ownership_lost", "waiting", "ims_not_registered"));
+        assertEquals("waiting", AutoApply.resultPhase("active", "waiting", "ims_not_registered"));
+        assertEquals("active", AutoApply.resultPhase("active", "", ""));
+    }
+
+    @Test public void visibleSimPropertiesCanSettleWithoutPermanentBlock() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        assertEquals("active", AutoApply.untilReady(
+                () -> calls.incrementAndGet() < 3 ? "sim_identity_pending" : "active",
+                phase -> phase, millis -> {}));
+        assertEquals(3, calls.get());
+    }
+
 }

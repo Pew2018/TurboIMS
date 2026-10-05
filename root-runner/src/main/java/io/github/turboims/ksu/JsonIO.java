@@ -133,12 +133,13 @@ public final class JsonIO implements Engine.Store {
         JSONObject obj = read(path);
         return new Engine.Snapshot(obj.getString("session"), values(obj.getJSONObject("baseline")),
                 values(obj.getJSONObject("owned")),
-                obj.has("pending") ? values(obj.getJSONObject("pending")) : Collections.emptyMap());
+                obj.has("pending") ? values(obj.getJSONObject("pending")) : Collections.emptyMap(),
+                obj.optString("pending_session", obj.getString("session")));
     }
     @Override public void save(int subId, Engine.Snapshot snapshot) throws Exception {
         write(STATE.resolve("snapshot-" + subId + ".json"),
                 new JSONObject().put("session", snapshot.session)
                         .put("baseline", values(snapshot.baseline)).put("owned", values(snapshot.owned))
-                        .put("pending", values(snapshot.pending)));
+                        .put("pending", values(snapshot.pending)).put("pending_session", snapshot.pendingSession));
     }
 }

@@ -86,6 +86,10 @@ public final class AndroidCarrierBackend implements CarrierBackend {
         return result;
     }
 
+    public String simOperatorNumeric(CarrierBackend.Subscription sub) {
+        return propertyAtSlot("gsm.sim.operator.numeric", sub.slot);
+    }
+
     /**
      * Resolve the underlying active SIM identity from ISub's SubscriptionInfo. This
      * deliberately avoids GSM SIM operator properties, which may already reflect a

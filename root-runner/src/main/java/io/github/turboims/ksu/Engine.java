@@ -15,14 +15,19 @@ public final class Engine {
     }
     public interface Sleeper { void sleep() throws Exception; }
     public static final class Snapshot {
-        public final String session;
+        public final String session, pendingSession;
         public final Map<String, Object> baseline, owned, pending;
         public Snapshot(String session, Map<String, Object> baseline, Map<String, Object> owned) {
             this(session, baseline, owned, Collections.emptyMap());
         }
         public Snapshot(String session, Map<String, Object> baseline, Map<String, Object> owned,
                         Map<String, Object> pending) {
+            this(session, baseline, owned, pending, session);
+        }
+        public Snapshot(String session, Map<String, Object> baseline, Map<String, Object> owned,
+                        Map<String, Object> pending, String pendingSession) {
             this.session = session;
+            this.pendingSession = pending.isEmpty() ? "" : pendingSession;
             this.baseline = new LinkedHashMap<>(baseline);
             this.owned = new LinkedHashMap<>(owned);
             this.pending = new LinkedHashMap<>(pending);
@@ -78,6 +83,20 @@ public final class Engine {
         return true;
     }
 
+    private static boolean isSimIdentityKey(String key) {
+        return key.equals("sim_country_iso_override_string")
+                || key.equals("carrier_name_override_bool") || key.equals("carrier_name_string");
+    }
+
+    static boolean simIdentityMatches(Map<String, String> actual, Map<String, Object> requested) {
+        Object iso = requested.get("sim_country_iso_override_string");
+        Object carrier = requested.get("carrier_name_string");
+        return (!(iso instanceof String) || ((String) iso).isEmpty()
+                        || ((String) iso).equalsIgnoreCase(actual.get("country_iso")))
+                && (!(carrier instanceof String) || ((String) carrier).isEmpty()
+                        || carrier.equals(actual.get("carrier_name")));
+    }
+
     /** Classify fresh final read-back without writing or resolving ownership. */
     static String readbackPhase(Map<String, Object> current, Map<String, Object> requested) {
         if (!Boolean.TRUE.equals(current.get(LOADED))) return "carrier_config_reloaded";
@@ -90,6 +109,11 @@ public final class Engine {
 
     public Result reconcile(CarrierBackend.Subscription sub, Map<String, Object> requested,
                             boolean allowWrite) throws Exception {
+        return reconcile(sub, requested, allowWrite, false);
+    }
+
+    public Result reconcile(CarrierBackend.Subscription sub, Map<String, Object> requested,
+                            boolean allowWrite, boolean refreshSimIdentity) throws Exception {
         Map<String, Object> current = backend.read(sub.id);
         if (!Boolean.TRUE.equals(current.get(LOADED)))
             return new Result(sub, "waiting", false, List.of(), List.of(), current);
@@ -97,7 +121,8 @@ public final class Engine {
         // A non-persistent CarrierConfig override can survive long enough to be
         // observed after reboot. Its marker is paired with the persisted snapshot,
         // not with the current boot ID, so ownership remains explicit across boots.
-        boolean ours = old != null && old.session.equals(current.get(MARKER));
+        boolean ours = old != null && (old.session.equals(current.get(MARKER))
+                || (!old.pending.isEmpty() && old.pendingSession.equals(current.get(MARKER))));
         if (!ours && current.containsKey(MARKER))
             return new Result(sub, "ownership_lost", false, List.of(), List.of(MARKER), current);
         Map<String, Object> baseline = new LinkedHashMap<>();
@@ -158,7 +183,8 @@ public final class Engine {
                 nextOwned.put(key, previous.get(key));
                 continue;
             }
-            if (!FeatureConfig.same(current.get(key), entry.getValue()))
+            if (!FeatureConfig.same(current.get(key), entry.getValue())
+                    || (refreshSimIdentity && isSimIdentityKey(key)))
                 payload.put(key, entry.getValue());
             if (previous.containsKey(key) || payload.containsKey(key))
                 nextOwned.put(key, entry.getValue());
@@ -178,7 +204,10 @@ public final class Engine {
             return new Result(sub, "preview", false, unsupported, conflicts, current);
         if (!payload.isEmpty()) {
             // Snapshot BEFORE mutation; a crash/failure must still leave a recovery record.
-            store.save(sub.id, new Snapshot(session, baseline, previous, payload));
+            // Keep the last verified token until the Binder write is known to
+            // have switched it. Pending writes can be recovered with either token.
+            String priorToken = ours ? String.valueOf(current.get(MARKER)) : session;
+            store.save(sub.id, new Snapshot(priorToken, baseline, previous, payload, session));
             payload.put(MARKER, session);
             backend.override(sub.id, payload);
             boolean verified = false;
@@ -199,7 +228,7 @@ public final class Engine {
             // Keep the stored owner token aligned with the marker that is actually
             // present. A changed payload writes this boot's marker; an unchanged
             // cross-boot reconciliation deliberately retains the prior marker.
-            String ownerToken = !payload.isEmpty() ? session : old.session;
+            String ownerToken = !payload.isEmpty() ? session : String.valueOf(current.get(MARKER));
             store.save(sub.id, new Snapshot(ownerToken, baseline, nextOwned));
         }
         String phase = !conflicts.isEmpty() ? "conflict" :

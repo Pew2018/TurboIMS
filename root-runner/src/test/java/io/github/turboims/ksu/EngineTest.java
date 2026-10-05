@@ -342,4 +342,76 @@ public class EngineTest {
         try{assertEquals(phase,fake.engine().reconcile(SUB,desired,write).phase);}
         catch(Exception e){throw new AssertionError(e);}
     }
+
+    @Test public void crossBootFailureBeforeMutationKeepsOldOwnerAndBaseline() throws Exception {
+        Fake f = new Fake();
+        applying(f, "boot-a").reconcile(SUB, on(), true);
+        f.throwBefore = true;
+        try { applying(f, "boot-b").reconcile(SUB, Map.of(KEY, false), true); fail(); }
+        catch (IllegalStateException expected) { }
+        assertEquals("boot-a", f.snapshot.session);
+        assertEquals("boot-b", f.snapshot.pendingSession);
+        assertEquals("boot-a", f.values.get(Engine.MARKER));
+        f.throwBefore = false;
+        assertEquals("restored", applying(f, "boot-b").reconcile(SUB, Map.of(), true).phase);
+        assertEquals(false, f.values.get(KEY));
+        assertTrue(f.snapshot.pending.isEmpty());
+    }
+
+    @Test public void crossBootFailureAfterMutationRecognizesNewPendingOwner() throws Exception {
+        Fake f = new Fake();
+        applying(f, "boot-a").reconcile(SUB, on(), true);
+        f.throwAfter = true;
+        try { applying(f, "boot-b").reconcile(SUB, Map.of(KEY, false), true); fail(); }
+        catch (IllegalStateException expected) { }
+        assertEquals("boot-a", f.snapshot.session);
+        assertEquals("boot-b", f.snapshot.pendingSession);
+        assertEquals("boot-b", f.values.get(Engine.MARKER));
+        f.throwAfter = false;
+        assertEquals("unchanged", applying(f, "boot-b").reconcile(SUB, Map.of(), true).phase);
+        assertEquals("boot-b", f.snapshot.session);
+        assertTrue(f.snapshot.owned.isEmpty());
+        assertTrue(f.snapshot.pending.isEmpty());
+    }
+
+    @Test public void simRefreshRepublishesOnlyRequestedSimKeysEvenWhenEqual() throws Exception {
+        Fake f = new Fake();
+        String iso = "sim_country_iso_override_string", carrier = "carrier_name_string";
+        f.values.put(iso, "tw"); f.values.put(carrier, "Chunghwa Telecom");
+        Map<String,Object> desired = Map.of(iso, "tw", carrier, "Chunghwa Telecom");
+        assertEquals("unchanged", applying(f, "boot-a").reconcile(SUB, desired, true).phase);
+        assertEquals(0, f.writes);
+        assertEquals("verified", applying(f, "boot-a").reconcile(SUB, desired, true, true).phase);
+        assertEquals(1, f.writes);
+        assertEquals("tw", f.snapshot.baseline.get(iso));
+        assertFalse(f.snapshot.owned.containsKey(KEY));
+        assertEquals(true, f.values.get("unrelated_other_module_key"));
+    }
+
+    @Test public void simRefreshDoesNotBypassConflictOrReadOnlyChecks() throws Exception {
+        Fake f = new Fake();
+        String carrier = "carrier_name_string";
+        f.values.put(carrier, "native");
+        Map<String,Object> desired = Map.of(carrier, "Chunghwa Telecom");
+        applying(f, "boot-a").reconcile(SUB, desired, true);
+        int writes = f.writes, saves = f.saves;
+        applying(f, "boot-a").reconcile(SUB, desired, false, true);
+        assertEquals(writes, f.writes); assertEquals(saves, f.saves);
+        f.values.put(carrier, "someone else");
+        assertEquals("conflict", applying(f, "boot-a").reconcile(SUB, desired, true, true).phase);
+        assertEquals(writes, f.writes);
+    }
+
+    @Test public void publicSimReadbackMustMatchIsoAndExactCarrierName() {
+        Map<String,Object> desired = Map.of("sim_country_iso_override_string", "tw",
+                "carrier_name_string", "Chunghwa Telecom");
+        assertTrue(Engine.simIdentityMatches(
+                Map.of("country_iso", "TW", "carrier_name", "Chunghwa Telecom"), desired));
+        assertFalse(Engine.simIdentityMatches(
+                Map.of("country_iso", "", "carrier_name", "中華電信"), desired));
+        assertFalse(Engine.simIdentityMatches(
+                Map.of("country_iso", "TW", "carrier_name", "中華電信"), desired));
+        assertTrue(Engine.simIdentityMatches(Map.of(), Map.of(KEY, true)));
+    }
+
 }
