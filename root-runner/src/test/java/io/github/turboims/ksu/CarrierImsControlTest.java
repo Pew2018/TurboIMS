@@ -99,4 +99,29 @@ public class CarrierImsControlTest {
         assertEquals(java.util.List.of(0,1), f.slots);
     }
 
+    @Test public void turboImsOnlyObservesRegistrationWithoutReset() {
+        FakeOps f=new FakeOps(); f.readyAfter=3;
+        CarrierImsControl.Task task=new CarrierImsControl.Task();
+        CarrierImsControl c=new CarrierImsControl(f);
+        assertEquals("ims_not_registered",task.observe(c,1,0,2,1000,false,millis->{},()->true).phase);
+        CarrierImsControl.Registration next=task.observe(c,1,0,2,1000,false,millis->{},()->true);
+        assertEquals("ims_registered",next.phase); assertFalse(next.resetAccepted);
+        assertEquals(0,f.resets); assertEquals(4,f.reads);
+    }
+    @Test public void automaticRetriesObserveLateRegistrationWithoutRewritingOrResetting() throws Exception {
+        BatchRunnerTest.Fake backend=new BatchRunnerTest.Fake();
+        FakeOps f=new FakeOps(); f.readyAfter=25;
+        CarrierImsControl c=new CarrierImsControl(f);
+        CarrierImsControl.Task task=new CarrierImsControl.Task();
+        task.useConfiguration("same");
+        final int[] runs={0};
+        assertEquals("active",AutoApply.untilReady(()->{
+            assertTrue(backend.run(false).ok);
+            runs[0]++;
+            return task.observe(c,17,0,20,1000,millis->{}).phase.equals("ims_registered")
+                    ? "active" : "ims_not_registered";
+        },phase->AutoApply.automaticPhase(phase,true),millis->{}));
+        assertEquals(2,runs[0]); assertEquals(1,f.resets);
+        assertEquals(1,backend.writes); assertEquals(1,backend.second.writes);
+    }
 }

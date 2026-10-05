@@ -14,10 +14,9 @@ public final class AutoApply {
                 || "carrier_config_reloaded".equals(value) || "sim_identity_pending".equals(value);
     }
 
-    /** Registration is an observation, not a reason to keep reapplying verified settings. */
+    /** Retry registration observation; Engine/Task prevent repeated writes and accepted resets. */
     static String automaticPhase(String phase, boolean configurationApplied) {
         if ("superseded".equals(phase)) return "waiting";
-        if ("ims_not_registered".equals(phase) && configurationApplied) return "configured";
         return phase;
     }
 

@@ -43,6 +43,8 @@ public final class ModuleMain {
             }
             String action = args[1];
             actionName = action;
+            if (Set.of("apply", "restore", "watch", "watch-periodic").contains(action))
+                migrateIdentityPreferences();
             if (action.equals("watch") || action.equals("watch-periodic")) {
                 try { watch(action.equals("watch")); }
                 catch (IOException duplicate) {
@@ -62,7 +64,7 @@ public final class ModuleMain {
                     result.put("log", Files.exists(log)
                             ? new String(Files.readAllBytes(log), StandardCharsets.UTF_8) : "");
                 }
-            } else if (action.equals("get-config")) result = JsonIO.read(JsonIO.CONFIG);
+            } else if (action.equals("get-config")) result = JsonIO.config(JsonIO.config(JsonIO.read(JsonIO.CONFIG)));
             else if (action.equals("save")) {
                 if (args.length != 3 || args[2].length() > 16384)
                     throw new IllegalArgumentException("Missing or oversized config");
@@ -111,6 +113,23 @@ public final class ModuleMain {
             code = 1;
         }
         System.exit(code);
+    }
+
+    private static void migrateIdentityPreferences() throws Exception {
+        try (RunnerConfiguration.Locked ignored = lock("config.lock", true)) {
+            JSONObject saved = JsonIO.read(JsonIO.CONFIG);
+            JSONObject profiles = saved.optJSONObject("sim_profiles");
+            boolean legacy = false;
+            if (profiles != null) {
+                Iterator<String> slots = profiles.keys();
+                while (slots.hasNext())
+                    legacy |= !profiles.getJSONObject(slots.next()).has("carrier_test_enabled");
+            }
+            if (legacy) {
+                JsonIO.write(JsonIO.CONFIG, JsonIO.config(JsonIO.config(saved)));
+                log("Migrated legacy SIM display profiles: carrier test identity defaults off");
+            }
+        }
     }
 
     private static AndroidCarrierBackend backend() throws Exception {
@@ -164,6 +183,7 @@ public final class ModuleMain {
         AndroidCarrierBackend backend = backend();
         List<CarrierBackend.Subscription> subscriptions = backend.subscriptions();
         boolean carrierMode = "carrier_ims".equals(config.implementationMode);
+        boolean observeRegistration = effective.enabled && !restore;
         JSONArray overrideResults = new JSONArray();
         CarrierTestOverrideControl overrideControl = null;
         if (!preview) {
@@ -172,7 +192,7 @@ public final class ModuleMain {
             boolean hasExplicitTestIdentity = carrierMode && subscriptions.stream().anyMatch(sub -> {
                 FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
                 return config.selects(sub.slot) && profile != null
-                        && !profile.carrierTestMccMnc.trim().isEmpty();
+                        && !profile.requestedTestMccMnc().isEmpty();
             });
             // Resolve the Binder signature only when applying a requested test identity
             // or cleaning an override that this module previously recorded as its own.
@@ -194,6 +214,7 @@ public final class ModuleMain {
         boolean imsServiceWaiting = false;
         boolean imsTerminalFailure = false;
         boolean simIdentityPending = false;
+        boolean identityCleanupRequiresReboot = false;
         Map<Integer, String> overrideErrors = new HashMap<>();
         Map<Integer, String> carrierConfigErrors = new HashMap<>();
         for (BatchRunner.Entry entry : preflight.entries) {
@@ -219,14 +240,13 @@ public final class ModuleMain {
                 }
                 try {
                     FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
-                    String requestedMccMnc = profile == null ? "" : profile.carrierTestMccMnc.trim();
+                    String requestedMccMnc = profile == null ? "" : profile.requestedTestMccMnc();
                     boolean targetRequested = !requestedMccMnc.isEmpty();
                     if (CarrierTestOverrideControl.hasRecord(sub.id)
                             && (restore || !carrierMode || !configured
                                     || !config.selects(sub.slot) || !targetRequested)) {
-                        String nativeMccMnc = backend.activeSubscriptionMccMnc(sub);
                         Map<String, Object> cleared = overrideControl.clearOwned(
-                                sub.id, sub.slot, nativeMccMnc, backend.simOperatorNumeric(sub));
+                                sub.id, sub.slot, backend.simOperatorNumeric(sub));
                         overrideResults.put(new JSONObject(cleared));
                         boolean clearedNow = cleared.get("phase").equals("cleared_owned")
                                 || cleared.get("phase").equals("restored_native_identity_fallback");
@@ -235,7 +255,8 @@ public final class ModuleMain {
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && targetRequested) {
                         Map<String, Object> applied = overrideControl.apply(
-                                sub.id, sub.slot, requestedMccMnc, backend.simOperatorNumeric(sub));
+                                sub.id, sub.slot, requestedMccMnc, backend.simOperatorNumeric(sub),
+                                backend.activeSubscriptionMccMnc(sub));
                         overrideResults.put(new JSONObject(applied));
                         testIdentityChanged |= applied.get("phase").equals("binder_accepted");
                         if (applied.get("phase").equals("binder_accepted")) refreshSimIdentity.add(sub.id);
@@ -248,9 +269,12 @@ public final class ModuleMain {
                     }
                 } catch (Throwable error) {
                     String detail = String.valueOf(error.getMessage());
+                    boolean needsReboot = error instanceof CarrierTestOverrideControl.CleanupRequiresReboot;
+                    identityCleanupRequiresReboot |= needsReboot;
                     overrideErrors.put(sub.id, detail);
                     overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
-                            .put("phase", "apply_failed").put("binder_accepted", false)
+                            .put("phase", needsReboot ? "carrier_test_cleanup_requires_reboot" : "apply_failed")
+                            .put("requires_reboot", needsReboot).put("binder_accepted", false)
                             .put("error", detail));
                     log("subId=" + sub.id + " carrier test override ERROR " + detail);
                 }
@@ -258,7 +282,7 @@ public final class ModuleMain {
         } else if (!preview && carrierMode && configured) {
             for (CarrierBackend.Subscription sub : subscriptions) {
                 FeatureConfig.SimProfile profile = config.simProfiles.get(sub.slot);
-                if (config.selects(sub.slot) && (profile == null || profile.carrierTestMccMnc.trim().isEmpty())) {
+                if (config.selects(sub.slot) && (profile == null || profile.requestedTestMccMnc().isEmpty())) {
                     overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                             .put("mccmnc", "").put("phase", "not_requested_native_identity")
                             .put("binder_accepted", false).put("readback_available", false)
@@ -279,8 +303,8 @@ public final class ModuleMain {
         JSONArray imsResults = new JSONArray();
         CarrierImsControl imsControl = null;
         Exception imsInitError = null;
-        if (carrierMode) {
-            try { imsControl = new CarrierImsControl(); }
+        if (observeRegistration) {
+            try { imsControl = new CarrierImsControl(carrierMode); }
             catch (Exception error) { imsInitError = error; }
         }
         for (BatchRunner.Entry entry : report.entries) {
@@ -315,7 +339,7 @@ public final class ModuleMain {
                             + " conflicts=" + r.conflicts + " unsupported=" + r.unsupported);
             }
             long observationStarted = SystemClock.elapsedRealtime();
-            if (carrierMode && (entry.selected || restore)) {
+            if (observeRegistration && entry.selected) {
                 if (!preview) log("action=" + actionName + " subId=" + sub.id
                         + " ims_observation_started");
                 JSONObject imsRow = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot);
@@ -338,7 +362,7 @@ public final class ModuleMain {
                         String configPhase = entry.result == null ? "unknown" : entry.result.phase;
                         imsRow.put("phase", "carrier_config_not_ready")
                                 .put("registered", JSONObject.NULL)
-                                .put("error", "CarrierConfig is not ready for IMS reset: " + configPhase);
+                                .put("error", "CarrierConfig is not ready for IMS observation: " + configPhase);
                     } else {
                         if (imsControl == null) {
                             if (imsInitError != null) throw imsInitError;
@@ -350,7 +374,7 @@ public final class ModuleMain {
                             registration = new CarrierImsControl.Registration(registered,
                                     registered ? "ims_registered" : "ims_not_registered", "");
                         } else {
-                            registration = imsTask.observe(imsControl, sub.id, sub.slot, 20, 1000L,
+                            registration = imsTask.observe(imsControl, sub.id, sub.slot, 20, 1000L, carrierMode,
                                     captured::isCurrent);
                         }
                         imsRow.put("phase", registration.phase)
@@ -446,6 +470,7 @@ public final class ModuleMain {
         boolean ok = report.ok && !imsFailure && !imsOverrideFailure
                 && !postResetReload && !postResetMismatch && !simIdentityPending;
         String phase = AutoApply.resultPhase(report.phase,
+                identityCleanupRequiresReboot ? "carrier_test_cleanup_requires_reboot" : "",
                 postResetMismatch ? "verification_failed" : "",
                 imsOverrideFailure ? "carrier_test_override_failed" : "",
                 imsTerminalFailure ? "ims_status_unavailable" : "",
@@ -467,8 +492,12 @@ public final class ModuleMain {
                         !AutoApply.isRetryablePhase(phase)
                                 && (report.requiresManualRetry || imsFailure
                                         || imsOverrideFailure || postResetMismatch))
+                .put("requires_reboot", identityCleanupRequiresReboot)
                 .put("implementation_mode", config.implementationMode)
-                .put("carrier_ims_results", imsResults)
+                .put("ims_results", imsResults)
+                .put("ims_registration_verified", observeRegistration && !imsFailure && report.ok
+                        && !imsOverrideFailure && !postResetReload && !postResetMismatch)
+                .put("carrier_ims_results", carrierMode ? imsResults : new JSONArray())
                 .put("carrier_test_override_results", overrideResults)
                 .put("config", JsonIO.config(config)).put("subscriptions", results)
                 .put("binder", new JSONObject(backend.capabilities()));

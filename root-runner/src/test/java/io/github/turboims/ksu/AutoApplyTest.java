@@ -4,15 +4,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 public class AutoApplyTest {
-    @Test public void verifiedConfigurationDoesNotRetryAbsentRegistration() throws Exception {
+    @Test public void verifiedConfigurationKeepsObservingUntilRegistrationSettles() throws Exception {
+        int[] passes = {0}, waits = {0};
+        String observed = AutoApply.untilReady(() -> ++passes[0] < 3 ? "ims_not_registered" : "active",
+                phase -> AutoApply.automaticPhase(phase, true), millis -> waits[0]++);
+        assertEquals("active", observed); assertEquals(3, passes[0]); assertEquals(2, waits[0]);
+    }
+    @Test public void unregisteredVerifiedConfigurationStillStopsAtBoundedDeadline() throws Exception {
         int[] passes = {0};
-        String observed = AutoApply.untilReady(() -> {
-            passes[0]++;
-            return "ims_not_registered";
-        }, phase -> AutoApply.automaticPhase(phase, true),
-                millis -> fail("Verified configuration must not repeat registration waiting"));
-        assertEquals("ims_not_registered", observed);
-        assertEquals(1, passes[0]);
+        assertEquals("ims_not_registered", AutoApply.untilReady(() -> {
+            passes[0]++; return "ims_not_registered";
+        }, phase -> AutoApply.automaticPhase(phase, true), millis -> {}));
+        assertEquals(AutoApply.MAX_ATTEMPTS,passes[0]);
     }
 
     @Test public void readinessAndVerificationStillUseBoundedRetries() {

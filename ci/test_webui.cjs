@@ -201,14 +201,14 @@ test("IMS mode radio choice displays exact option labels and description",async(
     {value:"turboims",textContent:"TurboIMS"},{value:"carrier_ims",textContent:"Carrier IMS"}];
   context.form(config);
   assert.equal(elements.get("implementation-mode-choice").textContent,"TurboIMS");
-  assert.equal(elements.get("implementation-mode-description").textContent,"使用 TurboIMS 原有 IMS 配置路径。");
+  assert.equal(elements.get("implementation-mode-description").textContent,"使用 TurboIMS 原有配置路径，检查 IMS 注册。");
   elements.get("implementation-mode-choice").onclick();
   const choices=elements.get("sheet-content").children;
   assert.deepEqual(choices.map(button=>button.textContent.replace("✓","").trim()),["TurboIMS","Carrier IMS"]);
   choices[1].onclick();
   assert.equal(elements.get("implementation_mode").value,"carrier_ims");
   assert.equal(elements.get("implementation-mode-choice").textContent,"Carrier IMS");
-  assert.equal(elements.get("implementation-mode-description").textContent,"使用 Carrier IMS 兼容路径，可配合 Carrier test MCC/MNC。");
+  assert.equal(elements.get("implementation-mode-description").textContent,"验证配置后重置 IMS 并检查注册，默认保留真实 SIM 身份。");
   assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
 test("cancelled apply does not save or apply",async()=>{
@@ -513,7 +513,7 @@ test("SIM text editors use secondary pages, validate inputs, and keep edits draf
   assert.equal(elements.get("sim-carrier-test-mccmnc-value").textContent,"46692");
   await elements.get("sim-save").onclick();
   const payload=JSON.parse(Buffer.from(calls.find(([action])=>action==="save")[1],"base64").toString());
-  assert.deepEqual(payload.sim_profiles,{"0":{country_iso:"TW",carrier_name:"Custom Carrier",carrier_test_mccmnc:"46692"}});
+  assert.deepEqual(payload.sim_profiles,{"0":{country_iso:"TW",carrier_name:"Custom Carrier",carrier_test_mccmnc:"46692",carrier_test_enabled:false}});
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
   const sim=html.split('<main id="sim-page"')[1].split("</main>")[0];
   assert.doesNotMatch(sim,/sim-info-card|sim-custom-country\"|sim-custom-carrier\"|CarrierConfig/);
@@ -803,4 +803,48 @@ test("verified settings and absent registration remain separate in WebUI",async(
   context.render({ok:false,phase:"superseded",requires_manual_retry:false});
   assert.equal(elements.get("message").textContent,"设置已更新");
   assert.equal(elements.get("status-indicator").dataset.tone,"neutral");
+});
+
+test("legacy test PLMN and stored drafts never auto-enable identity after upgrade",async()=>{
+  const {context,elements,calls}=await appHarness();
+  const config={schema:1,enabled:true,periodic_check_enabled:false,selection:"all",interval_seconds:600,
+    implementation_mode:"carrier_ims",
+    features:{volte:"on",vowifi:"on",vt:"on",vonr:"on",cross_sim:"on",ut:"on","5g_nr":"on"},
+    sim_profiles:{"0":{country_iso:"tw",carrier_name:"Chunghwa Telecom",carrier_test_mccmnc:"46692"}}};
+  context.render({config,status:{config,phase:"active",
+    subscriptions:[{slot:0,sub_id:1,phase:"verified",effective:{}}]}},true);
+  assert.equal(elements.get("sim-carrier-test-enabled").checked,false);
+  await elements.get("sim-save").onclick();
+  const first=JSON.parse(Buffer.from(calls.find(([action])=>action==="save")[1],"base64").toString());
+  assert.equal(first.sim_profiles["0"].carrier_test_enabled,false);
+  assert.equal(first.sim_profiles["0"].country_iso,"TW");
+  assert.equal(first.sim_profiles["0"].carrier_name,"Chunghwa Telecom");
+  elements.get("sim-carrier-test-enabled").checked=true;
+  elements.get("sim-carrier-test-enabled").onchange();
+  assert.equal(context.simEffectiveProfiles()["0"].carrier_test_enabled,true);
+  context.simSetCustom("carrier_test_mccmnc","");
+  assert.equal(elements.get("sim-carrier-test-enabled").checked,false);
+  assert.equal(context.simEffectiveProfiles()["0"].carrier_test_mccmnc,undefined);
+});
+test("native display presets do not invent a test MCC/MNC",async()=>{
+  const {context}=await appHarness();
+  context.simSetPreset("country_preset","TW");
+  context.simSetPreset("carrier_preset","Chunghwa Telecom");
+  const profile=context.simEffectiveProfiles()["0"];
+  assert.equal(profile.country_iso,"TW"); assert.equal(profile.carrier_name,"Chunghwa Telecom");
+  assert.equal(profile.carrier_test_mccmnc,undefined);
+  assert.notEqual(profile.carrier_test_enabled,true);
+});
+test("TurboIMS renders actual registration without requiring Carrier IMS mode",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({phase:"ims_not_registered",ok:false,implementation_mode:"turboims",
+    configuration_applied:true,ims_results:[{slot:0,sub_id:1,phase:"ims_not_registered",registered:false}],
+    subscriptions:[{slot:0,sub_id:1,phase:"verified"}]});
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未注册");
+  assert.equal(elements.get("message").textContent,"配置已应用，IMS 尚未注册");
+});
+test("unknown legacy native identity is surfaced as a reboot requirement",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({ok:false,phase:"carrier_test_cleanup_requires_reboot",requires_reboot:true});
+  assert.equal(elements.get("message").textContent,"需要重启清理旧测试身份");
 });

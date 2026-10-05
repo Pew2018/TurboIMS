@@ -5,7 +5,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 /**
- * Carrier IMS-only telephony operations. Uses the device ITelephony Binder from
+ * IMS registration observation and optional Carrier IMS reset. Uses ITelephony from
  * the existing KSU runner; no Shizuku or companion process is involved.
  */
 public final class CarrierImsControl {
@@ -34,7 +34,9 @@ public final class CarrierImsControl {
     private final Operations operations;
     private final String serviceSource;
 
-    public CarrierImsControl() throws Exception {
+    public CarrierImsControl() throws Exception { this(true); }
+
+    public CarrierImsControl(boolean allowReset) throws Exception {
         IBinder binder = frameworkTelephonyBinder();
         serviceSource = binder != null ? "telephony_framework" : "service_manager_phone";
         if (binder == null) {
@@ -48,12 +50,13 @@ public final class CarrierImsControl {
                 .getMethod("asInterface", IBinder.class), null, binder);
         if (telephony == null) throw new java.io.IOException("ITelephony is unavailable");
         Method registeredMethod = api.getMethod("isImsRegistered", int.class);
-        Method resetMethod = api.getMethod("resetIms", int.class);
+        Method resetMethod = allowReset ? api.getMethod("resetIms", int.class) : null;
         operations = new Operations() {
             @Override public boolean isRegistered(int subId) throws Exception {
                 return Boolean.TRUE.equals(invoke(registeredMethod, telephony, subId));
             }
             @Override public void reset(int slot) throws Exception {
+                if (resetMethod == null) throw new IllegalStateException("IMS reset is disabled in TurboIMS mode");
                 invoke(resetMethod, telephony, slot);
             }
         };
@@ -88,8 +91,17 @@ public final class CarrierImsControl {
         }
         Registration observe(CarrierImsControl control, int subId, int slot,
                              int attempts, long intervalMs, Pause pause, CurrentConfig current) {
+            return observe(control, subId, slot, attempts, intervalMs, true, pause, current);
+        }
+        Registration observe(CarrierImsControl control, int subId, int slot,
+                             int attempts, long intervalMs, boolean allowReset, CurrentConfig current) {
+            return observe(control, subId, slot, attempts, intervalMs, allowReset, Thread::sleep, current);
+        }
+        Registration observe(CarrierImsControl control, int subId, int slot,
+                             int attempts, long intervalMs, boolean allowReset,
+                             Pause pause, CurrentConfig current) {
             Registration result = control.observe(subId, slot, attempts, intervalMs,
-                    !resetSubscriptions.contains(subId), pause, current);
+                    allowReset && !resetSubscriptions.contains(subId), pause, current);
             if (result.resetAccepted) resetSubscriptions.add(subId);
             return result;
         }
