@@ -764,7 +764,7 @@ test("secondary page actions use accent-tonal surface",()=>{
 });
 
 test("pending operation keeps its button label and navigation responsive",async()=>{
-  const {context,elements,doc}=await appHarness();
+  const {context,elements,doc,history}=await appHarness();
   const apply=doc.getElementById("apply");
   apply.textContent="应用配置";
   const tab=doc.getElementById("tab-settings-page");
@@ -773,7 +773,7 @@ test("pending operation keeps its button label and navigation responsive",async(
   const task=context.operation(()=>wait,"正在处理…",apply);
   assert.equal(apply.textContent,"应用配置");
   assert.equal(apply.disabled,true); assert.notEqual(tab.disabled,true);
-  tab.onclick(); assert.equal(doc.getElementById("page-title").textContent,"设置");
+  tab.onclick(); assert.equal(history.state.page,"settings-page");
   finish(); await task;
   assert.equal(apply.disabled,false); assert.equal(apply.textContent,"应用配置");
 });
