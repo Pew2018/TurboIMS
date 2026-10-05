@@ -5,6 +5,20 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class CarrierImsControlTest {
+    @Test public void newConfigurationGetsItsOwnResetAfterSupersedingOldTask() {
+        FakeOps f = new FakeOps(); f.readyAfter = 1;
+        CarrierImsControl c = new CarrierImsControl(f);
+        CarrierImsControl.Task task = new CarrierImsControl.Task();
+        task.useConfiguration("old");
+        assertTrue(task.observe(c, 17, 0, 20, 1000, millis -> {}).registered);
+        task.useConfiguration("old");
+        assertTrue(task.observe(c, 17, 0, 20, 1000, millis -> {}).registered);
+        assertEquals(1, f.resets);
+        task.useConfiguration("new");
+        assertTrue(task.observe(c, 17, 0, 20, 1000, millis -> {}).registered);
+        assertEquals(2, f.resets);
+    }
+
     @Test public void resetRunsOnlyAfterVerifiedCarrierConfigState() {
         assertTrue(CarrierImsControl.isReadyForReset("verified"));
         assertTrue(CarrierImsControl.isReadyForReset("unchanged"));

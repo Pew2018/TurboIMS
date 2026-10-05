@@ -1,6 +1,6 @@
 package io.github.turboims.ksu;
 
-/** Bounded boot retries for framework readiness and post-reset IMS registration. */
+/** Bounded boot retries for framework readiness and configuration verification. */
 public final class AutoApply {
     public static final int MAX_ATTEMPTS = 12;
     public static final long RETRY_MILLIS = 5000;
@@ -12,6 +12,13 @@ public final class AutoApply {
     public static boolean isRetryablePhase(String value) {
         return "waiting".equals(value) || "ims_not_registered".equals(value)
                 || "carrier_config_reloaded".equals(value) || "sim_identity_pending".equals(value);
+    }
+
+    /** Registration is an observation, not a reason to keep reapplying verified settings. */
+    static String automaticPhase(String phase, boolean configurationApplied) {
+        if ("superseded".equals(phase)) return "waiting";
+        if ("ims_not_registered".equals(phase) && configurationApplied) return "configured";
+        return phase;
     }
 
     static boolean isFrameworkNotReady(Exception error) {

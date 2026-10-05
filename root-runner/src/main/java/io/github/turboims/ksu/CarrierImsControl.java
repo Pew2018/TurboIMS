@@ -30,6 +30,7 @@ public final class CarrierImsControl {
         void reset(int slot) throws Exception;
     }
     interface Pause { void waitFor(long millis) throws InterruptedException; }
+    interface CurrentConfig { boolean isCurrent() throws Exception; }
     private final Operations operations;
     private final String serviceSource;
 
@@ -66,14 +67,29 @@ public final class CarrierImsControl {
     /** One accepted reset per subscription within a bounded boot/manual task. */
     public static final class Task {
         private final java.util.Set<Integer> resetSubscriptions = new java.util.HashSet<>();
+        private String configurationRevision = "";
+        void useConfiguration(String revision) {
+            if (!revision.equals(configurationRevision)) {
+                resetSubscriptions.clear();
+                configurationRevision = revision;
+            }
+        }
         public Registration observe(CarrierImsControl control, int subId, int slot,
                                     int attempts, long intervalMs) {
             return observe(control, subId, slot, attempts, intervalMs, Thread::sleep);
         }
         Registration observe(CarrierImsControl control, int subId, int slot,
                              int attempts, long intervalMs, Pause pause) {
+            return observe(control, subId, slot, attempts, intervalMs, pause, () -> true);
+        }
+        Registration observe(CarrierImsControl control, int subId, int slot,
+                             int attempts, long intervalMs, CurrentConfig current) {
+            return observe(control, subId, slot, attempts, intervalMs, Thread::sleep, current);
+        }
+        Registration observe(CarrierImsControl control, int subId, int slot,
+                             int attempts, long intervalMs, Pause pause, CurrentConfig current) {
             Registration result = control.observe(subId, slot, attempts, intervalMs,
-                    !resetSubscriptions.contains(subId), pause);
+                    !resetSubscriptions.contains(subId), pause, current);
             if (result.resetAccepted) resetSubscriptions.add(subId);
             return result;
         }
@@ -91,10 +107,12 @@ public final class CarrierImsControl {
     }
 
     private Registration observe(int subId, int slot, int attempts, long intervalMs,
-                                 boolean reset, Pause pause) {
+                                 boolean reset, Pause pause, CurrentConfig current) {
         boolean resetAccepted = false;
         if (reset) {
             try {
+                if (!current.isCurrent())
+                    return new Registration(false, "superseded", "", false);
                 operations.reset(slot);
                 resetAccepted = true;
                 // The Binder call queues a reset. Do not immediately accept the
@@ -111,6 +129,8 @@ public final class CarrierImsControl {
         int consecutive = 0;
         for (int i = 0; i < attempts; i++) {
             try {
+                if (!current.isCurrent())
+                    return new Registration(false, "superseded", "", resetAccepted);
                 consecutive = isRegistered(subId) ? consecutive + 1 : 0;
                 if (consecutive >= 2)
                     return new Registration(true, "ims_registered", "", resetAccepted);

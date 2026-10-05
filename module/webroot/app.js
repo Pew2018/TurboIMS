@@ -929,7 +929,10 @@ function render(result, replaceForm = false) {
       ? ["IMS 配置已验证",""]
       : ["无需重新写入","当前配置未发生变化，尚未确认写入结果。"],
     verified:["IMS 配置已验证",""],
-    ims_not_registered:["IMS 尚未注册","CarrierConfig 已验证，但 IMS 在限定时间内仍未注册。"],
+    ims_not_registered:state.configuration_applied
+      ? ["配置已应用，IMS 尚未注册","配置和 SIM 信息已验证；注册检测仍未通过。"]
+      : ["IMS 尚未注册","CarrierConfig 已验证，但 IMS 在限定时间内仍未注册。"],
+    superseded:["设置已更新","旧任务已结束，请按新设置应用配置。"],
     ims_status_unavailable:["无法读取 IMS 状态","查看逐卡诊断中的 Binder 权限或 API 错误。"],
     carrier_test_override_failed:["运营商识别覆盖失败","CarrierConfig 已验证，但 Carrier test MCC/MNC 未应用；查看逐卡结果。"],
     ims_reset_failed:["IMS reset 失败","查看逐卡诊断中的系统返回原因。"],

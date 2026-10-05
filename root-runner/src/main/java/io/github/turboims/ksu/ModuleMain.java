@@ -17,6 +17,7 @@ public final class ModuleMain {
     private static Path module;
     private static String session;
     private static String actionName = "initializing";
+    private static RunnerConfiguration.Snapshot activeConfiguration;
     private static final Path STATUS = JsonIO.STATE.resolve("status.json");
     private static final Path BLOCKED = JsonIO.STATE.resolve("blocked.json");
 
@@ -62,33 +63,35 @@ public final class ModuleMain {
                             ? new String(Files.readAllBytes(log), StandardCharsets.UTF_8) : "");
                 }
             } else if (action.equals("get-config")) result = JsonIO.read(JsonIO.CONFIG);
-            else {
-                try (Locked ignored = lock("operation.lock", true)) {
-                    if (action.equals("save")) {
-                        if (args.length != 3 || args[2].length() > 16384)
-                            throw new IllegalArgumentException("Missing or oversized config");
-                        JSONObject incoming = new JSONObject(new String(
-                                Base64.getDecoder().decode(args[2]), StandardCharsets.UTF_8));
-                        FeatureConfig config = JsonIO.config(incoming);
-                        JsonIO.write(JsonIO.CONFIG, JsonIO.config(config));
-                        if (config.periodicCheckEnabled) startWatcher();
-                        result = new JSONObject().put("ok", true).put("saved", true)
-                                .put("config", JsonIO.config(config));
-                    } else if (Set.of("probe", "apply", "restore").contains(action)) {
-                        if (action.equals("restore")) {
+            else if (action.equals("save")) {
+                if (args.length != 3 || args[2].length() > 16384)
+                    throw new IllegalArgumentException("Missing or oversized config");
+                JSONObject incoming = new JSONObject(new String(
+                        Base64.getDecoder().decode(args[2]), StandardCharsets.UTF_8));
+                FeatureConfig config = JsonIO.config(incoming);
+                // Never wait for registration polling to save user preferences.
+                try (RunnerConfiguration.Locked ignored = lock("config.lock", true)) {
+                    JsonIO.write(JsonIO.CONFIG, JsonIO.config(config));
+                    result = new JSONObject().put("ok", true).put("saved", true)
+                            .put("config", JsonIO.config(config));
+                }
+                if (config.periodicCheckEnabled) startWatcher();
+            } else {
+                try (RunnerConfiguration.Locked ignored = lock("operation.lock", true)) {
+                    if (!Set.of("probe", "apply", "restore").contains(action))
+                        throw new IllegalArgumentException("Unknown action: " + action);
+                    if (action.equals("restore")) {
+                        try (RunnerConfiguration.Locked configuration = lock("config.lock", true)) {
                             JSONObject config = JsonIO.read(JsonIO.CONFIG);
                             config.put("enabled", false);
                             config.put("periodic_check_enabled", false);
                             config.put("sim_profiles", new JSONObject());
                             JsonIO.write(JsonIO.CONFIG, JsonIO.config(JsonIO.config(config)));
                         }
-                        result = runOnce(action.equals("probe"), action.equals("restore"),
-                                action.equals("apply"));
-                        if (!action.equals("probe")) {
-                            JsonIO.write(STATUS, result);
-                            if (result.getBoolean("ok")) Files.deleteIfExists(BLOCKED);
-                        }
-                    } else throw new IllegalArgumentException("Unknown action: " + action);
+                    }
+                    result = runOnce(action.equals("probe"), action.equals("restore"),
+                            action.equals("apply"));
+                    if (!action.equals("probe")) publishResult(result, false);
                 }
             }
             System.out.println(result.toString());
@@ -101,7 +104,7 @@ public final class ModuleMain {
                     // A failed read-only probe/status or rejected save must not
                     // replace the most recent boot/apply result.
                     if (Set.of("apply", "restore", "watch", "watch-periodic").contains(actionName))
-                        JsonIO.write(STATUS, result);
+                        publishResult(result, false);
                     log("action=" + actionName + " ERROR " + result.optString("error"));
                 }
             } catch (Throwable ignored) { System.err.println(e.toString()); }
@@ -134,9 +137,25 @@ public final class ModuleMain {
 
     private static JSONObject runOnce(boolean preview, boolean restore, boolean forceApply,
                                       boolean bootRecovery, CarrierImsControl.Task imsTask) throws Exception {
+        RunnerConfiguration.Snapshot captured = new RunnerConfiguration.Snapshot(JsonIO.CONFIG);
+        activeConfiguration = captured;
+        imsTask.useConfiguration(captured.revision);
+        try {
+            return runConfigured(preview, restore, forceApply, bootRecovery, imsTask, captured);
+        } catch (RunnerConfiguration.Superseded changed) {
+            log("action=" + actionName + " operation_superseded");
+            return identity().put("ok", false).put("phase", "superseded")
+                    .put("configuration_revision", captured.revision)
+                    .put("requires_manual_retry", false);
+        }
+    }
+
+    private static JSONObject runConfigured(boolean preview, boolean restore, boolean forceApply,
+                                            boolean bootRecovery, CarrierImsControl.Task imsTask,
+                                            RunnerConfiguration.Snapshot captured) throws Exception {
         long started = SystemClock.elapsedRealtime();
         if (!preview) log("action=" + actionName + " run_started pid=" + Process.myPid());
-        FeatureConfig config = JsonIO.config(JsonIO.read(JsonIO.CONFIG));
+        FeatureConfig config = JsonIO.config(new JSONObject(captured.text));
         // A user-triggered apply must cover IMS features even when boot automation
         // is off. Automatic boot/periodic passes keep the saved enabled state.
         FeatureConfig effective = forceApply && !restore && !preview
@@ -191,6 +210,7 @@ public final class ModuleMain {
         boolean configured = config.enabled || config.hasSimProfiles();
         if (!preview && overrideControl != null) {
             for (CarrierBackend.Subscription sub : subscriptions) {
+                captured.requireCurrent();
                 if (carrierConfigErrors.containsKey(sub.id)) {
                     overrideResults.put(new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                             .put("phase", "skipped_carrier_config_failed")
@@ -249,7 +269,8 @@ public final class ModuleMain {
         // Binder acceptance is not a carrier reload completion signal. Give the
         // queued SIM notifications a bounded settling interval, then read fresh
         // CarrierConfig in the write pass; an unloaded bundle returns waiting.
-        if (testIdentityChanged) Thread.sleep(5000L);
+        if (testIdentityChanged) configurationPause(captured, 5000L);
+        captured.requireCurrent();
         BatchRunner.Report report = preview ? preflight
                 : BatchRunner.run(subscriptions, effective, engine, false, restore, refreshSimIdentity);
         boolean postResetReload = false;
@@ -263,6 +284,7 @@ public final class ModuleMain {
             catch (Exception error) { imsInitError = error; }
         }
         for (BatchRunner.Entry entry : report.entries) {
+            captured.requireCurrent();
             CarrierBackend.Subscription sub = entry.sub;
             JSONObject row = new JSONObject().put("sub_id", sub.id).put("slot", sub.slot)
                     .put("selected", entry.selected);
@@ -328,7 +350,8 @@ public final class ModuleMain {
                             registration = new CarrierImsControl.Registration(registered,
                                     registered ? "ims_registered" : "ims_not_registered", "");
                         } else {
-                            registration = imsTask.observe(imsControl, sub.id, sub.slot, 20, 1000L);
+                            registration = imsTask.observe(imsControl, sub.id, sub.slot, 20, 1000L,
+                                    captured::isCurrent);
                         }
                         imsRow.put("phase", registration.phase)
                                 .put("registered", registration.registered)
@@ -354,6 +377,7 @@ public final class ModuleMain {
                             .put("error", String.valueOf(error.getMessage()));
                     row.put("ims", imsRow);
                 }
+                captured.requireCurrent();
                 imsRow.put("observation_duration_ms",
                         SystemClock.elapsedRealtime() - observationStarted);
                 imsResults.put(imsRow);
@@ -367,7 +391,7 @@ public final class ModuleMain {
                     && CarrierImsControl.isReadyForReset(entry.result.phase)) {
                 // Re-read AFTER test identity changes and IMS reset. A result from
                 // before either operation must not be reported as final success.
-                if (carrierMode) Thread.sleep(2000L);
+                if (carrierMode) configurationPause(captured, 2000L);
                 try {
                     Map<String, Object> latest = backend.read(sub.id);
                     row.put("effective", JsonIO.values(latest))
@@ -416,6 +440,9 @@ public final class ModuleMain {
             }
             results.put(row);
         }
+        captured.requireCurrent();
+        boolean configurationApplied = !preview && report.ok && !imsOverrideFailure
+                && !postResetReload && !postResetMismatch && !simIdentityPending;
         boolean ok = report.ok && !imsFailure && !imsOverrideFailure
                 && !postResetReload && !postResetMismatch && !simIdentityPending;
         String phase = AutoApply.resultPhase(report.phase,
@@ -429,6 +456,8 @@ public final class ModuleMain {
         if (!preview) log("action=" + actionName + " run_finished pid=" + Process.myPid()
                 + " phase=" + phase + " duration_ms=" + (SystemClock.elapsedRealtime() - started));
         return identity().put("ok", ok).put("phase", phase)
+                .put("configuration_revision", captured.revision)
+                .put("configuration_applied", configurationApplied)
                 .put("duration_ms", SystemClock.elapsedRealtime() - started)
                 .put("changed", report.changed).put("write_readback_verified",
                         report.verified && !postResetReload && !postResetMismatch)
@@ -511,7 +540,7 @@ public final class ModuleMain {
 
     private static JSONObject automaticAttempt(boolean bootRecovery,
                                                CarrierImsControl.Task imsTask) throws Exception {
-        try (Locked operation = lock("operation.lock", true)) {
+        try (RunnerConfiguration.Locked operation = lock("operation.lock", true)) {
             JSONObject result;
             try {
                 result = runOnce(false, false, false, bootRecovery, imsTask);
@@ -519,18 +548,12 @@ public final class ModuleMain {
                 if (!AutoApply.isFrameworkNotReady(error)) throw error;
                 result = identity().put("ok", false).put("phase", "waiting")
                         .put("requires_manual_retry", false)
+                        .put("configuration_revision", activeConfiguration.revision)
                         .put("error", String.valueOf(error.getMessage()));
             }
-            JsonIO.write(STATUS, result);
-            if (result.optBoolean("ok")) Files.deleteIfExists(BLOCKED);
-            String phase = result.optString("phase");
-            // An IMS stack can still be re-registering immediately after reset. Keep
-            // this bounded retry path alive; all other failed/uncertain writes remain
-            // blocked for explicit inspection instead of being retried blindly.
-            if (!AutoApply.isRetryablePhase(phase)
-                    && (result.optBoolean("requires_manual_retry")
-                    || !result.optBoolean("ok")))
-                JsonIO.write(BLOCKED, result);
+            if (!publishResult(result, true))
+                return identity().put("ok", false).put("phase", "superseded")
+                        .put("requires_manual_retry", false);
             return result;
         }
     }
@@ -544,19 +567,19 @@ public final class ModuleMain {
                 return identity().put("ok", true).put("phase", "paused");
             if (Files.exists(BLOCKED)) return JsonIO.read(BLOCKED);
             return automaticAttempt(bootOnly, imsTask);
-        }, value -> value.optString("phase"), Thread::sleep);
-        String finalPhase = result.optString("phase");
+        }, ModuleMain::automaticPhase, Thread::sleep);
+        String finalPhase = automaticPhase(result);
         if (AutoApply.isRetryablePhase(finalPhase)) {
             result.put("phase", "retry_timeout").put("retry_reason", finalPhase)
                     .put("ok", false).put("requires_manual_retry", false);
-            JsonIO.write(STATUS, result);
+            publishResult(result, false);
             log("Automatic retry timed out: " + finalPhase);
         }
         return result;
     }
 
     private static void watch(boolean bootPass) throws Exception {
-        try (Locked daemon = lock("daemon.lock", !bootPass)) {
+        try (RunnerConfiguration.Locked daemon = lock("daemon.lock", !bootPass)) {
             Path marker = JsonIO.STATE.resolve("watcher.json");
             JsonIO.write(marker, new JSONObject().put("pid", Process.myPid())
                     .put("session", session).put("mode", "running"));
@@ -608,8 +631,7 @@ public final class ModuleMain {
                 }
             } catch (Exception e) {
                 JSONObject result = error(e);
-                JsonIO.write(STATUS, result);
-                JsonIO.write(BLOCKED, result);
+                publishResult(result, true);
                 log("Automatic task stopped: " + result.optString("error"));
             } finally {
                 observer.stopWatching();
@@ -626,10 +648,13 @@ public final class ModuleMain {
     }
 
     private static JSONObject error(Throwable e) throws Exception {
-        return new JSONObject().put("ok", false).put("phase", "error")
+        JSONObject result = new JSONObject().put("ok", false).put("phase", "error")
                 .put("type", e.getClass().getName()).put("error", String.valueOf(e.getMessage()))
                 .put("uid", Os.getuid()).put("sdk", Build.VERSION.SDK_INT).put("session", session)
                 .put("time_ms", System.currentTimeMillis());
+        if (activeConfiguration != null)
+            result.put("configuration_revision", activeConfiguration.revision);
+        return result;
     }
 
     private static void log(String message) throws Exception {
@@ -642,22 +667,41 @@ public final class ModuleMain {
         Os.chmod(path.toString(), 0600);
     }
 
-    private static Locked lock(String name, boolean wait) throws Exception {
-        FileChannel channel = FileChannel.open(JsonIO.STATE.resolve(name),
-                StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-        int tries = wait ? 100 : 1;
-        try {
-            for (int i = 0; i < tries; i++) {
-                FileLock lock = channel.tryLock();
-                if (lock != null) return new Locked(channel, lock);
-                Thread.sleep(100);
-            }
-            throw new IOException("Another runner operation is busy");
-        } catch (Exception e) { channel.close(); throw e; }
+    private static String automaticPhase(JSONObject result) {
+        return AutoApply.automaticPhase(result.optString("phase"),
+                result.optBoolean("configuration_applied"));
     }
-    private static final class Locked implements AutoCloseable {
-        final FileChannel channel; final FileLock lock;
-        Locked(FileChannel channel, FileLock lock) { this.channel = channel; this.lock = lock; }
-        @Override public void close() throws Exception { lock.release(); channel.close(); }
+
+    private static void configurationPause(RunnerConfiguration.Snapshot captured, long millis)
+            throws Exception {
+        while (millis > 0) {
+            captured.requireCurrent();
+            long interval = Math.min(millis, 200L);
+            Thread.sleep(interval);
+            millis -= interval;
+        }
+        captured.requireCurrent();
+    }
+
+    /** Serialize only config publication, never the telephony observation deadline. */
+    private static boolean publishResult(JSONObject result, boolean blockFailure) throws Exception {
+        if ("superseded".equals(result.optString("phase"))) return false;
+        return RunnerConfiguration.publish(JsonIO.CONFIG, JsonIO.STATE.resolve("config.lock"),
+                result.optString("configuration_revision"), () -> {
+            JsonIO.write(STATUS, result);
+            if (result.optBoolean("ok") || result.optBoolean("configuration_applied")
+                    && "ims_not_registered".equals(result.optString("phase")))
+                Files.deleteIfExists(BLOCKED);
+            if (blockFailure && !AutoApply.isRetryablePhase(result.optString("phase"))
+                    && (result.optBoolean("requires_manual_retry") || !result.optBoolean("ok")))
+                JsonIO.write(BLOCKED, result);
+        });
+    }
+
+    private static RunnerConfiguration.Locked lock(String name, boolean wait) throws Exception {
+        // An apply of an unchanged saved config may still need to wait for the
+        // current bounded observation; saves use their own short lock.
+        return RunnerConfiguration.lock(JsonIO.STATE.resolve(name),
+                wait ? ("operation.lock".equals(name) ? 600 : 100) : 1);
     }
 }

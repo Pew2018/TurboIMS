@@ -789,3 +789,18 @@ test("failed operation releases controls and preserves structured failure detail
   assert.equal(apply.disabled,false); assert.equal(apply.textContent,"应用配置");
   assert.match(doc.getElementById("details").textContent,/verification_mismatches/);
 });
+
+test("verified settings and absent registration remain separate in WebUI",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({ok:false,phase:"ims_not_registered",configuration_applied:true,
+    write_readback_verified:true,sim_profiles_verified:true,implementation_mode:"carrier_ims",
+    subscriptions:[{slot:0,sub_id:1,phase:"unchanged",unsupported:[],conflicts:[],
+      ims:{slot:0,sub_id:1,phase:"ims_not_registered",registered:false}}]});
+  assert.equal(elements.get("message").textContent,"配置已应用，IMS 尚未注册");
+  assert.equal(elements.get("status-indicator").dataset.tone,"warning");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未注册");
+  assert.match(elements.get("details").textContent,/"ok": false/);
+  context.render({ok:false,phase:"superseded",requires_manual_retry:false});
+  assert.equal(elements.get("message").textContent,"设置已更新");
+  assert.equal(elements.get("status-indicator").dataset.tone,"neutral");
+});

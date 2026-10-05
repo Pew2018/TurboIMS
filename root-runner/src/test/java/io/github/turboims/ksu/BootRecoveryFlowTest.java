@@ -71,7 +71,10 @@ public class BootRecoveryFlowTest {
                     ? "" : "sim_identity_pending";
             return AutoApply.resultPhase(report.phase,
                     readback.equals("verified") ? "" : readback, visible, imsPhase);
-        }, phase -> phase, millis -> {});
+        }, phase -> AutoApply.automaticPhase(phase,
+                Engine.readbackPhase(device.values, config.desiredForSlot(0)).equals("verified")
+                        && Engine.simIdentityMatches(device.visible, config.desiredForSlot(0))),
+                millis -> {});
     }
 
     static void assertProfile(Device f, FeatureConfig config) {
@@ -96,12 +99,14 @@ public class BootRecoveryFlowTest {
         Device f = new Device();
         FeatureConfig config = config("carrier_ims");
         CarrierImsControlTest.FakeOps first = new CarrierImsControlTest.FakeOps();
-        assertEquals("active", boot(f, "boot-a", config, first)); assertProfile(f, config);
+        assertEquals("ims_not_registered", boot(f, "boot-a", config, first)); assertProfile(f, config);
         assertEquals(1, first.resets);
+        assertEquals(20, first.reads);
         f.reboot();
         CarrierImsControlTest.FakeOps second = new CarrierImsControlTest.FakeOps();
-        assertEquals("active", boot(f, "boot-b", config, second)); assertProfile(f, config);
+        assertEquals("ims_not_registered", boot(f, "boot-b", config, second)); assertProfile(f, config);
         assertEquals(1, second.resets);
+        assertEquals(20, second.reads);
         assertEquals(2, f.writes);
     }
 

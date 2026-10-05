@@ -4,6 +4,27 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 public class AutoApplyTest {
+    @Test public void verifiedConfigurationDoesNotRetryAbsentRegistration() throws Exception {
+        int[] passes = {0};
+        String observed = AutoApply.untilReady(() -> {
+            passes[0]++;
+            return "ims_not_registered";
+        }, phase -> AutoApply.automaticPhase(phase, true),
+                millis -> fail("Verified configuration must not repeat registration waiting"));
+        assertEquals("ims_not_registered", observed);
+        assertEquals(1, passes[0]);
+    }
+
+    @Test public void readinessAndVerificationStillUseBoundedRetries() {
+        assertEquals("waiting", AutoApply.automaticPhase("waiting", true));
+        assertEquals("waiting", AutoApply.automaticPhase("superseded", false));
+        assertEquals("sim_identity_pending", AutoApply.automaticPhase("sim_identity_pending", false));
+        assertEquals("carrier_config_reloaded", AutoApply.automaticPhase("carrier_config_reloaded", false));
+        assertEquals("ims_not_registered", AutoApply.automaticPhase("ims_not_registered", false));
+        assertEquals("verification_failed", AutoApply.automaticPhase("verification_failed", true));
+        assertEquals("ims_status_unavailable", AutoApply.automaticPhase("ims_status_unavailable", true));
+    }
+
     @Test public void postResetReloadRetriesBeforeReportingSuccess() throws Exception {
         AtomicInteger runs = new AtomicInteger(), waits = new AtomicInteger();
         assertEquals("active", AutoApply.untilReady(
