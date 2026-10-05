@@ -463,4 +463,67 @@ public class EngineTest {
                 Map.of("carrier_nr_availabilities_int_array", new int[]{1,2}),
                 Map.of("carrier_nr_availabilities_int_array", new int[]{1,2})).isEmpty());
     }
+    static class NrLimitedDevice extends Fake {
+        NrLimitedDevice() { values.put(ConfigurationVerification.NR_AVAILABILITY, new int[]{1}); }
+        @Override public void override(int id, Map<String,Object> payload) {
+            super.override(id, payload);
+            if (payload.containsKey(ConfigurationVerification.NR_AVAILABILITY))
+                values.put(ConfigurationVerification.NR_AVAILABILITY, new int[]{1});
+        }
+    }
+    @Test public void immediateNrLimitationIsPartialAndDoesNotRepeatWrites() throws Exception {
+        NrLimitedDevice f = new NrLimitedDevice();
+        Map<String,Object> desired = FeatureConfigTest.config(true, FeatureConfig.Mode.ON).desired();
+        ResultPair pair = applyNrLimited(f, desired);
+        assertEquals("configured_partial", pair.first.phase);
+        assertEquals("configured_partial", pair.second.phase);
+        assertEquals(1, f.writes);
+        assertArrayEquals(new int[]{1,2}, (int[]) f.snapshot.owned.get(ConfigurationVerification.NR_AVAILABILITY));
+        assertTrue(f.snapshot.pending.isEmpty());
+        int saves = f.saves;
+        f.engine().reconcile(SUB, desired, false);
+        assertEquals(1, f.writes); assertEquals(saves, f.saves);
+    }
+    static class ResultPair {
+        Engine.Result first, second;
+    }
+    static ResultPair applyNrLimited(Fake f, Map<String,Object> desired) throws Exception {
+        ResultPair results = new ResultPair();
+        results.first = f.engine().reconcile(SUB, desired, true);
+        results.second = f.engine().reconcile(SUB, desired, true);
+        return results;
+    }
+    @Test public void laterNrReductionKeepsOriginalRequestWithoutOverwrite() throws Exception {
+        Fake f = new Fake();
+        Map<String,Object> desired = FeatureConfigTest.config(true, FeatureConfig.Mode.ON).desired();
+        assertEquals("verified", f.engine().reconcile(SUB, desired, true).phase);
+        f.values.put(ConfigurationVerification.NR_AVAILABILITY, new int[]{1});
+        assertEquals("configured_partial", f.engine().reconcile(SUB, desired, true).phase);
+        assertEquals(1, f.writes);
+        f.values.put(KEY, false);
+        assertEquals("conflict", f.engine().reconcile(SUB, desired, true).phase);
+        assertEquals(1, f.writes);
+    }
+    @Test public void limitedNrNeverBypassesFailedImsWriteOrForeignOwnership() throws Exception {
+        NrLimitedDevice f = new NrLimitedDevice(); f.drop = true;
+        try { f.engine().reconcile(SUB, FeatureConfigTest.config(true, FeatureConfig.Mode.ON).desired(), true); fail(); }
+        catch (Engine.VerificationException expected) { }
+        f = new NrLimitedDevice(); f.values.put(Engine.MARKER, "foreign");
+        assertEquals("ownership_lost", f.engine().reconcile(SUB,
+                FeatureConfigTest.config(true, FeatureConfig.Mode.ON).desired(), true).phase);
+        assertEquals(0, f.writes);
+    }
+    @Test public void restoreReleasesLimitedNrOnlyWhenAlreadyAtRecordedBaseline() throws Exception {
+        NrLimitedDevice f = new NrLimitedDevice();
+        Map<String,Object> desired = Map.of(ConfigurationVerification.NR_AVAILABILITY, new int[]{1,2});
+        assertEquals("configured_partial", f.engine().reconcile(SUB, desired, true).phase);
+        assertEquals("unchanged", f.engine().reconcile(SUB, Map.of(), true).phase);
+        assertTrue(f.snapshot.owned.isEmpty()); assertEquals(1, f.writes);
+        Fake other = new Fake();
+        other.engine().reconcile(SUB, desired, true);
+        other.values.put(ConfigurationVerification.NR_AVAILABILITY, new int[]{1});
+        assertEquals("conflict", other.engine().reconcile(SUB, Map.of(), true).phase);
+        assertEquals(1, other.writes);
+    }
+
 }

@@ -33,12 +33,15 @@ public final class AutoApply {
     /** A transient result from one SIM cannot hide a terminal error on another. */
     static String resultPhase(String carrierPhase, String... observations) {
         if (!isRetryablePhase(carrierPhase)
-                && !java.util.Set.of("active", "paused", "probe").contains(carrierPhase))
+                && !java.util.Set.of("active", "paused", "probe", "configured_partial").contains(carrierPhase))
             return carrierPhase;
         for (String phase : observations)
-            if (!phase.isEmpty() && !isRetryablePhase(phase)) return phase;
+            if (!phase.isEmpty() && !phase.equals("configured_partial")
+                    && !isRetryablePhase(phase)) return phase;
         for (String phase : observations)
-            if (!phase.isEmpty()) return phase;
+            if (!phase.isEmpty() && !phase.equals("configured_partial")) return phase;
+        for (String phase : observations)
+            if (phase.equals("configured_partial")) return phase;
         return carrierPhase;
     }
 

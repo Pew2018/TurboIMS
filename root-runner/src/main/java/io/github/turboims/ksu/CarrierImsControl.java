@@ -110,7 +110,8 @@ public final class CarrierImsControl {
     public String serviceSource() { return serviceSource; }
 
     static boolean isReadyForReset(String carrierConfigPhase) {
-        return "verified".equals(carrierConfigPhase) || "unchanged".equals(carrierConfigPhase)
+        return "configured_partial".equals(carrierConfigPhase)
+                || "verified".equals(carrierConfigPhase) || "unchanged".equals(carrierConfigPhase)
                 || "restored".equals(carrierConfigPhase);
     }
 

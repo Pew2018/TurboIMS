@@ -850,3 +850,51 @@ test("unknown legacy native identity is surfaced as a reboot requirement",async(
   context.render({ok:false,phase:"carrier_test_cleanup_requires_reboot",requires_reboot:true});
   assert.equal(elements.get("message").textContent,"需要重启清理旧测试身份");
 });
+
+test("NR partial configuration preserves registered IMS and independent component results",async()=>{
+  const {context,elements}=await appHarness({strictIds:true});
+  context.render({status:{phase:"configured_partial",ok:true,
+    configuration_partial:true,configuration_applied:false,write_readback_verified:false,
+    ims_configuration_verified:true,sim_profiles_verified:true,nr_configuration_verified:false,
+    ims_registration_verified:true,ims_registration_state:"verified",
+    subscriptions:[{slot:0,sub_id:1,phase:"configured_partial",configuration_partial:true,
+      verification_mismatches:{carrier_nr_availabilities_int_array:{expected:[1,2],actual:[1]}},
+      ims:{registered:true,phase:"ims_registered"}}]}});
+  assert.equal(elements.get("message").textContent,"NR 配置部分生效");
+  assert.equal(elements.get("status-indicator").dataset.tone,"warning");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"已注册");
+  const components=elements.get("component-verification").children.map(row=>row.children.map(el=>el.textContent));
+  assert.deepEqual(components[0],["IMS 配置","核对通过"]);
+  assert.deepEqual(components[1],["SIM 信息","核对通过"]);
+  assert.deepEqual(components[2],["5G NR 配置","部分生效"]);
+  assert.match(components[3][1],/请求 \[1,2\] · 读回 \[1\]/);
+  assert.match(elements.get("details").textContent,/"write_readback_verified": false/);
+});
+test("read-only registration remains registered without claiming a completed write",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({phase:"probe",ok:true,action:"probe",configuration_applied:false,
+    ims_registration_verified:false,ims_registration_state:"observed_registered",
+    ims_configuration_verified:true,sim_profiles_verified:true,nr_configuration_verified:true,
+    ims_results:[{slot:0,sub_id:1,registered:true,phase:"ims_registered"}]});
+  assert.equal(elements.get("message").textContent,"检测完成");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"已注册");
+  const summary=elements.get("diagnostic-summary").children.map(row=>row.children.map(el=>el.textContent).join(":")).join("\n");
+  assert.match(summary,/只读采样已注册/);
+  assert.match(elements.get("details").textContent,/"configuration_applied": false/);
+});
+test("NR partial warning cannot hide real registration or other configuration failures",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({phase:"ims_not_registered",ok:false,configuration_partial:true,
+    ims_configuration_verified:true,sim_profiles_verified:true,nr_configuration_verified:false,
+    ims_results:[{slot:0,sub_id:1,registered:false,phase:"ims_not_registered"}]});
+  assert.equal(elements.get("message").textContent,"IMS 尚未注册");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未注册");
+  context.render({status:{phase:"verification_failed",ims_configuration_verified:false,
+    sim_profiles_verified:true,nr_configuration_verified:false,
+    ims_results:[{slot:0,sub_id:1,registered:true,phase:"ims_registered"}]},
+    blocked:{phase:"verification_failed"}});
+  assert.equal(elements.get("message").textContent,"验证失败");
+  assert.equal(elements.get("status-indicator").dataset.tone,"danger");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"已注册");
+  assert.equal(elements.get("component-verification").children[1].children[1].textContent,"核对通过");
+});

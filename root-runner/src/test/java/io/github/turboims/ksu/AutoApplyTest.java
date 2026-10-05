@@ -113,4 +113,15 @@ public class AutoApplyTest {
         assertEquals(3, calls.get());
     }
 
+    @Test public void nrWarningNeverSuppressesRegistrationReadinessOrOtherSimFailure() throws Exception {
+        assertEquals("ims_not_registered", AutoApply.resultPhase("configured_partial", "ims_not_registered", "configured_partial"));
+        assertEquals("sim_identity_pending", AutoApply.resultPhase("configured_partial", "sim_identity_pending", "configured_partial"));
+        assertEquals("verification_failed", AutoApply.resultPhase("configured_partial", "ims_not_registered", "verification_failed"));
+        assertEquals("configured_partial", AutoApply.resultPhase("active", "configured_partial"));
+        assertEquals("configured_partial", AutoApply.resultPhase("configured_partial", ""));
+        int[] attempts = {0};
+        String result = AutoApply.untilReady(() -> AutoApply.resultPhase("configured_partial",
+                ++attempts[0] < 3 ? "ims_not_registered" : "", "configured_partial"), x -> x, ms -> {});
+        assertEquals(3, attempts[0]); assertEquals("configured_partial", result);
+    }
 }

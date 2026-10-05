@@ -82,4 +82,23 @@ public class BatchRunnerTest {
         BatchRunner.Report r=f.run(false);
         assertFalse(r.ok);assertEquals("ownership_lost",r.phase);assertTrue(r.requiresManualRetry);
     }
+    @Test public void partialNrOnOneSimNeverHidesWaitingOrFailureOnAnother() {
+        Fake f = new Fake();
+        f.run(false);
+        f.values.put(ConfigurationVerification.NR_AVAILABILITY, new int[]{1});
+        BatchRunner.Report partial = f.run(false);
+        assertTrue(partial.ok); assertFalse(partial.verified);
+        assertEquals("configured_partial", partial.phase);
+        assertFalse(partial.requiresManualRetry); assertEquals(1, f.writes);
+        f.second.values.put(Engine.LOADED, false);
+        assertEquals("waiting", f.run(false).phase);
+        f.second.values.put(Engine.LOADED, true);
+        f.second.values.put(KEY, false);
+        assertEquals("conflict", f.run(false).phase);
+        f.failedId = SECOND.id;
+        BatchRunner.Report failed = f.run(false);
+        assertEquals("error", failed.phase); assertTrue(failed.requiresManualRetry);
+        assertEquals("configured_partial", failed.entries.get(0).result.phase);
+        assertEquals(1, f.writes);
+    }
 }

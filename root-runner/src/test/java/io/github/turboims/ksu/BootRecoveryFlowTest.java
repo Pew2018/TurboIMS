@@ -153,4 +153,30 @@ public class BootRecoveryFlowTest {
         assertEquals(1,device.writes); assertEquals(1,ims.resets);
         assertEquals(AutoApply.MAX_ATTEMPTS*20,ims.reads);
     }
+    @Test public void nrLimitedDevicesRegisterAcrossBothModesAndTwoRebootsWithoutRepeatedWrites() throws Exception {
+        for (String mode : List.of("turboims", "carrier_ims")) {
+            Device device = new Device() {
+                @Override public void override(int id, Map<String,Object> payload) {
+                    super.override(id, payload);
+                    values.put(ConfigurationVerification.NR_AVAILABILITY, new int[]{1});
+                }
+            };
+            device.nativeValues.put(ConfigurationVerification.NR_AVAILABILITY, new int[]{1});
+            device.values.put(ConfigurationVerification.NR_AVAILABILITY, new int[]{1});
+            for (String session : List.of("boot-a", "boot-b")) {
+                CarrierImsControlTest.FakeOps ims = new CarrierImsControlTest.FakeOps();
+                assertEquals("configured_partial", boot(device, session, config(mode), ims));
+                assertEquals(26, ims.reads);
+                assertEquals(mode.equals("carrier_ims") ? 1 : 0, ims.resets);
+                assertEquals("tw", device.visible.get("country_iso"));
+                assertEquals("Chunghwa Telecom", device.visible.get("carrier_name"));
+                ConfigurationVerification verified = new ConfigurationVerification(
+                        device.values, config(mode).desiredForSlot(0), session);
+                assertTrue(verified.imsVerified); assertTrue(verified.simConfigVerified);
+                assertFalse(verified.nrVerified);
+                device.reboot();
+            }
+            assertEquals(2, device.writes);
+        }
+    }
 }

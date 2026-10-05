@@ -33,6 +33,7 @@ public final class BatchRunner {
         List<Entry> entries = new ArrayList<>();
         boolean selected = false, waiting = false, conflict = false, unsupported = false;
         boolean failed = false, verificationFailed = false, changed = false, verified = false, lost = false;
+        boolean limited = false;
         for (CarrierBackend.Subscription sub : subscriptions) {
             boolean configured = config.enabled || config.hasSimProfiles();
             boolean target = !restore && config.selects(sub.slot) && configured;
@@ -47,6 +48,7 @@ public final class BatchRunner {
                 lost |= r.phase.equals("ownership_lost");
                 unsupported |= !r.unsupported.isEmpty();
                 changed |= r.changed;
+                limited |= r.phase.equals("configured_partial");
                 verified |= r.phase.equals("verified") || r.phase.equals("restored")
                         || (!preview && target && r.phase.equals("unchanged")
                                 && r.unsupported.isEmpty() && r.conflicts.isEmpty());
@@ -67,7 +69,8 @@ public final class BatchRunner {
         String phase = verificationFailed ? "verification_failed" : failed ? "error"
                 : lost ? "ownership_lost" : conflict ? "conflict"
                 : waiting ? "waiting" : unsupported ? "partial" : preview ? "probe"
+                : limited ? "configured_partial"
                 : (config.enabled || config.hasSimProfiles()) && !restore ? "active" : "paused";
-        return new Report(entries, ok, changed, verified, failed || lost, phase);
+        return new Report(entries, ok, changed, verified && !limited, failed || lost, phase);
     }
 }

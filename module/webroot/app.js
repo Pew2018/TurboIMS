@@ -945,7 +945,9 @@ function render(result, replaceForm = false) {
       ? ["IMS 配置已验证",""]
       : ["无需重新写入","当前配置未发生变化，尚未确认写入结果。"],
     verified:["IMS 配置已验证",""],
-    ims_not_registered:state.configuration_applied
+    ims_not_registered:state.configuration_partial && state.ims_configuration_verified
+      ? ["IMS 尚未注册","IMS 配置已核对，NR 部分生效；仍在等待 IMS 注册。"]
+      : state.configuration_applied
       ? ["配置已应用，IMS 尚未注册","配置和 SIM 信息已验证；注册检测仍未通过。"]
       : ["IMS 尚未注册","CarrierConfig 已验证，但 IMS 在限定时间内仍未注册。"],
     superseded:["设置已更新","旧任务已结束，请按新设置应用配置。"],
@@ -959,14 +961,15 @@ function render(result, replaceForm = false) {
     ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
     waiting:["等待 SIM 卡","请等待 SIM 卡和运营商配置加载。"],
     retry_timeout:["等待超时",state.retry_reason === "ims_not_registered"
-      ? "配置已应用，但 IMS 注册检查超时；请验证实际拨打和接听并导出诊断。"
+      ? "IMS 注册检查超时；各项配置结果见下方，请验证实际拨打和接听并导出诊断。"
       : "SIM 卡或运营商配置尚未就绪，已停止本次尝试。"],
+    configured_partial:["NR 配置部分生效","其余请求项已核对；保留当前 NR 值。注册状态见下方，无需因该差异反复应用。"],
     verification_failed:["配置发生变化","写入验证后配置值发生变化，自动写入已停止；请导出诊断查看具体变化项。"],
     conflict:["存在配置冲突","冲突项已保留，请查看诊断与验证。"],
     not_started:["尚未开始工作","安装后请重启设备，再运行检测。"],
     error:["操作失败","请查看诊断与验证中的详细原因。"]
   };
-  const warning = ["waiting","retry_timeout","conflict","partial","ims_not_registered"].includes(phase);
+  const warning = ["waiting","retry_timeout","conflict","partial","configured_partial","ims_not_registered"].includes(phase);
   const danger = ["error","verification_failed","ownership_lost","carrier_test_override_failed","carrier_test_cleanup_requires_reboot","ims_status_unavailable","ims_reset_failed"].includes(phase) || !!result.blocked;
   const tone = danger ? "danger" : warning || (phase === "active" && !state.write_readback_verified)
     ? "warning" : ["active","verified","probe"].includes(phase) ? "success" : "neutral";
@@ -976,6 +979,7 @@ function render(result, replaceForm = false) {
     true, "danger", "已停止自动写入，请查看诊断与验证。");
   // The one-shot worker exiting after a verified apply is normal.
   renderImsRegistrationStatus(result);
+  renderComponentVerification(result);
   renderDiagnosticSummary(result);
   renderSimResults(result);
   renderSimPage(result);
@@ -1024,13 +1028,38 @@ function renderImsRegistrationStatus(result) {
     row.append(name,value); list.append(row);
   }
 }
+function renderComponentVerification(result) {
+  const state = result.status || result;
+  const list = $("component-verification");
+  list.replaceChildren();
+  const label = value => value === true ? "核对通过" : value === false ? "未通过或未完成" : "未查询";
+  const config = state.config || result.config;
+  const rows = [
+    ["IMS 配置",label(state.ims_configuration_verified)],
+    ["SIM 信息",label(state.sim_profiles_verified)],
+    ["5G NR 配置",state.configuration_partial === true ? "部分生效"
+      : config?.features?.["5g_nr"] === "default" ? "使用原值" : label(state.nr_configuration_verified)]
+  ];
+  for (const sub of state.subscriptions || []) {
+    const limited = sub.configuration_partial === true;
+    const values = sub.verification_mismatches?.carrier_nr_availabilities_int_array;
+    if (limited && values) rows.push(["SIM 卡 " + (sub.slot + 1) + " NR",
+      "请求 " + JSON.stringify(values.expected) + " · 读回 " + JSON.stringify(values.actual)]);
+  }
+  for (const [title,value] of rows) {
+    const row = document.createElement("div");
+    const term = document.createElement("dt"); term.textContent = title;
+    const detail = document.createElement("dd"); detail.textContent = value;
+    row.append(term,detail); list.append(row);
+  }
+}
 function renderSimResults(result) {
   const state = result.status || result;
   $("sims").replaceChildren();
   for (const sub of state.subscriptions || []) {
     const line = document.createElement("div"); line.className = "sim";
     line.textContent = "SIM 卡槽 " + (sub.slot + 1) + " · subId " + sub.sub_id +
-      " · " + ({verified:"已验证",unchanged:"未变化",waiting:"等待中",error:"失败",verification_failed:"验证失败",conflict:"存在冲突",ownership_lost:"状态冲突",restored:"已恢复"}[sub.phase] || sub.phase)
+      " · " + ({verified:"已验证",unchanged:"未变化",waiting:"等待中",error:"失败",verification_failed:"验证失败",conflict:"存在冲突",ownership_lost:"状态冲突",restored:"已恢复",configured_partial:"NR 部分生效"}[sub.phase] || sub.phase)
       + (sub.unsupported?.length ? " · 跳过不支持的键 " + sub.unsupported.length + " 个" : "")
       + (sub.error ? " · " + sub.error : "")
       + (sub.write_state_unknown ? " · 此卡写入结果未确认" : "");
@@ -1043,7 +1072,7 @@ function renderDiagnosticSummary(result) {
   const phases = {active:state.write_readback_verified ? "覆盖验证通过" : "当前配置无需写入",
     verified:"覆盖验证通过",probe:"只读检测完成",paused:"已暂停",partial:"部分支持",
     waiting:"等待 SIM 配置",retry_timeout:"等待超时",conflict:"存在第三方冲突",ownership_lost:"覆盖标记丢失",
-    not_started:"尚未启动",verification_failed:"写入验证失败",error:"执行失败"};
+    not_started:"尚未启动",configured_partial:"NR 部分生效",verification_failed:"写入验证失败",error:"执行失败"};
   const rows = [
     ["状态", result.blocked ? "自动写入已停止" : phases[state.phase] || state.phase || "未知"],
     ["KernelSU", result.uid === undefined ? "未取得 UID" : "UID " + result.uid],
@@ -1056,6 +1085,10 @@ function renderDiagnosticSummary(result) {
   ];
   const origins = {watch:"开机自动配置","watch-periodic":"周期检查",apply:"手动应用",restore:"手动恢复",probe:"只读检测"};
   if (state.action) rows.push(["任务来源",origins[state.action] || state.action]);
+  if (state.ims_registration_state) rows.push(["注册检查",({
+    verified:"连续采样已注册",observed_registered:"只读采样已注册",
+    not_registered:"采样未注册",unavailable:"未取得完整结果",not_checked:"未查询"
+  })[state.ims_registration_state] || state.ims_registration_state]);
   const changedKeys = (state.subscriptions || []).flatMap(row =>
     Object.keys(row.verification_mismatches || {}).map(key => "SIM 卡 " + (row.slot + 1) + " · " + key));
   if (changedKeys.length) rows.push(["变化项",changedKeys.join("；")]);

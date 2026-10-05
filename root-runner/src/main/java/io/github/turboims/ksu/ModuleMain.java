@@ -299,6 +299,11 @@ public final class ModuleMain {
                 : BatchRunner.run(subscriptions, effective, engine, false, restore, refreshSimIdentity);
         boolean postResetReload = false;
         boolean postResetMismatch = false;
+        boolean nrLimited = false;
+        boolean anySelected = false;
+        boolean allConfigVerified = true, allImsConfigVerified = true;
+        boolean allSimProfilesVerified = true, allNrVerified = true;
+        List<Boolean> registrationObservations = new ArrayList<>();
         boolean imsOverrideFailure = !overrideErrors.isEmpty();
         JSONArray imsResults = new JSONArray();
         CarrierImsControl imsControl = null;
@@ -409,17 +414,26 @@ public final class ModuleMain {
                         + " ims_observation_finished phase=" + imsRow.optString("phase")
                         + " reset_accepted=" + imsRow.optBoolean("reset_accepted_this_attempt"));
             }
-            if (!preview && entry.selected && entry.error == null
+            ConfigurationVerification verification = null;
+            boolean visibleSimVerified = false;
+            if (entry.selected) {
+                anySelected = true;
+                Map<String, String> visible = backend.simIdentity(sub);
+                visibleSimVerified = Engine.simIdentityMatches(visible, effective.desiredForSlot(sub.slot));
+                row.put("sim_properties", new JSONObject(visible));
+            }
+            if (entry.selected && entry.error == null
                     && entry.result != null && entry.result.conflicts.isEmpty()
                     && entry.result.unsupported.isEmpty()
-                    && CarrierImsControl.isReadyForReset(entry.result.phase)) {
+                    && (preview && "preview".equals(entry.result.phase)
+                            || CarrierImsControl.isReadyForReset(entry.result.phase))) {
                 // Re-read AFTER test identity changes and IMS reset. A result from
                 // before either operation must not be reported as final success.
-                if (carrierMode) configurationPause(captured, 2000L);
+                if (!preview && carrierMode) configurationPause(captured, 2000L);
                 try {
                     Map<String, Object> latest = backend.read(sub.id);
                     row.put("effective", JsonIO.values(latest))
-                            .put("verification_stage", carrierMode
+                            .put("verification_stage", preview ? "read_only_observation" : carrierMode
                                     ? "after_ims_observation" : "final_readback");
                     Map<String, Map<String, Object>> mismatches = Engine.readbackMismatches(
                             latest, effective.desiredForSlot(sub.slot));
@@ -437,36 +451,54 @@ public final class ModuleMain {
                     if (!preview && !mismatches.isEmpty())
                         log("action=" + actionName + " subId=" + sub.id
                                 + " final_readback_mismatches=" + differences);
-                    String readbackPhase = Engine.readbackPhase(
-                            latest, effective.desiredForSlot(sub.slot), entry.result.effective.get(Engine.MARKER));
-                    if (!readbackPhase.equals("verified")) {
+                    verification = new ConfigurationVerification(latest,
+                            effective.desiredForSlot(sub.slot), entry.result.effective.get(Engine.MARKER));
+                    String readbackPhase = verification.phase;
+                    row.put("configuration_phase", readbackPhase);
+                    nrLimited |= verification.nrLimited;
+                    if (!preview) {
                         postResetReload |= readbackPhase.equals("carrier_config_reloaded");
                         postResetMismatch |= readbackPhase.equals("verification_failed");
-                        row.put("phase", readbackPhase);
-                    } else {
-                        Map<String, String> visible = backend.simIdentity(sub);
-                        boolean simVerified = Engine.simIdentityMatches(visible,
-                                effective.desiredForSlot(sub.slot));
-                        row.put("sim_properties", new JSONObject(visible))
-                                .put("sim_properties_verified", simVerified);
-                        if (!simVerified) {
-                            simIdentityPending = true;
-                            row.put("phase", "sim_identity_pending");
-                        }
+                        if (!readbackPhase.equals("verified")) row.put("phase", readbackPhase);
+                    }
+                    Map<String, String> visible = backend.simIdentity(sub);
+                    visibleSimVerified = Engine.simIdentityMatches(visible,
+                            effective.desiredForSlot(sub.slot));
+                    row.put("sim_properties", new JSONObject(visible));
+                    if (!preview && verification.simConfigVerified && !visibleSimVerified) {
+                        simIdentityPending = true;
+                        row.put("phase", "sim_identity_pending");
                     }
                 } catch (Exception error) {
                     boolean waiting = AutoApply.isFrameworkNotReady(error);
-                    postResetReload |= waiting;
-                    postResetMismatch |= !waiting;
+                    postResetReload |= !preview && waiting;
+                    postResetMismatch |= !preview && !waiting;
                     row.put("phase", waiting ? "carrier_config_reloaded" : "verification_failed")
                             .put("error", String.valueOf(error.getMessage()));
+                }
+            }
+            if (entry.selected) {
+                boolean simVerified = verification != null
+                        && verification.simConfigVerified && visibleSimVerified;
+                row.put("ims_configuration_verified", verification != null && verification.imsVerified)
+                        .put("sim_profiles_verified", simVerified)
+                        .put("nr_configuration_verified", verification != null && verification.nrVerified)
+                        .put("configuration_partial", verification != null && verification.nrLimited);
+                allConfigVerified &= verification != null && verification.fullVerified;
+                allImsConfigVerified &= verification != null && verification.imsVerified;
+                allSimProfilesVerified &= simVerified;
+                allNrVerified &= verification != null && verification.nrVerified;
+                if (observeRegistration) {
+                    JSONObject observation = row.optJSONObject("ims");
+                    registrationObservations.add(observation == null || observation.isNull("registered")
+                            ? null : observation.optBoolean("registered"));
                 }
             }
             results.put(row);
         }
         captured.requireCurrent();
         boolean configurationApplied = !preview && report.ok && !imsOverrideFailure
-                && !postResetReload && !postResetMismatch && !simIdentityPending;
+                && !postResetReload && !postResetMismatch && !simIdentityPending && !nrLimited;
         boolean ok = report.ok && !imsFailure && !imsOverrideFailure
                 && !postResetReload && !postResetMismatch && !simIdentityPending;
         String phase = AutoApply.resultPhase(report.phase,
@@ -477,17 +509,24 @@ public final class ModuleMain {
                 postResetReload ? "carrier_config_reloaded" : "",
                 imsServiceWaiting ? "waiting" : "",
                 simIdentityPending ? "sim_identity_pending" : "",
-                imsUnregistered ? "ims_not_registered" : "");
+                imsUnregistered ? "ims_not_registered" : "",
+                nrLimited ? "configured_partial" : "");
         if (!preview) log("action=" + actionName + " run_finished pid=" + Process.myPid()
                 + " phase=" + phase + " duration_ms=" + (SystemClock.elapsedRealtime() - started));
         return identity().put("ok", ok).put("phase", phase)
                 .put("configuration_revision", captured.revision)
                 .put("configuration_applied", configurationApplied)
+                .put("configuration_partial", nrLimited)
+                .put("ims_configuration_verified", anySelected && allImsConfigVerified)
+                .put("nr_configuration_verified", anySelected && allNrVerified)
+                .put("ims_registration_state", ConfigurationVerification.registrationState(
+                        preview, registrationObservations))
                 .put("duration_ms", SystemClock.elapsedRealtime() - started)
                 .put("changed", report.changed).put("write_readback_verified",
-                        report.verified && !postResetReload && !postResetMismatch)
+                        !preview && (anySelected ? allConfigVerified : report.verified)
+                                && !postResetReload && !postResetMismatch)
                 .put("sim_profiles_verified",
-                        report.ok && !postResetReload && !postResetMismatch && !simIdentityPending)
+                        anySelected && allSimProfilesVerified)
                 .put("requires_manual_retry",
                         !AutoApply.isRetryablePhase(phase)
                                 && (report.requiresManualRetry || imsFailure
@@ -495,8 +534,8 @@ public final class ModuleMain {
                 .put("requires_reboot", identityCleanupRequiresReboot)
                 .put("implementation_mode", config.implementationMode)
                 .put("ims_results", imsResults)
-                .put("ims_registration_verified", !preview && observeRegistration && !imsFailure && report.ok
-                        && !imsOverrideFailure && !postResetReload && !postResetMismatch)
+                .put("ims_registration_verified", ConfigurationVerification.stableRegistrationVerified(
+                        preview, registrationObservations))
                 .put("carrier_ims_results", carrierMode ? imsResults : new JSONArray())
                 .put("carrier_test_override_results", overrideResults)
                 .put("config", JsonIO.config(config)).put("subscriptions", results)

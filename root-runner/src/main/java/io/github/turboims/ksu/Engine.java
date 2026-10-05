@@ -103,11 +103,7 @@ public final class Engine {
     }
     static String readbackPhase(Map<String, Object> current, Map<String, Object> requested,
                                 Object verifiedMarker) {
-        if (!Boolean.TRUE.equals(current.get(LOADED))) return "carrier_config_reloaded";
-        if (!FeatureConfig.same(current.get(MARKER), verifiedMarker))
-            return current.containsKey(MARKER) ? "verification_failed" : "carrier_config_reloaded";
-        if (readbackMismatches(current, requested).isEmpty()) return "verified";
-        return current.containsKey(MARKER) ? "verification_failed" : "carrier_config_reloaded";
+        return new ConfigurationVerification(current, requested, verifiedMarker).phase;
     }
 
     /** Only requested public CarrierConfig keys; never SIM subscriber identifiers. */
@@ -151,7 +147,9 @@ public final class Engine {
             // ownership must survive a Binder failure before mutation.
             for (var entry : old.pending.entrySet()) {
                 String key = entry.getKey();
-                if (FeatureConfig.same(current.get(key), entry.getValue())) {
+                if (FeatureConfig.same(current.get(key), entry.getValue())
+                        || ConfigurationVerification.isNrAvailabilityLimited(
+                                key, entry.getValue(), current.get(key))) {
                     previous.put(key, entry.getValue());
                 } else if (previous.containsKey(key)
                         && FeatureConfig.same(current.get(key), previous.get(key))) {
@@ -194,13 +192,23 @@ public final class Engine {
         Map<String, Object> nextOwned = new LinkedHashMap<>();
         for (var entry : desired.entrySet()) {
             String key = entry.getKey();
+            boolean limitedOwned = previous.containsKey(key)
+                    && ConfigurationVerification.isNrAvailabilityLimited(
+                            key, previous.get(key), current.get(key));
+            boolean unchangedLimitedRequest = limitedOwned
+                    && FeatureConfig.same(entry.getValue(), previous.get(key));
+            boolean returnedToBaseline = limitedOwned
+                    && FeatureConfig.same(current.get(key), baseline.get(key));
             if (previous.containsKey(key)
-                    && !FeatureConfig.same(current.get(key), previous.get(key))) {
+                    && !FeatureConfig.same(current.get(key), previous.get(key))
+                    && !unchangedLimitedRequest && !returnedToBaseline) {
                 conflicts.add(key);
                 nextOwned.put(key, previous.get(key));
                 continue;
             }
-            if (!FeatureConfig.same(current.get(key), entry.getValue())
+            // Keep the observed limitation and its original request visible. Do not
+            // repeatedly rewrite NR during boot registration retries or periodic checks.
+            if ((!FeatureConfig.same(current.get(key), entry.getValue()) && !unchangedLimitedRequest)
                     || (refreshSimIdentity && isSimIdentityKey(key)))
                 payload.put(key, entry.getValue());
             if (previous.containsKey(key) || payload.containsKey(key))
@@ -210,6 +218,11 @@ public final class Engine {
             String key = entry.getKey();
             if (desired.containsKey(key)) continue;
             if (!FeatureConfig.same(current.get(key), entry.getValue())) {
+                // Already at the recorded baseline: release our limited NR claim
+                // without a write. Never use a newly observed value as a baseline.
+                if (ConfigurationVerification.isNrAvailabilityLimited(
+                        key, entry.getValue(), current.get(key))
+                        && FeatureConfig.same(current.get(key), baseline.get(key))) continue;
                 conflicts.add(key);
                 nextOwned.put(key, entry.getValue());
                 continue;
@@ -228,15 +241,23 @@ public final class Engine {
             payload.put(MARKER, session);
             backend.override(sub.id, payload);
             boolean verified = false;
+            int limitedSamples = 0;
             for (int i = 0; i < 25; i++) {
                 sleeper.sleep();
                 current = backend.read(sub.id);
-                verified = true;
-                for (var entry : payload.entrySet())
-                    if (!FeatureConfig.same(current.get(entry.getKey()), entry.getValue())) {
-                        verified = false; break;
-                    }
-                if (verified) break;
+                verified = Boolean.TRUE.equals(current.get(LOADED))
+                        && session.equals(current.get(MARKER));
+                boolean limited = false;
+                for (var entry : payload.entrySet()) {
+                    if (FeatureConfig.same(current.get(entry.getKey()), entry.getValue())) continue;
+                    if (ConfigurationVerification.isNrAvailabilityLimited(
+                            entry.getKey(), entry.getValue(), current.get(entry.getKey()))) {
+                        limited = true;
+                    } else { verified = false; break; }
+                }
+                limitedSamples = verified && limited ? limitedSamples + 1 : 0;
+                if (verified && (!limited || limitedSamples >= 3)) break;
+                verified = false;
             }
             if (!verified) throw new VerificationException(
                     "CarrierConfig read-back mismatch for subId=" + sub.id);
@@ -248,7 +269,9 @@ public final class Engine {
             String ownerToken = !payload.isEmpty() ? session : String.valueOf(current.get(MARKER));
             store.save(sub.id, new Snapshot(ownerToken, baseline, nextOwned));
         }
-        String phase = !conflicts.isEmpty() ? "conflict" :
+        boolean nrLimited = new ConfigurationVerification(
+                current, desired, current.get(MARKER)).nrLimited;
+        String phase = !conflicts.isEmpty() ? "conflict" : nrLimited ? "configured_partial" :
                 (!payload.isEmpty() ? (desired.isEmpty() ? "restored" : "verified") : "unchanged");
         return new Result(sub, phase, !payload.isEmpty(), unsupported, conflicts, current);
     }
