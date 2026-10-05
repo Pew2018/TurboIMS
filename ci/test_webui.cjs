@@ -738,6 +738,8 @@ test("IMS home shows config and actual registration states separately",async()=>
   context.render({config:{...config,implementation_mode:"turboims"},status:{...config,implementation_mode:"turboims",
     config:{...config,implementation_mode:"turboims"},phase:"active",subscriptions:[{slot:0,sub_id:1,
       ims:{slot:0,sub_id:1,phase:"ims_registered",registered:true}}]}},true);
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"已注册");
+  context.render({implementation_mode:"turboims",phase:"probe",subscriptions:[{slot:0,sub_id:1}]});
   assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未查询");
 });
 test("Device status is on IMS home and Settings stays focused",()=>{

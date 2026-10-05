@@ -197,4 +197,10 @@ public class CarrierTestOverrideControlTest {
             assertTrue(phone.writes.isEmpty()); assertEquals(0,phone.clears);
         }
     }
+    @Test public void expiredBootRecordDoesNotBlockSimMovedToAnotherSlot() throws Exception {
+        FakePhone phone=new FakePhone(); MemoryRecords records=new MemoryRecords();
+        records.data.put(1,legacy("boot-old","applied"));
+        assertEquals("expired_boot_record",control(phone,records,false).clearOwned(1,1,"46009").get("phase"));
+        assertTrue(phone.writes.isEmpty()); assertNull(records.read(1));
+    }
 }

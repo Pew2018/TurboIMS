@@ -80,7 +80,7 @@ public final class CarrierTestOverrideControl {
             throw new IllegalArgumentException("Carrier test MCC/MNC must contain 5 or 6 digits");
         Map<String, Object> old = records.read(subId);
         if (old != null) {
-            requireOwner(old, subId, slot);
+            requireIdentity(old, subId);
             if (!session.equals(string(old, "session"))) {
                 // This API changes in-memory IccRecords, not the physical SIM.
                 // A prior boot's request cannot authorize a write to this boot's identity.
@@ -92,6 +92,7 @@ public final class CarrierTestOverrideControl {
         String nativeCode = "";
         String priorPhase = "";
         if (old != null) {
+            requireOwner(old, subId, slot);
             priorPhase = string(old, "phase");
             requireSettledPhase(priorPhase);
             prior = string(old, "mccmnc");
@@ -128,12 +129,13 @@ public final class CarrierTestOverrideControl {
     public Map<String, Object> clearOwned(int subId, int slot, String observedMccMnc) throws Exception {
         Map<String, Object> saved = records.read(subId);
         if (saved == null) return result(subId, slot, "", "not_owned", false);
-        requireOwner(saved, subId, slot);
+        requireIdentity(saved, subId);
         String previousCode = string(saved, "mccmnc");
         if (!session.equals(string(saved, "session"))) {
             records.delete(subId);
             return result(subId, slot, previousCode, "expired_boot_record", false);
         }
+        requireOwner(saved, subId, slot);
         requireSettledPhase(string(saved, "phase"));
         if (clearMethod != null) {
             invoke(clearMethod, telephony, subId);
@@ -160,10 +162,14 @@ public final class CarrierTestOverrideControl {
         }
     }
 
+    private static void requireIdentity(Map<String, Object> record, int subId) {
+        if (!OWNER.equals(string(record, "owner")) || integer(record, "sub_id") != subId)
+            throw new IllegalStateException("Carrier test override ownership conflict");
+    }
     private static void requireOwner(Map<String, Object> record, int subId, int slot) {
-        if (!OWNER.equals(string(record, "owner")) || integer(record, "slot") != slot
-                || integer(record, "sub_id") != subId)
-            throw new IllegalStateException("Carrier test override ownership/slot conflict");
+        requireIdentity(record, subId);
+        if (integer(record, "slot") != slot)
+            throw new IllegalStateException("Carrier test override slot conflict");
     }
     private static void requireSettledPhase(String phase) {
         if (!"applied".equals(phase) && !"restored_fallback".equals(phase))
