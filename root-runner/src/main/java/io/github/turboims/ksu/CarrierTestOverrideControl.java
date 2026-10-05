@@ -96,7 +96,8 @@ public final class CarrierTestOverrideControl {
             priorPhase = string(old, "phase");
             requireSettledPhase(priorPhase);
             prior = string(old, "mccmnc");
-            nativeCode = string(old, "native_mccmnc");
+            nativeCode = integer(old, "identity_schema") == IDENTITY_SCHEMA
+                    ? string(old, "native_mccmnc") : "";
             // Legacy records used empty IMSI/ICCID and must never bypass the corrected call.
             if (integer(old, "identity_schema") == IDENTITY_SCHEMA && "applied".equals(priorPhase)
                     && canReuse(mccmnc, prior, session, string(old, "session"), observedMccMnc))

@@ -495,7 +495,7 @@ public final class ModuleMain {
                 .put("requires_reboot", identityCleanupRequiresReboot)
                 .put("implementation_mode", config.implementationMode)
                 .put("ims_results", imsResults)
-                .put("ims_registration_verified", observeRegistration && !imsFailure && report.ok
+                .put("ims_registration_verified", !preview && observeRegistration && !imsFailure && report.ok
                         && !imsOverrideFailure && !postResetReload && !postResetMismatch)
                 .put("carrier_ims_results", carrierMode ? imsResults : new JSONArray())
                 .put("carrier_test_override_results", overrideResults)

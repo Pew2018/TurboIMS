@@ -12,18 +12,18 @@ public class BootRecoveryFlowTest {
         Device() {
             values.put("sim_country_iso_override_string", "");
             values.put("carrier_name_override_bool", true);
-            values.put("carrier_name_string", "native carrier");
+            values.put("carrier_name_string", "中国联通");
             nativeValues.putAll(values);
             visible.put("country_iso", "");
-            visible.put("carrier_name", "native carrier");
+            visible.put("carrier_name", "中国联通");
         }
         void reboot() {
             values.clear(); values.putAll(nativeValues);
             // Native flags now partly coincide with the previous override.
             values.put(EngineTest.KEY, true);
-            values.put("carrier_name_string", "中華電信");
+            values.put("carrier_name_string", "中国联通");
             visible.put("country_iso", "");
-            visible.put("carrier_name", "中華電信");
+            visible.put("carrier_name", "中国联通");
         }
         @Override public void override(int id, Map<String,Object> payload) {
             super.override(id, payload);
@@ -37,7 +37,7 @@ public class BootRecoveryFlowTest {
     static FeatureConfig config(String mode) {
         FeatureConfig base = FeatureConfigTest.config(true, FeatureConfig.Mode.ON);
         return new FeatureConfig(true, false, "all", 1800, base.modes,
-                Map.of(0, new FeatureConfig.SimProfile("tw", "Chunghwa Telecom", "46692")), mode);
+                Map.of(0, new FeatureConfig.SimProfile("tw", "Chunghwa Telecom")), mode);
     }
 
     static String boot(Device device, String session, FeatureConfig config,
@@ -50,7 +50,9 @@ public class BootRecoveryFlowTest {
             BatchRunner.Report preflight = BatchRunner.run(List.of(EngineTest.SUB),
                     config, engine, true, false);
             if (!preflight.ok) return preflight.phase;
-            if ("carrier_ims".equals(config.implementationMode) && !identityChanged[0]) {
+            if ("carrier_ims".equals(config.implementationMode)
+                    && config.simProfiles.containsKey(0)
+                    && !config.simProfiles.get(0).requestedTestMccMnc().isEmpty() && !identityChanged[0]) {
                 // Model the public-property invalidation caused by the test identity.
                 device.visible.put("country_iso", "");
                 device.visible.put("carrier_name", "");
@@ -61,11 +63,10 @@ public class BootRecoveryFlowTest {
                     engine, false, false, refresh ? Set.of(EngineTest.SUB.id) : Set.of());
             if (!report.ok) return report.phase;
             String imsPhase = "";
-            if ("carrier_ims".equals(config.implementationMode)) {
-                CarrierImsControl.Registration registration = task.observe(
-                        ims, EngineTest.SUB.id, 0, 20, 1000, millis -> {});
-                if (!registration.registered) imsPhase = registration.phase;
-            }
+            CarrierImsControl.Registration registration = task.observe(
+                    ims, EngineTest.SUB.id, 0, 20, 1000,
+                    "carrier_ims".equals(config.implementationMode), millis -> {}, () -> true);
+            if (!registration.registered) imsPhase = registration.phase;
             String readback = Engine.readbackPhase(device.values, config.desiredForSlot(0));
             String visible = Engine.simIdentityMatches(device.visible, config.desiredForSlot(0))
                     ? "" : "sim_identity_pending";
@@ -99,20 +100,22 @@ public class BootRecoveryFlowTest {
         Device f = new Device();
         FeatureConfig config = config("carrier_ims");
         CarrierImsControlTest.FakeOps first = new CarrierImsControlTest.FakeOps();
-        assertEquals("ims_not_registered", boot(f, "boot-a", config, first)); assertProfile(f, config);
+        assertEquals("active", boot(f, "boot-a", config, first)); assertProfile(f, config);
         assertEquals(1, first.resets);
-        assertEquals(20, first.reads);
+        assertEquals(26, first.reads);
         f.reboot();
         CarrierImsControlTest.FakeOps second = new CarrierImsControlTest.FakeOps();
-        assertEquals("ims_not_registered", boot(f, "boot-b", config, second)); assertProfile(f, config);
+        assertEquals("active", boot(f, "boot-b", config, second)); assertProfile(f, config);
         assertEquals(1, second.resets);
-        assertEquals(20, second.reads);
+        assertEquals(26, second.reads);
         assertEquals(2, f.writes);
     }
 
     @Test public void testIdentityInvalidationRefreshesPropertiesWithUnchangedCarrierConfig() throws Exception {
         Device f = new Device();
-        FeatureConfig config = config("carrier_ims");
+        FeatureConfig base = config("carrier_ims");
+        FeatureConfig config = new FeatureConfig(true,false,"all",1800,base.modes,
+                Map.of(0,new FeatureConfig.SimProfile("tw","Chunghwa Telecom","46692",true)),"carrier_ims");
         CarrierImsControlTest.FakeOps first = new CarrierImsControlTest.FakeOps();
         first.readyAfter = 1;
         assertEquals("active", boot(f, "boot-a", config, first));
@@ -124,5 +127,30 @@ public class BootRecoveryFlowTest {
         assertEquals("active", boot(f, "boot-a", config, next));
         assertEquals(writes + 1, f.writes);
         assertProfile(f, config);
+    }
+    @Test public void bothModesAndDisplayChoicesApplyAutomaticallyAcrossTwoReboots() throws Exception {
+        for (String mode:List.of("turboims","carrier_ims")) for (boolean display:new boolean[]{false,true}) {
+            FeatureConfig base=config(mode);
+            FeatureConfig config=new FeatureConfig(true,false,"all",1800,base.modes,
+                    display ? base.simProfiles : Collections.emptyMap(),mode);
+            Device device=new Device();
+            for (String boot:List.of("boot-a","boot-b")) {
+                CarrierImsControlTest.FakeOps ims=new CarrierImsControlTest.FakeOps(); ims.readyAfter=1;
+                assertEquals("active",boot(device,boot,config,ims));
+                assertEquals(mode.equals("carrier_ims") ? 1 : 0,ims.resets);
+                assertEquals(2,ims.reads);
+                if (display) { assertProfile(device,config); assertEquals("",config.simProfiles.get(0).requestedTestMccMnc()); }
+                else assertEquals("中国联通",device.visible.get("carrier_name"));
+                device.reboot();
+            }
+            assertEquals(2,device.writes);
+        }
+    }
+    @Test public void failedRegistrationHasBoundedObservationsWithOneWriteAndOneReset() throws Exception {
+        Device device=new Device(); CarrierImsControlTest.FakeOps ims=new CarrierImsControlTest.FakeOps();
+        ims.readyAfter=10000;
+        assertEquals("ims_not_registered",boot(device,"boot-a",config("carrier_ims"),ims));
+        assertEquals(1,device.writes); assertEquals(1,ims.resets);
+        assertEquals(AutoApply.MAX_ATTEMPTS*20,ims.reads);
     }
 }
