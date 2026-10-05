@@ -21,7 +21,8 @@ The service.sh boot-completed wait, one-shot watcher lifecycle and default confi
 5. **Unchanged CarrierConfig, stale public SIM fields.** After identity changes or a public-property mismatch, republish only the requested country/name fields through the existing nonpersistent CarrierConfig API, even if their config values already match. Ownership/conflict checks and read-back still apply.
 6. **Stale test identity record.** Reuse a saved same-boot request only when the public operator numeric also matches. A record by itself is not proof that telephony still exposes that identity.
 7. **Interrupted cross-boot mutation.** Pending snapshots retain both the verified owner token and the attempted token. Binder failures before and after mutation can recover without losing the original baseline. Legacy snapshots load without migration/deletion.
-8. **Multi-SIM failure precedence.** A retryable result cannot hide a terminal error from another SIM. Restore also checks CarrierConfig readiness/conflicts before changing identity or resetting IMS.
+8. **Final ownership/read-back.** Detect lost/replaced owner markers even if requested values still coincide. Native-identity fallback is idempotent within a boot when both its record and observed numeric match.
+9. **Multi-SIM failure precedence.** A retryable result cannot hide a terminal error from another SIM. Restore also checks CarrierConfig readiness/conflicts before changing identity or resetting IMS.
 
 1. **重启后误判所有权丢失：** 保留首轮的无标记重应用；布尔值或数组碰巧相同不再阻止开机重建基线。
 2. **反复重置 IMS：** 每个有限任务对每张卡只执行一次已被接受的重置；后续等待注册。重置被接受前的暂时服务故障不会消耗次数。
@@ -30,7 +31,8 @@ The service.sh boot-completed wait, one-shot watcher lifecycle and default confi
 5. **配置相同但可见 SIM 信息未刷新：** 测试身份变更或系统属性不一致时，即使配置字段相同，也通过原有非持久 CarrierConfig API 重新发布目标国家/名称字段，仍执行所有权保护和回读。
 6. **仅依赖旧测试身份记录：** 同一次开机的记录还需匹配实际公开的运营商数字码，才能跳过应用。
 7. **跨开机写入中断：** pending 快照保存已验证与尝试中的两个所有权标记；覆盖写入前后失败仍能恢复原始基线，兼容旧快照。
-8. **多 SIM 错误优先级：** 一张卡暂未就绪不能掩盖另一张卡的终止错误；恢复时也需先检查 CarrierConfig 状态和冲突。
+8. **最终所有权回读：** 目标值碰巧相同时也检查标记是否丢失/被替换。同次开机的原生身份兼容恢复记录与实际数字码匹配时，不反复重新设置。
+9. **多 SIM 错误优先级：** 一张卡暂未就绪不能掩盖另一张卡的终止错误；恢复时也需先检查 CarrierConfig 状态和冲突。
 
 Settings/UI, feature key definitions and saved profiles are retained. No persistent=true override, null whole-bundle clear, SELinux change or system-partition write is introduced. The 12-attempt bound and successful one-shot exit remain; no periodic mode is enabled automatically.
 

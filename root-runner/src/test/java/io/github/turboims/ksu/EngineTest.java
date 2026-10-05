@@ -414,4 +414,18 @@ public class EngineTest {
         assertTrue(Engine.simIdentityMatches(Map.of(), Map.of(KEY, true)));
     }
 
+
+    @Test public void finalReadbackRejectsNewForeignMarkerEvenIfEveryValueMatches() {
+        Map<String,Object> current = new LinkedHashMap<>(on());
+        current.put(Engine.LOADED, true); current.put(Engine.MARKER, "someone-else");
+        assertEquals("verification_failed", Engine.readbackPhase(current, on(), "boot-a"));
+        assertEquals("verification_failed", Engine.readbackPhase(current, on(), null));
+    }
+
+    @Test public void finalReadbackDetectsMissingVerifiedMarkerDespiteCoincidentValues() {
+        Map<String,Object> current = new LinkedHashMap<>(on());
+        current.put(Engine.LOADED, true);
+        assertEquals("carrier_config_reloaded", Engine.readbackPhase(current, on(), "boot-a"));
+        assertEquals("verified", Engine.readbackPhase(current, on(), null));
+    }
 }

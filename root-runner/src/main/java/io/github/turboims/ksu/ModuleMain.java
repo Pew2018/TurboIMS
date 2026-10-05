@@ -199,10 +199,12 @@ public final class ModuleMain {
                                     || !config.selects(sub.slot) || !targetRequested)) {
                         String nativeMccMnc = backend.activeSubscriptionMccMnc(sub);
                         Map<String, Object> cleared = overrideControl.clearOwned(
-                                sub.id, sub.slot, nativeMccMnc);
+                                sub.id, sub.slot, nativeMccMnc, backend.simOperatorNumeric(sub));
                         overrideResults.put(new JSONObject(cleared));
-                        testIdentityChanged |= !cleared.get("phase").equals("not_owned");
-                        if (!cleared.get("phase").equals("not_owned")) refreshSimIdentity.add(sub.id);
+                        boolean clearedNow = cleared.get("phase").equals("cleared_owned")
+                                || cleared.get("phase").equals("restored_native_identity_fallback");
+                        testIdentityChanged |= clearedNow;
+                        if (clearedNow) refreshSimIdentity.add(sub.id);
                     } else if (!restore && carrierMode && configured && config.selects(sub.slot)
                             && targetRequested) {
                         Map<String, Object> applied = overrideControl.apply(
@@ -347,7 +349,7 @@ public final class ModuleMain {
                     Map<String, Object> latest = backend.read(sub.id);
                     row.put("effective", JsonIO.values(latest));
                     String readbackPhase = Engine.readbackPhase(
-                            latest, effective.desiredForSlot(sub.slot));
+                            latest, effective.desiredForSlot(sub.slot), entry.result.effective.get(Engine.MARKER));
                     if (!readbackPhase.equals("verified")) {
                         postResetReload |= readbackPhase.equals("carrier_config_reloaded");
                         postResetMismatch |= readbackPhase.equals("verification_failed");

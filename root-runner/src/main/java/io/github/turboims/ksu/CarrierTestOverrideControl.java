@@ -95,7 +95,8 @@ public final class CarrierTestOverrideControl {
         }
     }
 
-    public Map<String, Object> clearOwned(int subId, int slot, String nativeMccMnc) throws Exception {
+    public Map<String, Object> clearOwned(int subId, int slot, String nativeMccMnc,
+                                          String observedMccMnc) throws Exception {
         Path path = path(subId);
         if (!Files.exists(path)) return result(subId, slot, "", "not_owned", true);
         JSONObject saved = JsonIO.read(path);
@@ -117,6 +118,9 @@ public final class CarrierTestOverrideControl {
         // real MCC/MNC supplied by AndroidCarrierBackend's ISub SubscriptionInfo.
         if (!isValidMccMnc(nativeMccMnc))
             throw new IllegalStateException("clearCarrierTestOverride unavailable and active SIM MCC/MNC could not be read; retaining owned override state");
+        if ("restored_fallback".equals(savedPhase) && canReuse(nativeMccMnc, previousCode,
+                session, saved.optString("session"), observedMccMnc))
+            return result(subId, slot, nativeMccMnc, "already_restored_native_identity", false);
         set(subId, nativeMccMnc);
         JsonIO.write(path, record(subId, slot, nativeMccMnc, "restored_fallback"));
         return result(subId, slot, nativeMccMnc, "restored_native_identity_fallback", true);

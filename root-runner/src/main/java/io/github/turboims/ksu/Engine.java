@@ -99,7 +99,13 @@ public final class Engine {
 
     /** Classify fresh final read-back without writing or resolving ownership. */
     static String readbackPhase(Map<String, Object> current, Map<String, Object> requested) {
+        return readbackPhase(current, requested, current.get(MARKER));
+    }
+    static String readbackPhase(Map<String, Object> current, Map<String, Object> requested,
+                                Object verifiedMarker) {
         if (!Boolean.TRUE.equals(current.get(LOADED))) return "carrier_config_reloaded";
+        if (!FeatureConfig.same(current.get(MARKER), verifiedMarker))
+            return current.containsKey(MARKER) ? "verification_failed" : "carrier_config_reloaded";
         boolean matches = true;
         for (var entry : requested.entrySet())
             matches &= FeatureConfig.same(current.get(entry.getKey()), entry.getValue());
