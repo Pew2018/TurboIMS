@@ -49,7 +49,8 @@ function simEditorProfile(slot) {
       country_custom:country && !countryPreset ? country : "",
       carrier_preset:carrierPreset ? carrier : "",
       carrier_custom:carrier && !carrierPreset ? carrier : "",
-      carrier_test_mccmnc:String(saved.carrier_test_mccmnc || "")
+      carrier_test_mccmnc:String(saved.carrier_test_mccmnc || ""),
+      carrier_test_enabled:saved.carrier_test_enabled === true
     };
   }
   return simEditorProfiles[key];
@@ -59,7 +60,10 @@ function simEffectiveProfile(slot) {
   const profile = {country_iso:(draft.country_custom || draft.country_preset || "").toUpperCase(),
     carrier_name:draft.carrier_custom || draft.carrier_preset || ""};
   const mccmnc = String(draft.carrier_test_mccmnc || "").trim();
-  if (mccmnc) profile.carrier_test_mccmnc = mccmnc;
+  if (mccmnc) {
+    profile.carrier_test_mccmnc = mccmnc;
+    profile.carrier_test_enabled = draft.carrier_test_enabled === true;
+  }
   return profile;
 }
 function simPersistEditors() {
@@ -74,9 +78,13 @@ function simReconcileEditors(profiles) {
     const actual = {country_iso:String(saved.country_iso || "").toUpperCase(),
       carrier_name:String(saved.carrier_name || "")};
     const savedMccMnc = String(saved.carrier_test_mccmnc || "");
-    if (savedMccMnc) actual.carrier_test_mccmnc = savedMccMnc;
+    if (savedMccMnc) {
+      actual.carrier_test_mccmnc = savedMccMnc;
+      actual.carrier_test_enabled = saved.carrier_test_enabled === true;
+    }
     if (!draft || effective.country_iso !== actual.country_iso || effective.carrier_name !== actual.carrier_name
-        || effective.carrier_test_mccmnc !== actual.carrier_test_mccmnc) {
+        || effective.carrier_test_mccmnc !== actual.carrier_test_mccmnc
+        || effective.carrier_test_enabled !== actual.carrier_test_enabled) {
       const countryPreset = simCountries.some(([code]) => code === actual.country_iso);
       const carrierPreset = simCarriers.some(([,display]) => display === actual.carrier_name);
       simEditorProfiles[slot] = {
@@ -84,7 +92,8 @@ function simReconcileEditors(profiles) {
         country_custom:actual.country_iso && !countryPreset ? actual.country_iso : "",
         carrier_preset:carrierPreset ? actual.carrier_name : "",
         carrier_custom:actual.carrier_name && !carrierPreset ? actual.carrier_name : "",
-        carrier_test_mccmnc:actual.carrier_test_mccmnc
+        carrier_test_mccmnc:actual.carrier_test_mccmnc,
+        carrier_test_enabled:actual.carrier_test_enabled === true
       };
     }
   }
@@ -107,6 +116,8 @@ function simSyncForm() {
   $("sim-custom-country-value").textContent = draft.country_custom || "未设置";
   $("sim-custom-carrier-value").textContent = draft.carrier_custom || "未设置";
   $("sim-carrier-test-mccmnc-value").textContent = draft.carrier_test_mccmnc || "未设置";
+  $("sim-carrier-test-enabled").checked = draft.carrier_test_enabled === true;
+  $("sim-carrier-test-enabled").disabled = !draft.carrier_test_mccmnc;
   $("sim-country-summary").textContent = "当前系统识别地区";
   $("sim-carrier-summary").textContent = "当前系统识别名称";
   const row = simSlots.find(x => x.slot === selectedSimSlot);
@@ -143,6 +154,8 @@ function simSetPreset(field,value) {
   simPersistEditors(); simSyncForm();
 }
 function simSetCustom(field,value) {
+  if (field === "carrier_test_mccmnc" && !value)
+    simEditorProfiles[String(selectedSimSlot)] = {...simEditorProfile(selectedSimSlot),carrier_test_enabled:false};
   simEditorProfiles[String(selectedSimSlot)] = {...simEditorProfile(selectedSimSlot),[field]:value};
   simPersistEditors(); simSyncForm();
 }
@@ -190,7 +203,7 @@ function simEditCarrierTestMccMnc() {
   const draft = simEditorProfile(selectedSimSlot);
   editTextPreference({
     title:"Carrier test MCC/MNC", label:"Carrier test MCC/MNC", inputLabel:"MCC/MNC",
-    description:"留空使用实际运营商身份。特定运营商可自动推导测试 MCC/MNC。",
+    description:"仅在主动开启测试身份后使用。国家码和名称修改无需填写；会影响运营商配置选择。",
     value:draft.carrier_test_mccmnc, maxLength:128, inputMode:"numeric",
     transform:value => value.replace(/[^0-9]/g,"").slice(0,6),
     validate:value => value === "" || /^[0-9]{5,6}$/.test(value),
@@ -745,6 +758,9 @@ $("sim-carrier-choice").onclick = simChoiceCarrier;
 $("sim-edit-country").onclick = simEditCountry;
 $("sim-edit-carrier").onclick = simEditCarrier;
 $("sim-edit-carrier-test-mccmnc").onclick = simEditCarrierTestMccMnc;
+$("sim-carrier-test-enabled").onchange = () => {
+  simSetCustom("carrier_test_enabled", $("sim-carrier-test-enabled").checked);
+};
 $("sim-save").onclick = simApplyConfig;
 $("sim-restore").onclick = async () => {
   if (!await ask("恢复 SIM 信息？", "移除当前 SIM 的国家或地区及运营商覆盖，不清除 IMS 配置。")) return;
@@ -879,8 +895,8 @@ async function saveSchedule() {
 $("periodic-check").onchange = () => { updatePeriodicControl(); saveSchedule(); };
 function updateImplementationModeDescription() {
   $("implementation-mode-description").textContent = $("implementation_mode").value === "carrier_ims"
-    ? "使用 Carrier IMS 兼容路径，可配合 Carrier test MCC/MNC。"
-    : "使用 TurboIMS 原有 IMS 配置路径。";
+    ? "验证配置后重置 IMS 并检查注册，默认保留真实 SIM 身份。"
+    : "使用 TurboIMS 原有配置路径，检查 IMS 注册。";
 }
 function form(config) {
   savedConfig = config;
@@ -929,8 +945,14 @@ function render(result, replaceForm = false) {
       ? ["IMS 配置已验证",""]
       : ["无需重新写入","当前配置未发生变化，尚未确认写入结果。"],
     verified:["IMS 配置已验证",""],
-    ims_not_registered:["IMS 尚未注册","CarrierConfig 已验证，但 IMS 在限定时间内仍未注册。"],
+    ims_not_registered:state.configuration_partial && state.ims_configuration_verified
+      ? ["IMS 尚未注册","IMS 配置已核对，NR 部分生效；仍在等待 IMS 注册。"]
+      : state.configuration_applied
+      ? ["配置已应用，IMS 尚未注册","配置和 SIM 信息已验证；注册检测仍未通过。"]
+      : ["IMS 尚未注册","CarrierConfig 已验证，但 IMS 在限定时间内仍未注册。"],
+    superseded:["设置已更新","旧任务已结束，请按新设置应用配置。"],
     ims_status_unavailable:["无法读取 IMS 状态","查看逐卡诊断中的 Binder 权限或 API 错误。"],
+    carrier_test_cleanup_requires_reboot:["需要重启清理旧测试身份","旧版覆盖未记录原始身份。请重启，之后自动使用真实 SIM 身份并保留国家码、名称设置。"],
     carrier_test_override_failed:["运营商识别覆盖失败","CarrierConfig 已验证，但 Carrier test MCC/MNC 未应用；查看逐卡结果。"],
     ims_reset_failed:["IMS reset 失败","查看逐卡诊断中的系统返回原因。"],
 
@@ -938,14 +960,17 @@ function render(result, replaceForm = false) {
     partial:["部分配置未应用","部分配置项不受支持，请查看逐卡结果。"],
     ownership_lost:["自动应用已停止","配置状态发生变化，请查看诊断后重试。"],
     waiting:["等待 SIM 卡","请等待 SIM 卡和运营商配置加载。"],
-    retry_timeout:["等待超时","SIM 卡或运营商配置尚未就绪，已停止本次尝试。"],
-    verification_failed:["验证失败","写入后读取的值不一致，自动写入已停止。"],
+    retry_timeout:["等待超时",state.retry_reason === "ims_not_registered"
+      ? "IMS 注册检查超时；各项配置结果见下方，请验证实际拨打和接听并导出诊断。"
+      : "SIM 卡或运营商配置尚未就绪，已停止本次尝试。"],
+    configured_partial:["NR 配置部分生效","其余请求项已核对；保留当前 NR 值。注册状态见下方，无需因该差异反复应用。"],
+    verification_failed:["配置发生变化","写入验证后配置值发生变化，自动写入已停止；请导出诊断查看具体变化项。"],
     conflict:["存在配置冲突","冲突项已保留，请查看诊断与验证。"],
     not_started:["尚未开始工作","安装后请重启设备，再运行检测。"],
     error:["操作失败","请查看诊断与验证中的详细原因。"]
   };
-  const warning = ["waiting","retry_timeout","conflict","partial","ims_not_registered"].includes(phase);
-  const danger = ["error","verification_failed","ownership_lost","carrier_test_override_failed","ims_status_unavailable","ims_reset_failed"].includes(phase) || !!result.blocked;
+  const warning = ["waiting","retry_timeout","conflict","partial","configured_partial","ims_not_registered"].includes(phase);
+  const danger = ["error","verification_failed","ownership_lost","carrier_test_override_failed","carrier_test_cleanup_requires_reboot","ims_status_unavailable","ims_reset_failed"].includes(phase) || !!result.blocked;
   const tone = danger ? "danger" : warning || (phase === "active" && !state.write_readback_verified)
     ? "warning" : ["active","verified","probe"].includes(phase) ? "success" : "neutral";
   const [title,detail] = texts[phase] || ["状态待确认","请查看诊断与验证。"];
@@ -954,6 +979,7 @@ function render(result, replaceForm = false) {
     true, "danger", "已停止自动写入，请查看诊断与验证。");
   // The one-shot worker exiting after a verified apply is normal.
   renderImsRegistrationStatus(result);
+  renderComponentVerification(result);
   renderDiagnosticSummary(result);
   renderSimResults(result);
   renderSimPage(result);
@@ -961,16 +987,13 @@ function render(result, replaceForm = false) {
 function renderImsRegistrationStatus(result) {
   const state = result.status || result;
   const subscriptions = Array.isArray(state.subscriptions) ? state.subscriptions : [];
-  const mode = state.implementation_mode || result.implementation_mode || state.config?.implementation_mode
-    || result.config?.implementation_mode || savedConfig?.implementation_mode
-    || $("implementation_mode").value || "turboims";
-  const results = mode === "carrier_ims"
-    ? (Array.isArray(state.carrier_ims_results) ? state.carrier_ims_results
-      : Array.isArray(result.carrier_ims_results) ? result.carrier_ims_results : [])
-    : [];
+  const results = Array.isArray(state.ims_results) ? state.ims_results
+    : Array.isArray(state.carrier_ims_results) ? state.carrier_ims_results
+    : Array.isArray(result.ims_results) ? result.ims_results
+    : Array.isArray(result.carrier_ims_results) ? result.carrier_ims_results : [];
   const rows = subscriptions.map(sub => {
-    const registration = mode === "carrier_ims" ? sub.ims || results.find(item =>
-      Number(item.sub_id) === Number(sub.sub_id) || Number(item.slot) === Number(sub.slot)) : null;
+    const registration = sub.ims || results.find(item =>
+      Number(item.sub_id) === Number(sub.sub_id) || Number(item.slot) === Number(sub.slot));
     return {slot:sub.slot,registration};
   });
   for (const item of results) {
@@ -1005,13 +1028,38 @@ function renderImsRegistrationStatus(result) {
     row.append(name,value); list.append(row);
   }
 }
+function renderComponentVerification(result) {
+  const state = result.status || result;
+  const list = $("component-verification");
+  list.replaceChildren();
+  const label = value => value === true ? "核对通过" : value === false ? "未通过或未完成" : "未查询";
+  const config = state.config || result.config;
+  const rows = [
+    ["IMS 配置",label(state.ims_configuration_verified)],
+    ["SIM 信息",label(state.sim_profiles_verified)],
+    ["5G NR 配置",state.configuration_partial === true ? "部分生效"
+      : config?.features?.["5g_nr"] === "default" ? "使用原值" : label(state.nr_configuration_verified)]
+  ];
+  for (const sub of state.subscriptions || []) {
+    const limited = sub.configuration_partial === true;
+    const values = sub.verification_mismatches?.carrier_nr_availabilities_int_array;
+    if (limited && values) rows.push(["SIM 卡 " + (sub.slot + 1) + " NR",
+      "请求 " + JSON.stringify(values.expected) + " · 读回 " + JSON.stringify(values.actual)]);
+  }
+  for (const [title,value] of rows) {
+    const row = document.createElement("div");
+    const term = document.createElement("dt"); term.textContent = title;
+    const detail = document.createElement("dd"); detail.textContent = value;
+    row.append(term,detail); list.append(row);
+  }
+}
 function renderSimResults(result) {
   const state = result.status || result;
   $("sims").replaceChildren();
   for (const sub of state.subscriptions || []) {
     const line = document.createElement("div"); line.className = "sim";
     line.textContent = "SIM 卡槽 " + (sub.slot + 1) + " · subId " + sub.sub_id +
-      " · " + ({verified:"已验证",unchanged:"未变化",waiting:"等待中",error:"失败",verification_failed:"验证失败",conflict:"存在冲突",ownership_lost:"状态冲突",restored:"已恢复"}[sub.phase] || sub.phase)
+      " · " + ({verified:"已验证",unchanged:"未变化",waiting:"等待中",error:"失败",verification_failed:"验证失败",conflict:"存在冲突",ownership_lost:"状态冲突",restored:"已恢复",configured_partial:"NR 部分生效"}[sub.phase] || sub.phase)
       + (sub.unsupported?.length ? " · 跳过不支持的键 " + sub.unsupported.length + " 个" : "")
       + (sub.error ? " · " + sub.error : "")
       + (sub.write_state_unknown ? " · 此卡写入结果未确认" : "");
@@ -1024,7 +1072,7 @@ function renderDiagnosticSummary(result) {
   const phases = {active:state.write_readback_verified ? "覆盖验证通过" : "当前配置无需写入",
     verified:"覆盖验证通过",probe:"只读检测完成",paused:"已暂停",partial:"部分支持",
     waiting:"等待 SIM 配置",retry_timeout:"等待超时",conflict:"存在第三方冲突",ownership_lost:"覆盖标记丢失",
-    not_started:"尚未启动",verification_failed:"写入验证失败",error:"执行失败"};
+    not_started:"尚未启动",configured_partial:"NR 部分生效",verification_failed:"写入验证失败",error:"执行失败"};
   const rows = [
     ["状态", result.blocked ? "自动写入已停止" : phases[state.phase] || state.phase || "未知"],
     ["KernelSU", result.uid === undefined ? "未取得 UID" : "UID " + result.uid],
@@ -1035,6 +1083,16 @@ function renderDiagnosticSummary(result) {
     ["CarrierConfig", binder?.carrier_config === true ? "读取正常" :
       binder?.carrier_config === false ? "不可用" : "尚未检测"]
   ];
+  const origins = {watch:"开机自动配置","watch-periodic":"周期检查",apply:"手动应用",restore:"手动恢复",probe:"只读检测"};
+  if (state.action) rows.push(["任务来源",origins[state.action] || state.action]);
+  if (state.ims_registration_state) rows.push(["注册检查",({
+    verified:"连续采样已注册",observed_registered:"只读采样已注册",
+    not_registered:"采样未注册",unavailable:"未取得完整结果",not_checked:"未查询"
+  })[state.ims_registration_state] || state.ims_registration_state]);
+  const changedKeys = (state.subscriptions || []).flatMap(row =>
+    Object.keys(row.verification_mismatches || {}).map(key => "SIM 卡 " + (row.slot + 1) + " · " + key));
+  if (changedKeys.length) rows.push(["变化项",changedKeys.join("；")]);
+  if (result.watcher?.mode === "interrupted") rows.push(["后台退出","进程已退出，但没有完成记录"]);
   if (state.error || result.error) rows.push(["错误",state.error || result.error]);
   if (result.blocked) rows.push(["停止原因",result.blocked.error || result.blocked.phase || "查看完整数据"]);
   $("diagnostic-summary").replaceChildren();
@@ -1050,9 +1108,6 @@ async function operation(work, progress = "正在处理…", trigger = null) {
   busy = true;
   document.querySelectorAll("button,input,select").forEach(x => { if (x.id !== "back" && !primaryPages.some(id => x.id === "tab-"+id)) x.disabled = true; });
   document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","true"));
-  const label = trigger?.querySelector(".action-label") || trigger;
-  const originalLabel = label?.textContent;
-  if (label) label.textContent = progress;
   message(progress, false, "neutral", "请稍候。");
   try { await work(); }
   catch (error) {
@@ -1061,7 +1116,6 @@ async function operation(work, progress = "正在处理…", trigger = null) {
     $("diagnostic-notice").textContent = "操作失败：" + error.message;
     if (!error.result) $("details").textContent = JSON.stringify({ok:false,error:error.message},null,2);
   } finally {
-    if (label) label.textContent = originalLabel;
     busy = false;
     document.querySelectorAll("button,input,select").forEach(x => x.disabled = false);
     updatePeriodicControl();

@@ -12,26 +12,86 @@ test("base64 config is passed as a single quoted argument",()=>{
   assert.equal(bridge.command("save",data),
     "/system/bin/sh '/data/adb/modules/turboims_next/control.sh' save '"+data+"'");
 });
-test("native async callback parses JSON",async()=>{
-  global.ksu={exec(cmd,opts,callback){assert.equal(opts,"{}");
-    global[callback](0,'{"ok":true,"phase":"probe"}',"");}};
-  const result=await bridge.call("probe");
+// Model KernelSU Next 3.3.0 spawn events, not an instantly returning exec.
+function streamHarness(spawn) {
+  const vm=require("node:vm");
+  const timers=new Map(); let timerId=0;
+  const root={
+    setTimeout(fn,ms) { const id=++timerId; timers.set(id,{fn,ms}); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    ksu:{spawn(...args) { spawn(root,...args); },
+      exec() { throw new Error("synchronous exec must never be used"); }}
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../module/webroot/bridge.js"),"utf8"),root);
+  return {root,timers,bridge:root.TurboBridge};
+}
+test("spawn streams JSON and cleans its callback after late exit/error events",async()=>{
+  let receiver;
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    assert.equal(cmd,"/system/bin/sh"); assert.equal(opts,"{}");
+    assert.deepEqual(JSON.parse(args),["'/data/adb/modules/turboims_next/control.sh'","probe"]);
+    receiver=root[callback];
+    receiver.stdout.emit("data",'{"ok":true,"phase":"probe"}');
+    receiver.emit("exit",0);
+    receiver.emit("error",{message:"late event"});
+  });
+  const result=await h.bridge.call("probe");
   assert.equal(result.phase,"probe");
-  assert.equal(Object.keys(global).filter(k=>k.startsWith("__turboims_cb_")).length,0);
-  delete global.ksu;
+  assert.equal(h.timers.size,1);
+  for(const {fn,ms} of h.timers.values()) {assert.equal(ms,1000);fn();}
+  assert.equal(Object.keys(h.root).filter(k=>k.startsWith("__turboims_cb_")).length,0);
 });
-test("nonzero exit retains structured diagnostics",async()=>{
-  global.ksu={exec(cmd,opts,callback){global[callback](2,
-    '{"ok":false,"phase":"waiting"}',"");}};
-  await assert.rejects(bridge.call("apply"),e=>e.result.phase==="waiting");
-  delete global.ksu;
+test("nonzero streamed exit retains structured diagnostics",async()=>{
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    const receiver=root[callback];
+    receiver.stdout.emit("data",'{"ok":false,"phase":"verification_failed"}');
+    receiver.emit("exit",2);
+    receiver.emit("error",{message:"must not replace the structured result"});
+  });
+  await assert.rejects(h.bridge.call("apply"),e=>e.result.phase==="verification_failed");
 });
-test("missing bridge never fabricates success",async()=>{
-  delete global.ksu;await assert.rejects(bridge.call("probe"),/KernelSU Next/);
+test("spawn joins stdout lines and safely passes base64 save arguments",async()=>{
+  const payload=Buffer.from('{"carrier_name":"Chunghwa Telecom"}').toString("base64");
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    assert.deepEqual(JSON.parse(args),["'/data/adb/modules/turboims_next/control.sh'","save","'"+payload+"'"]);
+    root[callback].stdout.emit("data","runner diagnostic line");
+    root[callback].stdout.emit("data",'{"ok":true}');
+    root[callback].emit("exit",0);
+  });
+  assert.equal((await h.bridge.call("save",payload)).ok,true);
 });
-test("malformed runner output is an error",async()=>{
-  global.ksu={exec(cmd,opts,callback){global[callback](1,"","ClassNotFound");}};
-  await assert.rejects(bridge.call("probe"),/ClassNotFound/);delete global.ksu;
+test("missing async bridge never falls back to blocking exec",async()=>{
+  const h=streamHarness(()=>{throw new Error("not reached");});
+  delete h.root.ksu.spawn;
+  await assert.rejects(h.bridge.call("probe"),/KernelSU Next/);
+});
+test("malformed streamed runner output retains stderr",async()=>{
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    root[callback].stderr.emit("data","ClassNotFound");
+    root[callback].emit("exit",1);
+  });
+  await assert.rejects(h.bridge.call("probe"),/ClassNotFound/);
+});
+test("spawn start error is reported and a late exit cannot invent success",async()=>{
+  const h=streamHarness((root,cmd,args,opts,callback)=>{
+    root[callback].emit("error",{message:"root shell unavailable"});
+    root[callback].stdout.emit("data",'{"ok":true}');
+    root[callback].emit("exit",0);
+  });
+  await assert.rejects(h.bridge.call("apply"),/root shell unavailable/);
+});
+test("slow runner stays asynchronous and the bridge deadline outlives control.sh",async()=>{
+  let receiver;
+  const h=streamHarness((root,cmd,args,opts,callback)=>{receiver=root[callback];});
+  const pending=h.bridge.call("apply");
+  const deadline=[...h.timers.values()][0];
+  assert.equal(deadline.ms,190000);
+  let finished=false; pending.then(()=>{finished=true;},()=>{finished=true;});
+  await Promise.resolve(); assert.equal(finished,false);
+  const rejection=assert.rejects(pending,/期限内结束/);
+  deadline.fn(); await rejection;
+  receiver.stdout.emit("data",'{"ok":true}');
+  receiver.emit("exit",0);
 });
 test("WebUI has offline assets and no CDN dependencies",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
@@ -141,14 +201,14 @@ test("IMS mode radio choice displays exact option labels and description",async(
     {value:"turboims",textContent:"TurboIMS"},{value:"carrier_ims",textContent:"Carrier IMS"}];
   context.form(config);
   assert.equal(elements.get("implementation-mode-choice").textContent,"TurboIMS");
-  assert.equal(elements.get("implementation-mode-description").textContent,"使用 TurboIMS 原有 IMS 配置路径。");
+  assert.equal(elements.get("implementation-mode-description").textContent,"使用 TurboIMS 原有配置路径，检查 IMS 注册。");
   elements.get("implementation-mode-choice").onclick();
   const choices=elements.get("sheet-content").children;
   assert.deepEqual(choices.map(button=>button.textContent.replace("✓","").trim()),["TurboIMS","Carrier IMS"]);
   choices[1].onclick();
   assert.equal(elements.get("implementation_mode").value,"carrier_ims");
   assert.equal(elements.get("implementation-mode-choice").textContent,"Carrier IMS");
-  assert.equal(elements.get("implementation-mode-description").textContent,"使用 Carrier IMS 兼容路径，可配合 Carrier test MCC/MNC。");
+  assert.equal(elements.get("implementation-mode-description").textContent,"验证配置后重置 IMS 并检查注册，默认保留真实 SIM 身份。");
   assert.deepEqual(calls.map(([action])=>action),["status"]);
 });
 test("cancelled apply does not save or apply",async()=>{
@@ -453,7 +513,7 @@ test("SIM text editors use secondary pages, validate inputs, and keep edits draf
   assert.equal(elements.get("sim-carrier-test-mccmnc-value").textContent,"46692");
   await elements.get("sim-save").onclick();
   const payload=JSON.parse(Buffer.from(calls.find(([action])=>action==="save")[1],"base64").toString());
-  assert.deepEqual(payload.sim_profiles,{"0":{country_iso:"TW",carrier_name:"Custom Carrier",carrier_test_mccmnc:"46692"}});
+  assert.deepEqual(payload.sim_profiles,{"0":{country_iso:"TW",carrier_name:"Custom Carrier",carrier_test_mccmnc:"46692",carrier_test_enabled:false}});
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
   const sim=html.split('<main id="sim-page"')[1].split("</main>")[0];
   assert.doesNotMatch(sim,/sim-info-card|sim-custom-country\"|sim-custom-carrier\"|CarrierConfig/);
@@ -678,6 +738,8 @@ test("IMS home shows config and actual registration states separately",async()=>
   context.render({config:{...config,implementation_mode:"turboims"},status:{...config,implementation_mode:"turboims",
     config:{...config,implementation_mode:"turboims"},phase:"active",subscriptions:[{slot:0,sub_id:1,
       ims:{slot:0,sub_id:1,phase:"ims_registered",registered:true}}]}},true);
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"已注册");
+  context.render({implementation_mode:"turboims",phase:"probe",subscriptions:[{slot:0,sub_id:1}]});
   assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未查询");
 });
 test("Device status is on IMS home and Settings stays focused",()=>{
@@ -701,4 +763,138 @@ test("secondary page actions use accent-tonal surface",()=>{
   const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
   assert.match(css,/action-button--secondary[\s\S]*background:var\(--action-tonal\)/);
   assert.match(app,/--action-tonal/);
+});
+
+test("pending operation keeps its button label and navigation responsive",async()=>{
+  const {context,elements,doc,history}=await appHarness();
+  const apply=doc.getElementById("apply");
+  apply.textContent="应用配置";
+  const tab=doc.getElementById("tab-settings-page");
+  doc.querySelectorAll=selector=>selector==="button,input,select" ? [apply,tab] : [];
+  let finish; const wait=new Promise(resolve=>{finish=resolve;});
+  const task=context.operation(()=>wait,"正在处理…",apply);
+  assert.equal(apply.textContent,"应用配置");
+  assert.equal(apply.disabled,true); assert.notEqual(tab.disabled,true);
+  tab.onclick(); assert.equal(history.state.page,"settings-page");
+  finish(); await task;
+  assert.equal(apply.disabled,false); assert.equal(apply.textContent,"应用配置");
+});
+test("failed operation releases controls and preserves structured failure details",async()=>{
+  const {context,doc}=await appHarness();
+  const apply=doc.getElementById("apply");
+  apply.textContent="应用配置";
+  doc.querySelectorAll=selector=>selector==="button,input,select" ? [apply] : [];
+  const error=new Error("changed after verification");
+  error.result={ok:false,phase:"verification_failed",subscriptions:[{slot:0,
+    verification_mismatches:{carrier_nr_availabilities_int_array:{expected:[1,2],actual:[1]}}}]};
+  await context.operation(async()=>{throw error;},"正在处理…",apply);
+  assert.equal(apply.disabled,false); assert.equal(apply.textContent,"应用配置");
+  assert.match(doc.getElementById("details").textContent,/verification_mismatches/);
+});
+
+test("verified settings and absent registration remain separate in WebUI",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({ok:false,phase:"ims_not_registered",configuration_applied:true,
+    write_readback_verified:true,sim_profiles_verified:true,implementation_mode:"carrier_ims",
+    subscriptions:[{slot:0,sub_id:1,phase:"unchanged",unsupported:[],conflicts:[],
+      ims:{slot:0,sub_id:1,phase:"ims_not_registered",registered:false}}]});
+  assert.equal(elements.get("message").textContent,"配置已应用，IMS 尚未注册");
+  assert.equal(elements.get("status-indicator").dataset.tone,"warning");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未注册");
+  assert.match(elements.get("details").textContent,/"ok": false/);
+  context.render({ok:false,phase:"superseded",requires_manual_retry:false});
+  assert.equal(elements.get("message").textContent,"设置已更新");
+  assert.equal(elements.get("status-indicator").dataset.tone,"neutral");
+});
+
+test("legacy test PLMN and stored drafts never auto-enable identity after upgrade",async()=>{
+  const {context,elements,calls}=await appHarness();
+  const config={schema:1,enabled:true,periodic_check_enabled:false,selection:"all",interval_seconds:600,
+    implementation_mode:"carrier_ims",
+    features:{volte:"on",vowifi:"on",vt:"on",vonr:"on",cross_sim:"on",ut:"on","5g_nr":"on"},
+    sim_profiles:{"0":{country_iso:"tw",carrier_name:"Chunghwa Telecom",carrier_test_mccmnc:"46692"}}};
+  context.render({config,status:{config,phase:"active",
+    subscriptions:[{slot:0,sub_id:1,phase:"verified",effective:{}}]}},true);
+  assert.equal(elements.get("sim-carrier-test-enabled").checked,false);
+  await elements.get("sim-save").onclick();
+  const first=JSON.parse(Buffer.from(calls.find(([action])=>action==="save")[1],"base64").toString());
+  assert.equal(first.sim_profiles["0"].carrier_test_enabled,false);
+  assert.equal(first.sim_profiles["0"].country_iso,"TW");
+  assert.equal(first.sim_profiles["0"].carrier_name,"Chunghwa Telecom");
+  elements.get("sim-carrier-test-enabled").checked=true;
+  elements.get("sim-carrier-test-enabled").onchange();
+  assert.equal(context.simEffectiveProfiles()["0"].carrier_test_enabled,true);
+  context.simSetCustom("carrier_test_mccmnc","");
+  assert.equal(elements.get("sim-carrier-test-enabled").checked,false);
+  assert.equal(context.simEffectiveProfiles()["0"].carrier_test_mccmnc,undefined);
+});
+test("native display presets do not invent a test MCC/MNC",async()=>{
+  const {context}=await appHarness();
+  context.simSetPreset("country_preset","TW");
+  context.simSetPreset("carrier_preset","Chunghwa Telecom");
+  const profile=context.simEffectiveProfiles()["0"];
+  assert.equal(profile.country_iso,"TW"); assert.equal(profile.carrier_name,"Chunghwa Telecom");
+  assert.equal(profile.carrier_test_mccmnc,undefined);
+  assert.notEqual(profile.carrier_test_enabled,true);
+});
+test("TurboIMS renders actual registration without requiring Carrier IMS mode",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({phase:"ims_not_registered",ok:false,implementation_mode:"turboims",
+    configuration_applied:true,ims_results:[{slot:0,sub_id:1,phase:"ims_not_registered",registered:false}],
+    subscriptions:[{slot:0,sub_id:1,phase:"verified"}]});
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未注册");
+  assert.equal(elements.get("message").textContent,"配置已应用，IMS 尚未注册");
+});
+test("unknown legacy native identity is surfaced as a reboot requirement",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({ok:false,phase:"carrier_test_cleanup_requires_reboot",requires_reboot:true});
+  assert.equal(elements.get("message").textContent,"需要重启清理旧测试身份");
+});
+
+test("NR partial configuration preserves registered IMS and independent component results",async()=>{
+  const {context,elements}=await appHarness({strictIds:true});
+  context.render({status:{phase:"configured_partial",ok:true,
+    configuration_partial:true,configuration_applied:false,write_readback_verified:false,
+    ims_configuration_verified:true,sim_profiles_verified:true,nr_configuration_verified:false,
+    ims_registration_verified:true,ims_registration_state:"verified",
+    subscriptions:[{slot:0,sub_id:1,phase:"configured_partial",configuration_partial:true,
+      verification_mismatches:{carrier_nr_availabilities_int_array:{expected:[1,2],actual:[1]}},
+      ims:{registered:true,phase:"ims_registered"}}]}});
+  assert.equal(elements.get("message").textContent,"NR 配置部分生效");
+  assert.equal(elements.get("status-indicator").dataset.tone,"warning");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"已注册");
+  const components=elements.get("component-verification").children.map(row=>row.children.map(el=>el.textContent));
+  assert.deepEqual(components[0],["IMS 配置","核对通过"]);
+  assert.deepEqual(components[1],["SIM 信息","核对通过"]);
+  assert.deepEqual(components[2],["5G NR 配置","部分生效"]);
+  assert.match(components[3][1],/请求 \[1,2\] · 读回 \[1\]/);
+  assert.match(elements.get("details").textContent,/"write_readback_verified": false/);
+});
+test("read-only registration remains registered without claiming a completed write",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({phase:"probe",ok:true,action:"probe",configuration_applied:false,
+    ims_registration_verified:false,ims_registration_state:"observed_registered",
+    ims_configuration_verified:true,sim_profiles_verified:true,nr_configuration_verified:true,
+    ims_results:[{slot:0,sub_id:1,registered:true,phase:"ims_registered"}]});
+  assert.equal(elements.get("message").textContent,"检测完成");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"已注册");
+  const summary=elements.get("diagnostic-summary").children.map(row=>row.children.map(el=>el.textContent).join(":")).join("\n");
+  assert.match(summary,/只读采样已注册/);
+  assert.match(elements.get("details").textContent,/"configuration_applied": false/);
+});
+test("NR partial warning cannot hide real registration or other configuration failures",async()=>{
+  const {context,elements}=await appHarness();
+  context.render({phase:"ims_not_registered",ok:false,configuration_partial:true,
+    ims_configuration_verified:true,sim_profiles_verified:true,nr_configuration_verified:false,
+    ims_results:[{slot:0,sub_id:1,registered:false,phase:"ims_not_registered"}]});
+  assert.equal(elements.get("message").textContent,"IMS 尚未注册");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"未注册");
+  context.render({status:{phase:"verification_failed",ims_configuration_verified:false,
+    sim_profiles_verified:true,nr_configuration_verified:false,
+    ims_results:[{slot:0,sub_id:1,registered:true,phase:"ims_registered"}]},
+    blocked:{phase:"verification_failed"}});
+  assert.equal(elements.get("message").textContent,"验证失败");
+  assert.equal(elements.get("status-indicator").dataset.tone,"danger");
+  assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"已注册");
+  assert.equal(elements.get("component-verification").children[1].children[1].textContent,"核对通过");
 });

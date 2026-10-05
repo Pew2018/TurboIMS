@@ -100,9 +100,16 @@ public final class JsonIO implements Engine.Store {
                 try { index = Integer.parseInt(slot); }
                 catch (NumberFormatException e) { throw new IllegalArgumentException("Invalid SIM profile slot"); }
                 JSONObject profile = simProfiles.getJSONObject(slot);
-                profiles.put(index, new FeatureConfig.SimProfile(
+                for (String field : List.of("country_iso", "carrier_name", "carrier_test_mccmnc"))
+                    if (profile.has(field) && !(profile.get(field) instanceof String))
+                        throw new IllegalArgumentException("Invalid SIM profile string: " + field);
+                if (profile.has("carrier_test_enabled")
+                        && !(profile.get("carrier_test_enabled") instanceof Boolean))
+                    throw new IllegalArgumentException("Invalid carrier test identity switch");
+                profiles.put(index, FeatureConfig.SimProfile.fromSaved(
                         profile.optString("country_iso", ""), profile.optString("carrier_name", ""),
-                        profile.optString("carrier_test_mccmnc", "")));
+                        profile.optString("carrier_test_mccmnc", ""),
+                        profile.has("carrier_test_enabled") ? profile.getBoolean("carrier_test_enabled") : null));
             }
         }
         return new FeatureConfig(obj.getBoolean("enabled"),
@@ -118,7 +125,8 @@ public final class JsonIO implements Engine.Store {
             profiles.put(String.valueOf(entry.getKey()), new JSONObject()
                     .put("country_iso", entry.getValue().countryIso)
                     .put("carrier_name", entry.getValue().carrierName)
-                    .put("carrier_test_mccmnc", entry.getValue().carrierTestMccMnc));
+                    .put("carrier_test_mccmnc", entry.getValue().carrierTestMccMnc)
+                    .put("carrier_test_enabled", entry.getValue().carrierTestEnabled));
         }
         return new JSONObject().put("schema", 1).put("enabled", config.enabled)
                 .put("periodic_check_enabled", config.periodicCheckEnabled)
@@ -133,12 +141,13 @@ public final class JsonIO implements Engine.Store {
         JSONObject obj = read(path);
         return new Engine.Snapshot(obj.getString("session"), values(obj.getJSONObject("baseline")),
                 values(obj.getJSONObject("owned")),
-                obj.has("pending") ? values(obj.getJSONObject("pending")) : Collections.emptyMap());
+                obj.has("pending") ? values(obj.getJSONObject("pending")) : Collections.emptyMap(),
+                obj.optString("pending_session", obj.getString("session")));
     }
     @Override public void save(int subId, Engine.Snapshot snapshot) throws Exception {
         write(STATE.resolve("snapshot-" + subId + ".json"),
                 new JSONObject().put("session", snapshot.session)
                         .put("baseline", values(snapshot.baseline)).put("owned", values(snapshot.owned))
-                        .put("pending", values(snapshot.pending)));
+                        .put("pending", values(snapshot.pending)).put("pending_session", snapshot.pendingSession));
     }
 }

@@ -16,22 +16,32 @@ public final class FeatureConfig {
     public final String implementationMode;
     public static final class SimProfile {
         public final String countryIso; public final String carrierName; public final String carrierTestMccMnc;
+        public final boolean carrierTestEnabled;
         public SimProfile(String countryIso, String carrierName) { this(countryIso, carrierName, ""); }
         public SimProfile(String countryIso, String carrierName, String carrierTestMccMnc) {
+            this(countryIso, carrierName, carrierTestMccMnc,
+                    carrierTestMccMnc != null && !carrierTestMccMnc.trim().isEmpty());
+        }
+        public SimProfile(String countryIso, String carrierName, String carrierTestMccMnc,
+                          boolean carrierTestEnabled) {
             String iso = countryIso == null ? "" : countryIso.trim().toLowerCase(Locale.ROOT);
             if (!iso.isEmpty() && !iso.matches("[a-z]{2}")) throw new IllegalArgumentException("SIM country ISO must be two letters");
             String name = carrierName == null ? "" : carrierName.trim();
             if (name.length() > 128) throw new IllegalArgumentException("Carrier name is too long");
             String numeric = carrierTestMccMnc == null ? "" : carrierTestMccMnc.trim();
-            // The SIM editor already exposes a Taiwan + Chunghwa Telecom profile. Keep
-            // legacy saved profiles usable by deriving the known test PLMN when the
-            // optional field was not present in their schema. Explicit user input wins.
-            if (numeric.isEmpty() && "tw".equals(iso) && "Chunghwa Telecom".equals(name))
-                numeric = "46692";
+            // Display country/name never select a test identity. Persisted legacy
+            // profiles need a new explicit opt-in before any PLMN test override.
             if (!numeric.isEmpty() && !numeric.matches("[0-9]{5,6}"))
                 throw new IllegalArgumentException("Carrier test MCC/MNC must contain 5 or 6 digits");
+            if (carrierTestEnabled && numeric.isEmpty())
+                throw new IllegalArgumentException("Enabled carrier test identity requires an explicit MCC/MNC");
             this.countryIso = iso; this.carrierName = name; this.carrierTestMccMnc = numeric;
+            this.carrierTestEnabled = carrierTestEnabled;
         }
+        static SimProfile fromSaved(String country, String name, String code, Boolean explicitOptIn) {
+            return new SimProfile(country, name, code, Boolean.TRUE.equals(explicitOptIn));
+        }
+        public String requestedTestMccMnc() { return carrierTestEnabled ? carrierTestMccMnc : ""; }
         public boolean isEmpty() { return countryIso.isEmpty() && carrierName.isEmpty() && carrierTestMccMnc.isEmpty(); }
     }
     public FeatureConfig(boolean enabled, String selection, int intervalSeconds, Map<String, Mode> modes) {

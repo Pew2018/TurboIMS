@@ -86,10 +86,18 @@ public final class AndroidCarrierBackend implements CarrierBackend {
         return result;
     }
 
+    public String simOperatorNumeric(CarrierBackend.Subscription sub) {
+        return propertyAtSlot("gsm.sim.operator.numeric", sub.slot);
+    }
+
+    public String networkOperatorNumeric(CarrierBackend.Subscription sub) {
+        return propertyAtSlot("gsm.operator.numeric", sub.slot);
+    }
+
     /**
-     * Resolve the underlying active SIM identity from ISub's SubscriptionInfo. This
-     * deliberately avoids GSM SIM operator properties, which may already reflect a
-     * carrier-test override and are therefore unsafe as a restoration source.
+     * Read the current ISub subscription code for diagnostics. Carrier test reloads
+     * can change this database value, so it is NOT a reliable native restoration
+     * source after an override. Only capture a baseline before our first test write.
      */
     public String activeSubscriptionMccMnc(CarrierBackend.Subscription subscription) throws Exception {
         Object sub = service("isub", subType);

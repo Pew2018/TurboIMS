@@ -30,9 +30,10 @@ public class FeatureConfigTest {
                 Map.of(0, new FeatureConfig.SimProfile("tw", "Chunghwa Telecom", "46692")), "carrier_ims");
         assertEquals("46692", carrier.simProfiles.get(0).carrierTestMccMnc);
     }
-    @Test public void legacyTaiwanChunghwaProfileDerivesTestPlmn() {
+    @Test public void displayTaiwanChunghwaProfileDoesNotSelectTestPlmn() {
         FeatureConfig.SimProfile profile = new FeatureConfig.SimProfile("TW", "Chunghwa Telecom");
-        assertEquals("46692", profile.carrierTestMccMnc);
+        assertEquals("", profile.carrierTestMccMnc);
+        assertFalse(profile.carrierTestEnabled);
     }
     @Test public void explicitTestPlmnTakesPrecedence() {
         FeatureConfig.SimProfile profile = new FeatureConfig.SimProfile("TW", "Chunghwa Telecom", "46601");
@@ -125,5 +126,15 @@ public class FeatureConfigTest {
     }
     @Test(expected=IllegalArgumentException.class) public void rejectsMissingFeatures() {
         new FeatureConfig(true,"all",1800,Map.of());
+    }
+    @Test public void savedLegacyTestValueNeedsExplicitNewOptIn() {
+        FeatureConfig.SimProfile old = FeatureConfig.SimProfile.fromSaved("tw","Chunghwa Telecom","46692",null);
+        assertEquals("tw",old.countryIso); assertEquals("Chunghwa Telecom",old.carrierName);
+        assertEquals("46692",old.carrierTestMccMnc); assertEquals("",old.requestedTestMccMnc());
+        assertEquals("",FeatureConfig.SimProfile.fromSaved("tw","Chunghwa Telecom","46692",false).requestedTestMccMnc());
+        assertEquals("46692",FeatureConfig.SimProfile.fromSaved("tw","Chunghwa Telecom","46692",true).requestedTestMccMnc());
+    }
+    @Test(expected=IllegalArgumentException.class) public void explicitOptInRequiresNonEmptyTestCode() {
+        new FeatureConfig.SimProfile("tw","Chunghwa Telecom","",true);
     }
 }

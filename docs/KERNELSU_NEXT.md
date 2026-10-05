@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-版本：0.1.1-experimental。**构建测试不等于手机上的 CarrierConfig 写入或 IMS 通话已经验证。**
+版本：0.3.6。**构建测试不等于手机上的 CarrierConfig 写入或 IMS 通话已经验证。**
 初始验证设备是 Pixel 8 Pro / husky / Android 16 / SDK 36 / SELinux Enforcing。
-安装器接受 arm64、SDK 33–36；其他组合的兼容性尚未实测，SDK 37+ 明确拒绝，避免静默误用。
+SDK 36 构建产物供 Android 13–16 / arm64 使用；SDK 37 构建产物同时包含 Android 17 构建验证，兼容性仍需设备实测。
 
 只安装一个模块 ZIP：无需 TurboIMS App、辅助 App、Shizuku、Sui、Zygisk、LSPosed 或挂载扩展。
 内置的 runner.apk 只是 DEX 容器，由系统 app_process64 以 KernelSU uid 0 加载，**不会安装到包管理器**。
@@ -13,7 +13,7 @@
 
 ## 安装与首次验证
 
-1. 下载成功 Actions 中的 **FLASHABLE-TurboIMS-Next-0.1.1-experimental.zip**。
+1. 下载成功 Actions 中的 **FLASHABLE-TurboIMS-Next-0.3.6-sdk36** 产物（Android 16）。
    在 KernelSU Next 直接选择此下载文件安装，**无需解压，不存在内层模块 ZIP**。
    必须等待 Verify actual downloadable ZIP and installer 检查通过。
    旧 0.1.0 的外层 artifact 和 test-reports ZIP 不是模块，不可直接安装。
@@ -55,7 +55,7 @@
 ## 执行与可靠性
 
 - service.sh 仅在 late service 等待 boot_completed，最长 6 分钟，不占用 post-fs-data。
-- “开机自动应用”只执行一次：等待目标 SIM 与 CarrierConfig 就绪、逐卡应用和读回验证，正常完成后退出。未就绪最多尝试 12 次、间隔约 5 秒，最终报告等待超时。
+- “开机自动应用”只执行一次：等待目标 SIM 与 CarrierConfig 就绪、逐卡应用和读回验证，正常完成后退出。未就绪最多尝试 12 次、间隔约 5 秒；每次 IMS 注册检查最多约 20 秒，因此注册未就绪时可持续约 5 分钟。已匹配的配置不重复写入；Carrier IMS 每个任务、配置版本、订阅仅接受一次 reset。最终仍未注册时报告 retry_timeout / ims_not_registered，而不是配置成功后立即结束。
 - “定时检查与修复”独立且默认关闭；可选择 10/30/60/120 分钟，默认 30 分钟。等待使用配置文件事件通知和长时间定时等待，不做每秒文件轮询，不持有唤醒锁。配置符合设置时不重复写入。
 - 修改定时开关或间隔会保存设置并启动、唤醒或结束定时任务；手动“应用配置”立即执行一次。
 - 按卡槽选择，每次解析当前活跃 subId；单卡、历史 eSIM 记录不混用。
@@ -71,6 +71,26 @@
 
 不能把 apply 的成功等同于 modem/IMS 已注册，更不能保证 VoNR/VoWiFi 可用；
 read-back verification 只证明 CarrierConfig 有效值已匹配。
+
+## SIM 显示与测试身份（0.3.6）
+
+国家码和运营商名称通过 CarrierConfig 独立设置。选择台湾 / Chunghwa Telecom 不再推导 46692。
+TurboIMS 使用原有配置写入路径并只读检查 IMS 注册；Carrier IMS 额外进行有次数限制的 IMS reset，默认同样保留真实 SIM 身份。
+注册成功仍需实际拨出、接听和语音能力验收；配置写入成功不能代替通话测试。
+
+旧 sim_profiles 升级后保留国家码、英文名称、测试值和开机自动应用偏好，但 carrier_test_enabled 默认 false。
+只有显式开启“启用测试运营商身份”才会应用测试 PLMN（仅 Carrier IMS）。升级后应先重启再测试。
+测试调用的 IMSI、ICCID、GID1/2、PNN/SPN、权限规则和 APN 参数都使用 null，保留真实值，不使用空字符串。
+不读取或保存 IMSI、ICCID、电话号码。
+
+测试覆盖记录使用 identity_schema=2。旧记录不得跳过修正后的调用。
+上次启动的测试覆盖记录过期后删除，不把旧 PLMN 写入新启动的 SIM。
+如果同次启动的旧覆盖没有可信的原始 PLMN，且系统无 clearCarrierTestOverride API，
+返回 carrier_test_cleanup_requires_reboot，保留诊断并要求重启；绝不从已污染的 SubscriptionInfo 猜原始运营商。
+新覆盖只在首次写入前、公开 SIM 与订阅 PLMN 一致时记录原始 PLMN。
+缺少清除 API 的恢复路径仅可使用这个基线，仍保留所有可选身份字段；此路径不承诺关闭 Android 内部 test-mode bit，重启会清除其内存状态。
+
+完整修复范围和四组合验收参见 [IMS_IDENTITY_HOTFIX.md](IMS_IDENTITY_HOTFIX.md)。
 
 ## 恢复与冲突边界
 
@@ -197,3 +217,11 @@ artifact 不保留 Unix 权限，安装脚本会重新设置 runner=0444 和脚�
 - https://github.com/KernelSU-Next/KernelSU-Next/blob/dev/userspace/ksud/src/installer.sh
 - https://kernelsu.org/guide/module.html
 - https://github.com/actions/upload-artifact/tree/v4
+
+### Independent verification in 0.3.6 / 0.3.6 独立验证
+
+IMS registration, requested IMS CarrierConfig values, public SIM display properties and NR configuration have separate verification fields. A read-only probe can report registered without claiming continuous registration verification or a completed write.
+
+当请求 NR [1,2]、读回为有效单项 [1] 或 [2]，且配置已加载、模块 owner marker 匹配、其余请求项均核对通过时，结果为 `configured_partial`。保留差异，不把完整 NR 请求标成成功；IMS 注册和 SIM 显示仍独立报告。该差异不生成 blocked.json，也不会导致同一请求反复写入 NR 或重置 IMS。真正的 IMS、SIM、其他配置差异和所有权变化仍保留错误与冲突检查。
+
+Detailed rationale, limits and device acceptance: [NR verification hotfix](NR_VERIFICATION_HOTFIX.md).

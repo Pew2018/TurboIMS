@@ -5,7 +5,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 /**
- * Carrier IMS-only telephony operations. Uses the device ITelephony Binder from
+ * IMS registration observation and optional Carrier IMS reset. Uses ITelephony from
  * the existing KSU runner; no Shizuku or companion process is involved.
  */
 public final class CarrierImsControl {
@@ -13,19 +13,30 @@ public final class CarrierImsControl {
         public final boolean registered;
         public final String phase;
         public final String error;
+        public final boolean resetAccepted;
         Registration(boolean registered, String phase, String error) {
+            this(registered, phase, error, false);
+        }
+        Registration(boolean registered, String phase, String error, boolean resetAccepted) {
             this.registered = registered;
             this.phase = phase;
             this.error = error;
+            this.resetAccepted = resetAccepted;
         }
     }
 
-    private final Object telephony;
-    private final Method registeredMethod;
-    private final Method resetMethod;
+    interface Operations {
+        boolean isRegistered(int subId) throws Exception;
+        void reset(int slot) throws Exception;
+    }
+    interface Pause { void waitFor(long millis) throws InterruptedException; }
+    interface CurrentConfig { boolean isCurrent() throws Exception; }
+    private final Operations operations;
     private final String serviceSource;
 
-    public CarrierImsControl() throws Exception {
+    public CarrierImsControl() throws Exception { this(true); }
+
+    public CarrierImsControl(boolean allowReset) throws Exception {
         IBinder binder = frameworkTelephonyBinder();
         serviceSource = binder != null ? "telephony_framework" : "service_manager_phone";
         if (binder == null) {
@@ -35,47 +46,123 @@ public final class CarrierImsControl {
         if (binder == null || !binder.pingBinder())
             throw new java.io.IOException("Telephony Binder service is unavailable");
         Class<?> api = Class.forName("com.android.internal.telephony.ITelephony");
-        telephony = invoke(Class.forName(api.getName() + "$Stub")
+        Object telephony = invoke(Class.forName(api.getName() + "$Stub")
                 .getMethod("asInterface", IBinder.class), null, binder);
         if (telephony == null) throw new java.io.IOException("ITelephony is unavailable");
-        registeredMethod = api.getMethod("isImsRegistered", int.class);
-        resetMethod = api.getMethod("resetIms", int.class);
+        Method registeredMethod = api.getMethod("isImsRegistered", int.class);
+        Method resetMethod = allowReset ? api.getMethod("resetIms", int.class) : null;
+        operations = new Operations() {
+            @Override public boolean isRegistered(int subId) throws Exception {
+                return Boolean.TRUE.equals(invoke(registeredMethod, telephony, subId));
+            }
+            @Override public void reset(int slot) throws Exception {
+                if (resetMethod == null) throw new IllegalStateException("IMS reset is disabled in TurboIMS mode");
+                invoke(resetMethod, telephony, slot);
+            }
+        };
+    }
+
+    CarrierImsControl(Operations operations) {
+        this.operations = operations;
+        this.serviceSource = "injected";
+    }
+
+    /** One accepted reset per subscription within a bounded boot/manual task. */
+    public static final class Task {
+        private final java.util.Set<Integer> resetSubscriptions = new java.util.HashSet<>();
+        private String configurationRevision = "";
+        void useConfiguration(String revision) {
+            if (!revision.equals(configurationRevision)) {
+                resetSubscriptions.clear();
+                configurationRevision = revision;
+            }
+        }
+        public Registration observe(CarrierImsControl control, int subId, int slot,
+                                    int attempts, long intervalMs) {
+            return observe(control, subId, slot, attempts, intervalMs, Thread::sleep);
+        }
+        Registration observe(CarrierImsControl control, int subId, int slot,
+                             int attempts, long intervalMs, Pause pause) {
+            return observe(control, subId, slot, attempts, intervalMs, pause, () -> true);
+        }
+        Registration observe(CarrierImsControl control, int subId, int slot,
+                             int attempts, long intervalMs, CurrentConfig current) {
+            return observe(control, subId, slot, attempts, intervalMs, Thread::sleep, current);
+        }
+        Registration observe(CarrierImsControl control, int subId, int slot,
+                             int attempts, long intervalMs, Pause pause, CurrentConfig current) {
+            return observe(control, subId, slot, attempts, intervalMs, true, pause, current);
+        }
+        Registration observe(CarrierImsControl control, int subId, int slot,
+                             int attempts, long intervalMs, boolean allowReset, CurrentConfig current) {
+            return observe(control, subId, slot, attempts, intervalMs, allowReset, Thread::sleep, current);
+        }
+        Registration observe(CarrierImsControl control, int subId, int slot,
+                             int attempts, long intervalMs, boolean allowReset,
+                             Pause pause, CurrentConfig current) {
+            Registration result = control.observe(subId, slot, attempts, intervalMs,
+                    allowReset && !resetSubscriptions.contains(subId), pause, current);
+            if (result.resetAccepted) resetSubscriptions.add(subId);
+            return result;
+        }
     }
 
     public String serviceSource() { return serviceSource; }
 
     static boolean isReadyForReset(String carrierConfigPhase) {
-        return "verified".equals(carrierConfigPhase) || "unchanged".equals(carrierConfigPhase)
+        return "configured_partial".equals(carrierConfigPhase)
+                || "verified".equals(carrierConfigPhase) || "unchanged".equals(carrierConfigPhase)
                 || "restored".equals(carrierConfigPhase);
     }
 
     public boolean isRegistered(int subId) throws Exception {
-        return Boolean.TRUE.equals(invoke(registeredMethod, telephony, subId));
+        return operations.isRegistered(subId);
     }
 
-    public Registration resetAndAwait(int subId, int slot, int attempts, long intervalMs) {
-        try {
-            invoke(resetMethod, telephony, slot);
-        } catch (Throwable error) {
-            return new Registration(false, "ims_reset_failed", message(error));
+    private Registration observe(int subId, int slot, int attempts, long intervalMs,
+                                 boolean reset, Pause pause, CurrentConfig current) {
+        boolean resetAccepted = false;
+        if (reset) {
+            try {
+                if (!current.isCurrent())
+                    return new Registration(false, "superseded", "", false);
+                operations.reset(slot);
+                resetAccepted = true;
+                // The Binder call queues a reset. Do not immediately accept the
+                // pre-reset registration bit as evidence of the final state.
+                pause.waitFor(intervalMs);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                return new Registration(false, "ims_poll_interrupted", message(error), resetAccepted);
+            } catch (Exception error) {
+                return new Registration(false, AutoApply.isFrameworkNotReady(error)
+                        ? "waiting" : "ims_reset_failed", message(error), resetAccepted);
+            }
         }
+        int consecutive = 0;
         for (int i = 0; i < attempts; i++) {
             try {
-                if (isRegistered(subId))
-                    return new Registration(true, "ims_registered", "");
-            } catch (Throwable error) {
-                return new Registration(false, "ims_status_unavailable", message(error));
+                if (!current.isCurrent())
+                    return new Registration(false, "superseded", "", resetAccepted);
+                consecutive = isRegistered(subId) ? consecutive + 1 : 0;
+                if (consecutive >= 2)
+                    return new Registration(true, "ims_registered", "", resetAccepted);
+            } catch (Exception error) {
+                return new Registration(false, AutoApply.isFrameworkNotReady(error)
+                        ? "waiting" : "ims_status_unavailable", message(error), resetAccepted);
             }
             if (i + 1 < attempts) {
-                try { Thread.sleep(intervalMs); }
-                catch (InterruptedException e) {
+                try { pause.waitFor(intervalMs); }
+                catch (InterruptedException error) {
                     Thread.currentThread().interrupt();
-                    return new Registration(false, "ims_poll_interrupted", "IMS polling was interrupted");
+                    return new Registration(false, "ims_poll_interrupted",
+                            "IMS polling was interrupted", resetAccepted);
                 }
             }
         }
         return new Registration(false, "ims_not_registered",
-                "IMS did not report registered before the bounded polling deadline");
+                "IMS did not report stable registration before the bounded polling deadline",
+                resetAccepted);
     }
 
     /**
