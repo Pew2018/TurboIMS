@@ -1,8 +1,8 @@
-name: Preview Classic WebUI polish
+name: Preview semantic color system
 on:
   push:
-    branches: ["feature/ui-polish-1.0.0"]
-    paths: ["module/webroot/**", "ci/ui_polish_preview.cjs", ".github/workflows/webui-preview.yml"]
+    branches: ["feature/material-color-system-1.0.0-v2"]
+    paths: ["module/webroot/**", "ci/**", ".github/workflows/webui-preview.yml"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,14 +21,14 @@ jobs:
         run: |
           npm install --no-save playwright@1.56.1
           npx playwright install chromium
-      - name: Capture mobile UI
+      - name: Capture and validate mobile UI
         run: |
           python3 -m http.server 8765 --directory module/webroot > "$RUNNER_TEMP/webui-server.log" 2>&1 &
           node ci/ui_polish_preview.cjs
-      - name: Upload screenshots
+      - name: Upload screenshots and contrast report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: classic-webui-polish-preview
+          name: material-color-system-preview
           path: preview/
           if-no-files-found: error

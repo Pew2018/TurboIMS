@@ -90,10 +90,10 @@ const fs=require("node:fs");
     await click("accent-scope-choice");
     await page.locator("#accent-toolbar").check();
     await page.locator("#accent-navigation-icons").check();
-    const colors=await page.evaluate(()=>[...onePlusColors,...materialColors].map(x=>x[1]).concat(["#FFF176","#004D40","#FFFFFF","#111111","#777777","#123456"]));
+    const colors=await page.evaluate(()=>[...onePlusColors,...materialColors].map(x=>x[1]).concat(["#FFFFFF","#000000","#FFFF00","#00FF00","#00FFFF","#FF00FF","#FF0000","#0000FF","#808080","#F5F5F5","#212121","#FFF176","#004D40","#777777","#123456"]));
     const report=[];
-    for(const theme of ["light","dark"])for(const color of colors){
-      await page.evaluate(({theme,color})=>{themeMode=theme;accent=color;accentToolbar=true;showAppearance();},{theme,color});
+    for(const cards of [false,true])for(const theme of ["light","dark","system"])for(const color of colors){
+      await page.evaluate(({theme,color,cards})=>{themeMode=theme;accent=color;cardGroups=cards;accentToolbar=true;showAppearance();},{theme,color,cards});
       const styles=await page.evaluate(()=>{
         const style=id=>{const s=getComputedStyle(document.getElementById(id));return {bg:s.backgroundColor,fg:s.color};};
         const toolbar=getComputedStyle(document.querySelector(".toolbar"));
@@ -104,22 +104,79 @@ const fs=require("node:fs");
           systemBg:getComputedStyle(document.documentElement).getPropertyValue("--system-status-bg").trim()};
       });
       assert.equal(styles.title.fg,styles.back.fg);
-      const best=Math.max(ratio(styles.toolbar.bg,"rgb(255,255,255)"),ratio(styles.toolbar.bg,"rgb(17,17,17)"));
+      const best=Math.max(ratio(styles.toolbar.bg,"rgb(255,255,255)"),ratio(styles.toolbar.bg,"rgb(0,0,0)"));
       assert.ok(Math.abs(ratio(styles.toolbar.bg,styles.title.fg)-best)<.001);
       assert.ok(ratio(styles.secondary.bg,styles.secondary.fg)>=4.5);
       assert.equal(styles.meta,styles.systemBg);
-      assert.equal(styles.desiredIcons,styles.title.fg==="rgb(17, 17, 17)"?"dark":"light");
-      report.push({theme,color,toolbarContrast:best,buttonContrast:ratio(styles.primary.bg,styles.primary.fg)});
+      assert.equal(styles.desiredIcons,styles.title.fg==="rgb(0, 0, 0)"?"dark":"light");
+      const derived=await page.evaluate(()=>{
+        const root=getComputedStyle(document.documentElement);
+        const token=n=>root.getPropertyValue(n).trim();
+        const nav=getComputedStyle(document.querySelector(".bottom-nav"));
+        const icon=getComputedStyle(document.querySelector('.bottom-tab[aria-current="page"] svg'));
+        const label=getComputedStyle(document.querySelector('.bottom-tab[aria-current="page"] span'));
+        const swatch=token("--accent");
+        const rgb=h=>"rgb("+[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)).join(",")+")";
+        return {seed:swatch,navBg:nav.backgroundColor,navIcon:icon.color,navLabel:label.color,
+          primaryPressed:rgb(token("--action-primary-pressed")),secondaryPressed:rgb(token("--action-tonal-pressed")),
+          category:rgb(token("--accent-ink")),control:rgb(token("--control-accent")),
+          swatchBg:rgb(swatch),swatchFg:rgb(token("--accent-text")),
+          surfaces:[token("--surface"),token("--card-surface"),token("--background")].map(rgb)};
+      });
+      assert.equal(derived.seed,color);
+      const pairs={
+        toolbar:ratio(styles.toolbar.bg,styles.title.fg),
+        primary:ratio(styles.primary.bg,styles.primary.fg),
+        primaryPressed:ratio(derived.primaryPressed,styles.primary.fg),
+        secondary:ratio(styles.secondary.bg,styles.secondary.fg),
+        secondaryPressed:ratio(derived.secondaryPressed,styles.secondary.fg),
+        category:Math.min(...derived.surfaces.map(bg=>ratio(bg,derived.category))),
+        navigationLabel:ratio(derived.navBg,derived.navLabel),
+        navigationIcon:ratio(derived.navBg,derived.navIcon),
+        controlThumb:Math.min(...derived.surfaces.map(bg=>ratio(bg,derived.control))),
+        swatch:ratio(derived.swatchBg,derived.swatchFg)
+      };
+      for(const [role,value] of Object.entries(pairs))
+        assert.ok(value>=(["navigationIcon","controlThumb"].includes(role)?3:4.5),theme+" "+color+" "+role+" "+value);
+      report.push({theme,color,cards,...pairs});
     }
     for(const [name,theme,color] of [["toolbar-yellow","light","#E6A545"],["toolbar-purple","light","#9C27B0"],["toolbar-dark","dark","#004D40"]]){
       await page.evaluate(({theme,color})=>{themeMode=theme;accent=color;showAppearance();},{theme,color});
       await capture(name);
     }
+    // Verify actual :active CSS (no click or bridge call) and CJK text metrics.
+    await page.evaluate(()=>{themeMode="light";accent="#26C6DA";showAppearance();navigate("sim-page");});
+    for(const id of ["sim-save","sim-restore"]){
+      await page.locator("#"+id).scrollIntoViewIfNeeded();
+      const normal=await page.locator("#"+id).evaluate(el=>({color:getComputedStyle(el).color,
+        size:getComputedStyle(el).fontSize,radius:getComputedStyle(el).borderRadius,height:getComputedStyle(el).height}));
+      assert.equal(normal.size,"15px");assert.equal(normal.radius,"2px");assert.equal(normal.height,"48px");
+      const box=await page.locator("#"+id).boundingBox();
+      const calls=await page.evaluate(()=>window.bridgeCalls.length);
+      await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();
+      const active=await page.locator("#"+id).evaluate(el=>({active:el.matches(":active"),
+        bg:getComputedStyle(el).backgroundColor,fg:getComputedStyle(el).color}));
+      assert.equal(active.active,true);assert.equal(active.fg,normal.color);assert.ok(ratio(active.bg,active.fg)>=4.5);
+      await page.mouse.move(1,1);await page.mouse.up();
+      assert.equal(await page.evaluate(()=>window.bridgeCalls.length),calls);
+    }
+    // Return to the same scope route used by the existing navigation regression.
+    await page.evaluate(()=>navigate("accent-scope-page"));
+    for(const mode of ["light","dark"])for(const [name,color] of [
+      ["blue","#2196F3"],["sky-blue","#26C6DA"],["red","#F44336"],["golden","#CC6F4E"],
+      ["yellow","#E6A545"],["grass-green","#7DC22F"],["blue-grey","#607D8B"],["purple","#9C27B0"]
+    ]){
+      await page.evaluate(({mode,color})=>{themeMode=mode;accent=color;accentToolbar=true;
+        accentSectionLabels=true;cardGroups=true;showAppearance();navigate("sim-page");
+        document.getElementById("page-content").scrollTop=160;},{mode,color});
+      await capture("sim-"+mode+"-"+name);
+    }
+    await page.evaluate(()=>{themeMode="dark";navigate("accent-scope-page");showAppearance();});
     await page.locator("#accent-toolbar").uncheck();
     const plain=await page.locator("#page-title").evaluate(el=>getComputedStyle(el).color);
     await page.evaluate(()=>setAccent("#FFFFFF"));
     assert.equal(await page.locator("#page-title").evaluate(el=>getComputedStyle(el).color),plain);
-    await click("back");await click("back");
+    await page.evaluate(()=>navigate("settings-page"));
     await click("open-diagnostics");
     await capture("diagnostics-dark");
     await click("back");assert.equal(await page.locator("#settings-page").isVisible(),true);
@@ -129,7 +186,11 @@ const fs=require("node:fs");
     await capture("ims-dark-cards");
     await page.locator("#enabled").scrollIntoViewIfNeeded();
     await page.evaluate(()=>{document.getElementById("enabled").disabled=true;});
-    assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"0.42");
+    assert.equal(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).opacity),"1");
+    const disabledTrack=await page.locator("#enabled").evaluate(el=>getComputedStyle(el).backgroundColor);
+    await page.evaluate(()=>{document.getElementById("enabled").checked=!document.getElementById("enabled").checked;});
+    assert.notEqual(await page.locator("#enabled").evaluate(el=>getComputedStyle(el).backgroundColor),disabledTrack);
+    await page.evaluate(()=>{document.getElementById("enabled").checked=!document.getElementById("enabled").checked;});
     await page.evaluate(()=>{document.getElementById("enabled").disabled=false;});
     const hit=page.locator("#enabled").locator(".."),box=await hit.boundingBox();
     const pointer={button:0,isPrimary:true,pointerId:701,clientX:box.x+24,clientY:box.y+24};

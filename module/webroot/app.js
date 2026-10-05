@@ -302,37 +302,117 @@ function contrastRatio(a,b) {
   return (lighter + .05) / (darker + .05);
 }
 const LIGHT_FOREGROUND = "#FFFFFF";
-const DARK_FOREGROUND = "#111111";
-const DARK_FOREGROUND_LUMINANCE = relativeLuminance([17,17,17]);
+const DARK_FOREGROUND = "#000000";
+function rgbForHex(hex) { return [1,3,5].map(i => parseInt(hex.slice(i,i+2),16)); }
 function foregroundForRgb(rgb) {
   const background = relativeLuminance(rgb);
-  const lightContrast = contrastRatio(background,1);
-  const darkContrast = contrastRatio(background,DARK_FOREGROUND_LUMINANCE);
-  // Compare both requested foregrounds against the final, opaque background.
-  // #111111 is softer than pure black; the best pair can fall just below 4.5
-  // for mid-luminance colors, so report the real ratio without changing the hue.
-  const foreground = darkContrast >= lightContrast ? DARK_FOREGROUND : LIGHT_FOREGROUND;
-  const contrast = Math.max(lightContrast,darkContrast);
-  return {color:foreground,contrast};
+  const white = contrastRatio(background,1), black = contrastRatio(background,0);
+  return {color:white >= black ? LIGHT_FOREGROUND : DARK_FOREGROUND,contrast:Math.max(white,black)};
 }
-// Keep small accent text readable on its actual surface while preserving hue.
-function accentInkForRgb(rgb, backgrounds, dark) {
-  const target = dark ? [255,255,255] : [17,17,17];
-  for (let step = 0; step <= 20; step++) {
-    const strength = step / 20;
-    const ink = rgb.map((value,index) => Math.round(value*(1-strength)+target[index]*strength));
-    if (backgrounds.every(bg => contrastRatio(relativeLuminance(ink),relativeLuminance(bg)) >= 4.5))
-      return colorHex(ink);
+// Local OKLab/OKLCH lightness adjustment. Reduce chroma only when required to
+// fit sRGB; no WebView OKLCH support or network dependency is needed.
+function rgbToOklab(rgb) {
+  const [r,g,b] = rgb.map(v => { v /= 255; return v <= .04045 ? v/12.92 : ((v+.055)/1.055)**2.4; });
+  const l = Math.cbrt(.4122214708*r+.5363325363*g+.0514459929*b);
+  const m = Math.cbrt(.2119034982*r+.6806995451*g+.1073969566*b);
+  const s = Math.cbrt(.0883024619*r+.2817188376*g+.6299787005*b);
+  return [.2104542553*l+.793617785*m-.0040720468*s,
+    1.9779984951*l-2.428592205*m+.4505937099*s,
+    .0259040371*l+.7827717662*m-.808675766*s];
+}
+function oklabToLinear([L,a,b]) {
+  const l=(L+.3963377774*a+.2158037573*b)**3;
+  const m=(L-.1055613458*a-.0638541728*b)**3;
+  const s=(L-.0894841775*a-1.291485548*b)**3;
+  return [4.0767416621*l-3.3077115913*m+.2309699292*s,
+    -1.2684380046*l+2.6097574011*m-.3413193965*s,
+    -.0041960863*l-.7034186147*m+1.707614701*s];
+}
+function toneRgb(rgb, lightness) {
+  const [,a,b]=rgbToOklab(rgb), L=Math.max(0,Math.min(1,lightness));
+  let chroma=1, linear=oklabToLinear([L,a,b]);
+  if (!linear.every(v=>v>=-1e-7 && v<=1+1e-7)) {
+    let lo=0,hi=1;
+    for(let i=0;i<22;i++){
+      const mid=(lo+hi)/2, values=oklabToLinear([L,a*mid,b*mid]);
+      if(values.every(v=>v>=-1e-7 && v<=1+1e-7)) lo=mid; else hi=mid;
+    }
+    chroma=lo; linear=oklabToLinear([L,a*chroma,b*chroma]);
   }
-  return colorHex(target);
+  return linear.map(v=>{v=Math.max(0,Math.min(1,v));return Math.round(255*(v<=.0031308 ? 12.92*v : 1.055*v**(1/2.4)-.055));});
+}
+function readableTone(rgb, backgrounds, dark, target=4.65) {
+  const start=rgbToOklab(rgb)[0];
+  for(let step=0;step<=200;step++){
+    const L=start+(dark ? 1-start : -start)*step/200;
+    const ink=toneRgb(rgb,L);
+    if(backgrounds.every(bg=>contrastRatio(relativeLuminance(ink),relativeLuminance(bg))>=target))
+      return ink;
+  }
+  return dark ? [255,255,255] : [0,0,0];
+}
+function accentInkForRgb(rgb, backgrounds, dark) {
+  return colorHex(readableTone(rgb,backgrounds,dark));
+}
+function mixRgb(a,b,strength) { return a.map((v,i)=>Math.round(v*strength+b[i]*(1-strength))); }
+function pressedSurface(rgb, foreground, dark) {
+  const white=foreground===LIGHT_FOREGROUND, L=rgbToOklab(rgb)[0];
+  const pressed=toneRgb(rgb,L+(white ? -.035 : .035));
+  if(contrastRatio(relativeLuminance(pressed),relativeLuminance(rgbForHex(foreground)))>=4.5) return pressed;
+  return rgb; // Preserve the fixed foreground even at a gamut boundary.
+}
+// Only derived roles are adjusted. The chosen/saved seed and picker swatches
+// remain exact. Warm/yellow-green themes retain a bright surface and black ink.
+function primarySurfaceForRgb(rgb, dark) {
+  const [L,a,b]=rgbToOklab(rgb);
+  let surface=dark ? toneRgb(rgb,Math.min(L,.58)) : rgb;
+  if(!dark && contrastRatio(relativeLuminance(surface),1)<4.65){
+    const hue=(Math.atan2(b,a)*180/Math.PI+360)%360;
+    const maxChange=hue>=35 && hue<=150 ? .065 : (hue>=180 && hue<=270 ? .19 : .13);
+    const whiteSurface=readableTone(rgb,[[255,255,255]],false);
+    if(L-rgbToOklab(whiteSurface)[0]<=maxChange) surface=whiteSurface;
+  }
+  // Classic blue app bar reference, still subject to final contrast checks.
+  if(!dark && colorHex(rgb)==="#2196F3") surface=rgbForHex("#1976D2");
+  return surface;
+}
+function generateThemePalette(seed, dark) {
+  const rgb=rgbForHex(seed);
+  const surface=dark ? [33,33,33] : [255,255,255];
+  const card=dark ? [32,32,32] : [250,250,250];
+  const page=dark ? [18,18,18] : [238,238,238];
+  const backgrounds=[surface,card,page];
+  const primary=primarySurfaceForRgb(rgb,dark);
+  const onPrimary=foregroundForRgb(primary).color;
+  const primaryPressed=pressedSurface(primary,onPrimary,dark);
+  const ink=readableTone(rgb,backgrounds,dark);
+  const control=readableTone(rgb,backgrounds,dark,3.1);
+  const secondary=mixRgb(rgb,surface,.12);
+  const secondaryPressed=mixRgb(rgb,surface,.18);
+  const onSecondary=readableTone(rgb,[secondary,secondaryPressed],dark);
+  const navBackgrounds=dark ? [[18,18,18],surface] : [[255,255,255],surface];
+  const navIcon=readableTone(rgb,navBackgrounds,dark,3.1);
+  const navLabel=readableTone(rgb,navBackgrounds,dark);
+  return {
+    seed,primarySurface:colorHex(primary),primaryPressed:colorHex(primaryPressed),
+    primarySurfaceDark:colorHex(primarySurfaceForRgb(rgb,true)),onPrimary,
+    accentInk:colorHex(ink),controlAccent:colorHex(control),controlStrong:colorHex(ink),
+    actionPrimary:colorHex(primary),onActionPrimary:onPrimary,
+    actionPrimaryPressed:colorHex(primaryPressed),
+    actionSecondary:colorHex(secondary),onActionSecondary:colorHex(onSecondary),
+    actionSecondaryPressed:colorHex(secondaryPressed),
+    switchThumb:colorHex(control),switchTrack:"rgba("+control.join(",")+",.50)",
+    navIcon:colorHex(navIcon),navLabel:colorHex(navLabel),
+    swatchForeground:foregroundForRgb(rgb).color
+  };
 }
 function showAppearance() {
   const dark = themeMode === "dark" || (themeMode === "system" && !!media?.matches);
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
-  document.documentElement.style.colorScheme = dark ? "dark" : "light";
-  const chromeColor = dark ? "#121212" : "#FFFFFF";
-  document.documentElement.style.setProperty("--accent", accent);
   const root = document.documentElement;
+  root.dataset.theme = dark ? "dark" : "light";
+  root.style.colorScheme = dark ? "dark" : "light";
+  const chromeColor = dark ? "#121212" : "#FFFFFF";
+  const palette=generateThemePalette(accent,dark);
   root.dataset.accentToolbar = String(accentToolbar);
   root.dataset.accentSectionLabels = String(accentSectionLabels);
   root.dataset.accentNavigationIcons = String(accentNavigationIcons && !accentToolbar);
@@ -341,72 +421,46 @@ function showAppearance() {
   $("accent-toolbar").checked = accentToolbar;
   $("accent-section-labels").checked = accentSectionLabels;
   $("accent-navigation-icons").checked = accentNavigationIcons;
-
-  const rgb = [1,3,5].map(i => parseInt(accent.slice(i,i+2),16));
-  const surfaceRgb = dark ? [18,18,18] : [255,255,255];
-
-  // A colored toolbar is a primary surface: preserve the selected hue instead
-  // of muting it toward grey. In dark mode, blend it slightly toward the dark
-  // surface to avoid an excessively bright large area while keeping its hue.
-  const toolbarRgb = accentToolbar
-    ? (dark ? rgb.map(value => Math.round(value*.78 + 18*.22)) : rgb)
-    : surfaceRgb;
-  const toolbarColor = accentToolbar ? colorHex(toolbarRgb) : chromeColor;
+  const toolbarColor=accentToolbar ? palette.primarySurface : chromeColor;
   const statusColor = toolbarColor;
-  const toolbarOnColor = foregroundForRgb(toolbarRgb);
-  const toolbarForeground = toolbarOnColor.color;
-  // This describes the desired icon appearance. KernelSU Next owns the native
-  // system bars and currently exposes no API to set their icon mode.
-  root.dataset.statusBarIcons = toolbarForeground === DARK_FOREGROUND ? "dark" : "light";
-
-  root.style.setProperty("--toolbar-tint",toolbarColor);
-  root.style.setProperty("--toolbar-foreground",toolbarForeground);
-  root.style.setProperty("--toolbar-contrast",toolbarOnColor.contrast.toFixed(3));
-  root.style.setProperty("--system-status-bg",statusColor);
-  root.style.setProperty("--system-navigation-bg",dark ? "#121212" : "#FFFFFF");
-
-  // Chromium/WebView uses theme-color as its available system-bar hint. KernelSU
-  // still owns the actual icon mode, so keep the color and color-scheme hints in sync.
-  const metaColors = {
-    "theme-color":toolbarColor,
-    "status-bar-color":statusColor,
-    "navigation-bar-color":dark ? "#121212" : "#FFFFFF"
+  const toolbarForeground=accentToolbar ? palette.onPrimary : foregroundForRgb(rgbForHex(toolbarColor)).color;
+  const tokens={
+    "--accent":accent,"--accent-seed":accent,"--theme-seed":accent,
+    "--primary-surface":palette.primarySurface,"--primary-surface-pressed":palette.primaryPressed,
+    "--primary-surface-dark":palette.primarySurfaceDark,"--on-primary":palette.onPrimary,
+    "--toolbar-tint":toolbarColor,"--toolbar-foreground":toolbarForeground,
+    "--accent-ink":palette.accentInk,"--control-accent":palette.controlAccent,
+    "--control-accent-strong":palette.controlStrong,
+    "--action-fill":palette.actionPrimary,"--on-accent":palette.onActionPrimary,
+    "--action-primary":palette.actionPrimary,"--on-action-primary":palette.onActionPrimary,
+    "--action-primary-pressed":palette.actionPrimaryPressed,
+    "--action-tonal":palette.actionSecondary,"--on-action-tonal":palette.onActionSecondary,
+    "--action-secondary":palette.actionSecondary,"--on-action-secondary":palette.onActionSecondary,
+    "--action-tonal-pressed":palette.actionSecondaryPressed,"--action-secondary-pressed":palette.actionSecondaryPressed,
+    "--action-border":"transparent","--action-ripple":palette.onActionPrimary,
+    "--switch-on-thumb":palette.switchThumb,"--switch-on-track":palette.switchTrack,
+    "--switch-thumb-on":palette.switchThumb,"--switch-track-on":palette.switchTrack,
+    "--bottom-active-icon":palette.navIcon,"--bottom-active-label":palette.navLabel,
+    "--navigation-active-icon":palette.navIcon,"--navigation-active-label":palette.navLabel,
+    "--accent-text":palette.swatchForeground,
+    "--system-status-bg":statusColor,"--system-navigation-bg":chromeColor,
+    "--press-rgb":rgbForHex(palette.accentInk).join(","),
+    "--accent-track":palette.switchTrack,
+    "--toolbar-contrast":contrastRatio(relativeLuminance(rgbForHex(toolbarColor)),relativeLuminance(rgbForHex(toolbarForeground))).toFixed(3),
+    "--on-accent-contrast":contrastRatio(relativeLuminance(rgbForHex(palette.actionPrimary)),relativeLuminance(rgbForHex(palette.onActionPrimary))).toFixed(3)
   };
-  for (const [id,color] of Object.entries(metaColors)) {
-    const meta = document.getElementById(id);
-    if (meta) meta.setAttribute("content",color);
+  for(const [name,value] of Object.entries(tokens)) root.style.setProperty(name,value);
+  // These remain hints: the KernelSU manager owns native system icon mode.
+  root.dataset.statusBarIcons=toolbarForeground===DARK_FOREGROUND ? "dark" : "light";
+  for(const [id,color] of Object.entries({
+    "theme-color":toolbarColor,"status-bar-color":statusColor,"navigation-bar-color":chromeColor
+  })){
+    const meta=document.getElementById(id);if(meta) meta.setAttribute("content",color);
   }
-
-  root.style.setProperty("--press-rgb", rgb.map(x => Math.round(x * .4 + (dark ? 255 : 0) * .6)).join(","));
-  root.style.setProperty("--accent-track", "rgba(" + rgb.join(",") + ",.35)");
-
-  const accentOnColor = foregroundForRgb(rgb);
-  const onAccent = accentOnColor.color;
-  root.style.setProperty("--accent-text",onAccent);
-  root.style.setProperty("--on-accent",onAccent);
-  root.style.setProperty("--on-accent-contrast",accentOnColor.contrast.toFixed(3));
-  root.style.setProperty("--action-fill",accent);
-  root.style.setProperty("--action-ripple",onAccent);
-
-  const tonalStrength = .12;
-  const tonalSurfaceRgb = dark ? [32,32,32] : [255,255,255];
-  const tonalRgb = rgb.map((value,index) => Math.round(value * tonalStrength + tonalSurfaceRgb[index] * (1 - tonalStrength)));
-  const pressedRgb = rgb.map((value,index) => Math.round(value * (tonalStrength + .06) + tonalSurfaceRgb[index] * (1 - tonalStrength - .06)));
-  root.style.setProperty("--action-border","transparent");
-  root.style.setProperty("--action-tonal",colorHex(tonalRgb));
-  root.style.setProperty("--action-tonal-pressed",colorHex(pressedRgb));
-  root.style.setProperty("--switch-on-track","rgba(" + rgb.join(",") + ",.35)");
-
   $("theme-choice").textContent = {system:"跟随系统",light:"浅色模式",dark:"深色模式"}[themeMode];
   const chosen = [...onePlusColors,...materialColors].find(([,hex]) => hex === accent);
   $("accent-label").textContent = chosen ? chosen[0] : accent;
   for (const [button,color] of swatchButtons) button.setAttribute("aria-pressed",String(color === accent));
-  const contentSurfaceRgb = dark ? [33,33,33] : [255,255,255];
-  const cardSurfaceRgb = dark ? [32,32,32] : [250,250,250];
-  const pageSurfaceRgb = dark ? [18,18,18] : (cardGroups ? [238,238,238] : [255,255,255]);
-  root.style.setProperty("--accent-ink",accentInkForRgb(rgb,
-    [contentSurfaceRgb,cardSurfaceRgb,pageSurfaceRgb],dark));
-  root.style.setProperty("--on-action-tonal",accentInkForRgb(rgb,[tonalRgb,pressedRgb],dark));
   $("accent-swatch").style.setProperty("--accent",accent);
 }
 if (media) {

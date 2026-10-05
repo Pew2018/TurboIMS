@@ -660,64 +660,73 @@ test("operation buttons use short single-line labels and retain separate actions
     assert.ok(label.length>=4 && label.length<=5);
   }
 });
-test("toolbar picks the higher contrast of white and #111111 on the final background",async()=>{
-  const {context,doc}=await appHarness();
+test("semantic roles meet contrast in light, dark and system modes without changing seeds or bridge calls",async()=>{
+  const {context,doc,calls}=await appHarness();
   const vm=require("node:vm");
-  const luminance=hex=>{
+  const colors=vm.runInContext('[...onePlusColors,...materialColors].map(x=>x[1])',context);
+  colors.push("#FFFFFF","#000000","#FFFF00","#00FF00","#00FFFF","#FF00FF",
+    "#FF0000","#0000FF","#808080","#F5F5F5","#212121","#777777","#123456");
+  for(let v=0;v<=255;v+=17)colors.push("#"+v.toString(16).padStart(2,"0").repeat(3).toUpperCase());
+  const lum=hex=>{
     const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255)
       .map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
     return c[0]*.2126+c[1]*.7152+c[2]*.0722;
   };
-  const colors=vm.runInContext('[...onePlusColors,...materialColors].map(x=>x[1])',context);
-  colors.push("#FFFFFF","#000000","#777777","#E91E63","#123456","#FFF176");
-  for(const mode of ["light","dark"])for(const color of colors){
+  const ratio=(a,b)=>(Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05);
+  for(const mode of ["light","dark","system"])for(const color of colors){
     context.testAccent=color;context.testTheme=mode;
-    vm.runInContext('accent=testAccent; themeMode=testTheme; accentToolbar=true; showAppearance();',context);
-    const properties=doc.documentElement.style.properties;
-    assert.equal(properties["--accent"],color);
-    const toolbar=properties["--toolbar-tint"];
-    const foreground=properties["--toolbar-foreground"];
-    assert.ok(["#FFFFFF","#111111"].includes(foreground));
-    const contrast=(Math.max(luminance(toolbar),luminance(foreground))+.05)/
-      (Math.min(luminance(toolbar),luminance(foreground))+.05);
-    const bg=luminance(toolbar),white=(1+.05)/(bg+.05),nearBlack=(bg+.05)/(luminance("#111111")+.05);
-    assert.ok(Math.abs(contrast-Math.max(white,nearBlack))<.000001,color+" best toolbar foreground");
-    assert.equal(Number(properties["--toolbar-contrast"]),Number(contrast.toFixed(3)));
-    assert.equal(doc.documentElement.dataset.statusBarIcons,foreground==="#111111" ? "dark" : "light");
-    assert.equal(properties["--system-status-bg"],toolbar);
-    if(mode==="light") assert.equal(toolbar,color);
-  }
-});
-
-test("every preset and arbitrary RGB accent has readable action text in both themes",async()=>{
-  const {context,doc,calls}=await appHarness();
-  const vm=require("node:vm");
-  const colors=vm.runInContext('[...onePlusColors,...materialColors].map(x=>x[1])',context);
-  for(let value=0;value<=255;value+=17) colors.push("#"+value.toString(16).padStart(2,"0").repeat(3));
-  colors.push("#FFF176","#37474F","#777777","#123456");
-  const luminance=hex=>{
-    const c=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
-    return c[0]*.2126+c[1]*.7152+c[2]*.0722;
-  };
-  for(const mode of ["light","dark"])for(const color of colors){
-    context.actionTestColor=color;context.actionTestTheme=mode;
-    vm.runInContext('accent=actionTestColor; themeMode=actionTestTheme; showAppearance();',context);
-    const vars=doc.documentElement.style.properties;
-    assert.equal(vars["--accent"],color);
-    const onAccent=vars["--on-accent"];
-    assert.ok(["#FFFFFF","#111111"].includes(onAccent));
-    const a=luminance(color),b=luminance(onAccent);
-    const chosen=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
-    const expected=Math.max((1+.05)/(a+.05),(a+.05)/(luminance("#111111")+.05));
-    assert.ok(Math.abs(chosen-expected)<.000001,color+" best action foreground");
-    assert.equal(Number(vars["--on-accent-contrast"]),Number(chosen.toFixed(3)));
-    for(const bg of [vars["--action-tonal"],vars["--action-tonal-pressed"]]){
-      const fg=luminance(vars["--on-action-tonal"]),surface=luminance(bg);
-      assert.ok((Math.max(fg,surface)+.05)/(Math.min(fg,surface)+.05)>=4.5,color+" secondary action");
+    vm.runInContext('accent=testAccent;themeMode=testTheme;accentToolbar=true;showAppearance();',context);
+    const p=doc.documentElement.style.properties, dark=doc.documentElement.dataset.theme==="dark";
+    assert.equal(p["--accent"],color);assert.equal(p["--accent-seed"],color);
+    assert.ok(["#FFFFFF","#000000"].includes(p["--toolbar-foreground"]));
+    assert.equal(p["--toolbar-foreground"],p["--on-primary"]);
+    for(const [fg,bg] of [
+      ["--on-primary","--primary-surface"],["--on-primary","--primary-surface-pressed"],
+      ["--on-accent","--action-fill"],["--on-accent","--action-primary-pressed"],
+      ["--on-action-tonal","--action-tonal"],["--on-action-tonal","--action-tonal-pressed"]
+    ]) assert.ok(ratio(p[fg],p[bg])>=4.5,mode+" "+color+" "+fg+"/"+bg);
+    for(const bg of dark ? ["#121212","#202020","#212121"] : ["#FFFFFF","#FAFAFA","#EEEEEE"]){
+      assert.ok(ratio(p["--accent-ink"],bg)>=4.5,mode+" "+color+" category");
+      assert.ok(ratio(p["--control-accent"],bg)>=3,mode+" "+color+" control");
+      assert.ok(ratio(p["--switch-on-thumb"],bg)>=3,mode+" "+color+" switch thumb");
     }
-    assert.ok(vars["--switch-on-track"].endsWith(",.35)"));
+    for(const bg of dark ? ["#121212","#212121"] : ["#FFFFFF"]){
+      assert.ok(ratio(p["--bottom-active-label"],bg)>=4.5,mode+" "+color+" nav label");
+      assert.ok(ratio(p["--bottom-active-icon"],bg)>=3,mode+" "+color+" nav icon");
+    }
+    assert.ok(ratio(p["--accent-text"],color)>=4.5,color+" picker");
+    assert.ok(p["--switch-on-track"].endsWith(",.50)"));
+    assert.equal(p["--system-status-bg"],p["--toolbar-tint"]);
+    assert.equal(doc.documentElement.dataset.statusBarIcons,p["--on-primary"]==="#000000"?"dark":"light");
+    assert.equal(Number(p["--toolbar-contrast"]),Number(ratio(p["--on-primary"],p["--toolbar-tint"]).toFixed(3)));
+    assert.equal(Number(p["--on-accent-contrast"]),Number(ratio(p["--on-accent"],p["--action-fill"]).toFixed(3)));
+  }
+  // Deterministic broad RGB sample: chroma clipping and extremes must still meet
+  // final quantized sRGB contrast, without mutating UI or stored preferences.
+  vm.runInContext('var paletteSample=0x13579B;',context);
+  for(let i=0;i<512;i++){
+    const result=vm.runInContext('(paletteSample=(1664525*paletteSample+1013904223)>>>0,generateThemePalette("#"+(paletteSample&0xFFFFFF).toString(16).padStart(6,"0"),'+(i%2===0)+'))',context);
+    assert.ok(ratio(result.onPrimary,result.primarySurface)>=4.5);
+    assert.ok(ratio(result.onActionPrimary,result.actionPrimaryPressed)>=4.5);
+    assert.ok(ratio(result.onActionSecondary,result.actionSecondary)>=4.5);
+    assert.ok(ratio(result.onActionSecondary,result.actionSecondaryPressed)>=4.5);
   }
   assert.deepEqual(calls.map(([action])=>action),["status"]);
+});
+test("classic geometry and role routing avoid raw seed accents on semantic controls",()=>{
+  const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+  assert.match(css,/--appbar-height:56px/);assert.match(css,/--bottom-nav-height:56px/);
+  assert.match(css,/\.toolbar-inner \{[^}]*padding:0 16px; gap:16px/);
+  assert.match(css,/\.bottom-tab svg \{ width:24px; height:24px/);
+  assert.match(css,/aria-current="page"\] \{ color:var\(--bottom-active-label\)/);
+  assert.match(css,/aria-current="page"\] svg \{ color:var\(--bottom-active-icon\)/);
+  assert.match(css,/\.action-button:lang\(zh\)[^{]*\{ font-size:15px; font-weight:500/);
+  assert.match(css,/--switch-off-track:rgba\(0,0,0,.38\)/);
+  assert.match(css,/input\[role="switch"\]:disabled \{ opacity:1; background:var\(--switch-disabled-track\)/);
+  for(const selector of [".action-button--primary:active",".action-button--secondary:active"]){
+    const rule=css.slice(css.indexOf(selector)).split("}")[0];
+    assert.equal(/(?:^|;)\s*color:/.test(rule),false,"pressed must never override foreground");
+  }
 });
 
 test("toolbar title and contained button retain classic Material emphasis",()=>{
