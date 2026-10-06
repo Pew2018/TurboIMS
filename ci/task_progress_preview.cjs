@@ -5,7 +5,9 @@ const fs=require("node:fs");
  fs.mkdirSync("preview",{recursive:true});
  const browser=await chromium.launch();
  const context=await browser.newContext({viewport:{width:393,height:852},isMobile:true,hasTouch:true,recordVideo:{dir:"preview/video",size:{width:393,height:852}}});
+ try {
  const page=await context.newPage();
+ page.setDefaultTimeout(15000);
  const errors=[];page.on("pageerror",e=>errors.push(String(e)));
  await page.addInitScript(()=>{
   window.mockCalls=[];window.mockPending=[];
@@ -87,6 +89,7 @@ const fs=require("node:fs");
  await page.evaluate(()=>navigate("home"));
  await complete({});
  assert.equal(await page.locator("#ims-task-progress").isVisible(),false);
+ console.log("Animation cycles and navigation verified.");
  // Start/success/failure each of four actual handlers via the mocked native bridge.
  for(const kind of ["ims-apply","ims-restore","sim-apply","sim-restore"]){
   const prefix=await start(kind);
@@ -101,6 +104,7 @@ const fs=require("node:fs");
  assert.equal(await page.locator("#apply").isDisabled(),true);
  assert.equal(await page.locator("#ims-task-progress").isVisible(),false);
  await page.evaluate(()=>render(mockResult(),true));
+ console.log("Four action handlers and unavailable state verified.");
  // Request deadline gives unknown state; conflicts stay locked, late real exit releases.
  await page.evaluate(()=>window.previewShortDeadline=true);
  await start("ims-apply");
@@ -143,6 +147,7 @@ const fs=require("node:fs");
  assert.equal(await page.locator("#sim-task").getAttribute("aria-busy"),"false");
  assert.deepEqual(errors,[]);
  fs.writeFileSync("preview/task-progress-report.json",JSON.stringify({scenarios:report,scrollBefore:before,errors},null,2));
- await context.close();await browser.close();
+ await context.close();
  console.log("Task lifecycle and classic disjoint progress browser checks passed; video covers >3 full cycles.");
+ } finally {await context.close().catch(()=>{});await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -161,7 +161,7 @@ async function appHarness(options = {}) {
       if(action==="status") return options.initialStatus || {ok:true,phase:"not_started",session:"test-boot",time_ms:1000,
         config:{schema:1,enabled:true,periodic_check_enabled:false,selection:"all",interval_seconds:1800,
           implementation_mode:"turboims",sim_profiles:{},
-          features:Object.fromEntries(["volte","vowifi","vt","vonr","cross_sim","ut","5g_nr"].map(k=>[k,"on"]))},
+          features:Object.fromEntries(["volte","vowifi","vt","vonr","cross_sim","ut","5g_nr"].map(k=>[k,"default"]))},
         subscriptions:[{slot:0,sub_id:1,phase:"verified"}]};
       if(action==="save")return {ok:true,config:JSON.parse(Buffer.from(payload,"base64").toString()),phase:"saved"};
       return {phase:"not_started"};}},

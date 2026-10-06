@@ -143,7 +143,12 @@ function simSyncForm() {
 function renderSimPage(result) {
   const state = result.status || result;
   if (state.config?.sim_profiles) { simProfiles = state.config.sim_profiles || {}; simReconcileEditors(simProfiles); }
-  const subscriptions = Array.isArray(state.subscriptions) ? state.subscriptions : [];
+  const recorded = Array.isArray(state.subscriptions) ? state.subscriptions : [];
+  // status exposes current read-only SIM cards; a last completed task may refer
+  // to a SIM that has since been removed. Do not offer writes to stale slots.
+  const subscriptions = Array.isArray(result.sim_cards) ? result.sim_cards.map(card => ({
+    ...recorded.find(row => row.sub_id === card.sub_id), ...card
+  })) : recorded;
   simSlots = subscriptions.filter(x => Number.isInteger(x.slot) && x.slot >= 0)
     .map(x => ({...x, slot:x.slot}));
   if (simSlots.length && !simSlots.some(x => x.slot === selectedSimSlot)) selectedSimSlot = simSlots[0].slot;
