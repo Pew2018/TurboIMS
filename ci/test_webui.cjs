@@ -95,7 +95,7 @@ test("slow runner stays asynchronous and the bridge deadline outlives control.sh
 });
 test("WebUI has offline assets and no CDN dependencies",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
-  for(const file of ["startup.js","bridge.js","feedback.js","app.js","style.css"])
+  for(const file of ["theme-palette.js","startup.js","bridge.js","feedback.js","app.js","style.css"])
     assert.ok(fs.existsSync(path.join(__dirname,"../module/webroot",file)));
   assert.ok(!/https?:\/\/|<iframe/i.test(html));
   for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh","sim-edit-country","sim-edit-carrier","accent-scope-choice","accent-toolbar","accent-section-labels","accent-navigation-icons","card-groups"])
@@ -158,13 +158,19 @@ async function appHarness(options = {}) {
     window, history, location,
     document:doc,
     TurboBridge:{call:async(action,payload)=>{calls.push([action,payload]);
-      if(action==="status" && options.initialStatus) return options.initialStatus;
+      if(action==="status") return options.initialStatus || {ok:true,phase:"not_started",session:"test-boot",time_ms:1000,
+        config:{schema:1,enabled:true,periodic_check_enabled:false,selection:"all",interval_seconds:1800,
+          implementation_mode:"turboims",sim_profiles:{},
+          features:Object.fromEntries(["volte","vowifi","vt","vonr","cross_sim","ut","5g_nr"].map(k=>[k,"default"]))},
+        subscriptions:[{slot:0,sub_id:1,phase:"verified"}]};
       if(action==="save")return {ok:true,config:JSON.parse(Buffer.from(payload,"base64").toString()),phase:"saved"};
       return {phase:"not_started"};}},
     localStorage:{getItem:key=>storageMap.get(key)||null,setItem:(key,value)=>storageMap.set(key,value)},
     matchMedia:()=>({matches:false,addEventListener(){}}),
     btoa:s=>Buffer.from(s).toString("base64"), setTimeout, clearTimeout
   });
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/theme-palette.js"),"utf8"),context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/startup.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8"),context);
   await Promise.resolve();await Promise.resolve();
   await new Promise(resolve=>setImmediate(resolve));
@@ -645,7 +651,7 @@ test("initial view stays clean until status succeeds or fails",async()=>{
     if(fail)reject(new Error("bridge unavailable"));
     else resolve({phase:"not_started"});
     await new Promise(yes=>setImmediate(yes));
-    assert.equal(doc.documentElement.dataset.loading,"false");
+    assert.equal(doc.documentElement.dataset.loading,fail ? "error" : "false");
     assert.equal(require("node:vm").runInContext("busy",context),false);
     assert.deepEqual(calls.map(([action])=>action),["status"]);
   }
@@ -913,4 +919,123 @@ test("NR partial warning cannot hide real registration or other configuration fa
   assert.equal(elements.get("status-indicator").dataset.tone,"danger");
   assert.equal(elements.get("ims-registration").children[0].children[1].textContent,"已注册");
   assert.equal(elements.get("component-verification").children[1].children[1].textContent,"核对通过");
+});
+
+test("foreground feedback lasts until command verification completes, unrelated browsing stays available",async()=>{
+  const {context,doc,elements}=await appHarness();
+  const apply=doc.getElementById("apply"),theme=doc.getElementById("theme-choice");
+  doc.querySelectorAll=s=>s==="button,input,select" ? [apply,theme] : [];
+  let done;const waiting=new Promise(r=>done=r);
+  const work=context.operation(()=>waiting,"正在应用 IMS 配置…",apply,"ims-apply");
+  assert.equal(elements.get("ims-task").hidden,false);
+  assert.equal(elements.get("ims-task-progress").hidden,false);
+  assert.equal(elements.get("ims-task").attributes["aria-busy"],"true");
+  assert.equal(apply.disabled,true);assert.notEqual(theme.disabled,true);
+  context.navigate("settings-page");
+  assert.equal(elements.get("ims-task").dataset.visible,"false");
+  context.navigate("home");
+  assert.equal(elements.get("ims-task").dataset.visible,"true");
+  done({ok:true,phase:"verified",ims_configuration_verified:true});await work;
+  assert.equal(elements.get("ims-task-progress").hidden,true);
+  assert.equal(elements.get("ims-task").attributes["aria-busy"],"false");
+  assert.equal(elements.get("ims-task-status").textContent,"IMS 配置已应用");
+  assert.equal(apply.disabled,false);
+});
+test("four actions expose accurate start, success and failure without changing switch positions",async()=>{
+  for (const kind of ["ims-apply","ims-restore","sim-apply","sim-restore"]) {
+    const {context,doc}=await appHarness();
+    const prefix=kind.startsWith("sim")?"sim":"ims";
+    const checked=doc.getElementById("enabled").checked;
+    const task=context.beginTask(kind);
+    assert.match(doc.getElementById(prefix+"-task-status").textContent,/正在/);
+    context.finishTask(task,{ok:true,ims_configuration_verified:true,sim_profiles_verified:true,
+      subscriptions:[{slot:0,phase:"restored",sim_profiles_verified:true}]});
+    assert.match(doc.getElementById(prefix+"-task-status").textContent,/已应用|已恢复/);
+    assert.equal(doc.getElementById(prefix+"-task-progress").hidden,true);
+    const failed=context.beginTask(kind);
+    context.finishTask(failed,{ok:false,phase:"verification_failed",subscriptions:[{slot:0,error:"denied"}]},new Error("denied"));
+    assert.match(doc.getElementById(prefix+"-task-status").textContent,/未完成/);
+    assert.equal(doc.getElementById("enabled").checked,checked);
+  }
+});
+test("no SIM and initialization restrictions do not create task feedback",async()=>{
+  const {context,doc}=await appHarness({initialStatus:{ok:true,phase:"waiting",subscriptions:[]}});
+  assert.equal(doc.getElementById("apply").disabled,true);
+  assert.equal(doc.getElementById("ims-task").hidden,true);
+  assert.equal(doc.getElementById("sim-task").hidden,true);
+  assert.match(doc.getElementById("ims-unavailable").textContent,/配置|SIM/);
+  assert.equal(context.taskLocked(),false);
+});
+test("unknown execution blocks another submit and rejects stale/native watcher results",async()=>{
+  const {context,doc}=await appHarness();
+  const task=context.beginTask("ims-apply");
+  require("node:vm").runInContext('pageTask.command="apply"; pageTask.commandOffset=10;',context);
+  context.markTaskUnknown(task);
+  assert.equal(context.taskLocked(),true);
+  assert.equal(doc.getElementById("ims-task-progress").hidden,true);
+  let calls=0;await context.operation(async()=>{calls++;},"test",null,"sim-apply");
+  assert.equal(calls,0);
+  for(const state of [
+    {session:"test-boot",action:"apply",time_ms:999,ims_configuration_verified:true},
+    {session:"test-boot",action:"watch",time_ms:2000,ims_configuration_verified:true},
+    {session:"old-boot",action:"apply",time_ms:2000,ims_configuration_verified:true}
+  ]) context.reconcileTask({status:state});
+  assert.equal(context.taskLocked(),true);
+  context.reconcileTask({session:"test-boot",status:{session:"test-boot",action:"apply",time_ms:2000,
+    ok:true,ims_configuration_verified:true}});
+  assert.equal(context.taskLocked(),false);
+  assert.equal(doc.getElementById("ims-task").attributes["aria-busy"],"false");
+});
+test("late real completion remains observable after bridge deadline, no root cancellation",async()=>{
+  let receiver;const h=streamHarness((root,cmd,args,opts,callback)=>{receiver=root[callback];});
+  let late;
+  const work=h.bridge.call("apply",undefined,{onLateResult:(error,result)=>{late={error,result};}});
+  const rejection=assert.rejects(work,e=>e.executionUnknown===true);
+  [...h.timers.values()][0].fn();await rejection;
+  receiver.stdout.emit("data",'{"ok":true,"phase":"verified"}');
+  receiver.emit("exit",0);
+  assert.equal(late.result.phase,"verified");
+});
+
+test("startup has one full-width shared disjoint indicator, a single stable toolbar and no visual deadline",()=>{
+ const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+ const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+ const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+ assert.equal((html.match(/<header class="toolbar">/g)||[]).length,1);
+ assert.doesNotMatch(html,/startup-line/);
+ assert.match(html,/id="startup-progress" class="operation-progress startup-progress"/);
+ assert.doesNotMatch(app,/initialViewDeadline|revealInitialUI|turboStartupTimer/);
+ assert.match(css,/startup-content-enter 150ms/);
+ assert.match(css,/\.operation-progress\.startup-progress.*position:absolute/);
+});
+test("startup read-only retry is serialized and success immediately leaves the loading state",async()=>{
+ const pending=new Promise(()=>{});
+ const {context,doc,calls}=await appHarness({initialStatus:pending});
+ const vm=require("node:vm");
+ assert.equal(doc.documentElement.dataset.loading,"true");
+ await context.initializeWebUI();
+ assert.equal(calls.length,1);
+ // The failure/retry path uses an independent harness with a rejected status.
+ let reject;const fail=new Promise((_,r)=>{reject=r;});
+ const h=await appHarness({initialStatus:fail});
+ reject(new Error("read denied"));await new Promise(r=>setImmediate(r));
+ assert.equal(h.doc.documentElement.dataset.loading,"error");
+ assert.equal(h.doc.getElementById("startup-progress").hidden,true);
+ assert.equal(h.doc.getElementById("startup-retry").hidden,false);
+ assert.equal(vm.runInContext("startupInFlight",h.context),false);
+ h.context.TurboBridge.call=async action=>{assert.equal(action,"status");return {ok:true,phase:"not_started"};};
+ await h.doc.getElementById("startup-retry").onclick();
+ await new Promise(r=>setImmediate(r));
+ assert.equal(h.doc.documentElement.dataset.loading,"false");
+ assert.equal(h.doc.getElementById("startup-progress").hidden,true);
+ assert.equal(h.doc.getElementById("startup-retry").hidden,true);
+});
+test("startup timeout reports unknown without treating an elapsed deadline as initialization success",async()=>{
+ let reject;const pending=new Promise((_,r)=>{reject=r;});
+ const {doc}=await appHarness({initialStatus:pending});
+ const error=new Error("deadline");error.executionUnknown=true;reject(error);
+ await new Promise(r=>setImmediate(r));
+ assert.equal(doc.documentElement.dataset.loading,"error");
+ assert.match(doc.getElementById("startup-message").textContent,/无法确认/);
+ assert.equal(doc.getElementById("startup-progress").hidden,true);
 });

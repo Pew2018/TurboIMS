@@ -1,45 +1,110 @@
 "use strict";
-// Runs before first paint. Only presentation preferences; no system operations.
+// Presentation preferences and startup lifecycle only. Never invokes a root command.
 (() => {
   const root = document.documentElement;
-  let startupFailure = "";
-  try {
-    const mode = localStorage.getItem("turboims-theme") || "system";
-    root.dataset.theme = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
-    root.dataset.cardGroups = String(localStorage.getItem("turboims-card-groups") === "true");
-  } catch (_) { root.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
-
-  // Capture early script failures. The app bundle is deferred, so this handler
-  // must be installed by the small parser-blocking startup script.
-  window.addEventListener("error", event => {
-    const target = event.target;
-    startupFailure = target && target.tagName === "SCRIPT"
-      ? "资源加载失败：" + (target.getAttribute("src") || "脚本")
-      : (event.message || "页面脚本发生异常");
-  }, true);
-  window.addEventListener("unhandledrejection", event => {
-    const reason = event.reason;
-    startupFailure = "初始化异步错误：" + String(reason && reason.message || reason || "未知错误");
-  });
-
-  // Keep startup failure visible and actionable instead of asking the user to
-  // reopen without explaining why. This runs only if app.js did not dismiss it.
-  window.turboStartupTimer = setTimeout(() => {
-    const message = document.getElementById("startup-message");
-    const view = document.getElementById("startup-view");
-    if (root.dataset.loading !== "true" || !message || !view) return;
-    message.textContent = "WebUI 初始化未完成";
-    const line = view.querySelector(".startup-line");
-    if (line) line.hidden = true;
-    const detail = document.createElement("small");
-    detail.id = "startup-error-detail";
-    detail.textContent = startupFailure || "主界面脚本未能启动。请检查模块文件是否完整，并把此提示发给维护者。";
-    view.append(detail);
-    const retry = document.createElement("button");
-    retry.type = "button";
-    retry.className = "action-button action-button--primary";
-    retry.textContent = "重新加载 WebUI";
-    retry.addEventListener("click", () => location.reload());
-    view.append(retry);
-  }, 10000);
+  const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+  let appClaimed = false, state = "loading", retryAction = null, disposed = false;
+  let earlyFailure = "", listenersAttached = false;
+  function read(key,fallback) { try { return localStorage.getItem(key) || fallback; } catch (_) { return fallback; } }
+  function earlyTheme() {
+    let mode=read("turboims-theme","system");
+    if (!["system","light","dark"].includes(mode)) mode="system";
+    const dark=mode==="dark" || mode==="system" && !!media?.matches;
+    let accent=read("turboims-accent","#42A5F5").toUpperCase();
+    if (!/^#[0-9A-F]{6}$/.test(accent)) accent="#42A5F5";
+    const toolbarAccent=read("turboims-accent-toolbar","false")==="true";
+    root.dataset.theme=dark?"dark":"light";
+    root.dataset.cardGroups=String(read("turboims-card-groups","false")==="true");
+    root.dataset.accentToolbar=String(toolbarAccent);
+    root.style.setProperty("--accent",accent);
+    root.style.setProperty("--accent-seed",accent);
+    if (typeof generateThemePalette === "function") {
+      // Exactly the same derived roles as the full UI, including extreme custom colors.
+      const palette=generateThemePalette(accent,dark);
+      const chrome=dark?"#121212":"#FFFFFF";
+      const toolbar=toolbarAccent?palette.primarySurface:chrome;
+      const foreground=toolbarAccent?palette.onPrimary:foregroundForRgb(rgbForHex(toolbar)).color;
+      for(const [name,value] of Object.entries({
+        "--control-accent":palette.controlAccent,"--accent-ink":palette.accentInk,
+        "--primary-surface":palette.primarySurface,"--on-primary":palette.onPrimary,
+        "--toolbar-tint":toolbar,"--toolbar-foreground":foreground,
+        "--system-status-bg":toolbar,"--system-navigation-bg":chrome
+      })) root.style.setProperty(name,value);
+      root.dataset.statusBarIcons=foreground===DARK_FOREGROUND?"dark":"light";
+      for(const [id,color] of Object.entries({"theme-color":toolbar,"status-bar-color":toolbar,"navigation-bar-color":chrome}))
+        document.getElementById(id)?.setAttribute("content",color);
+    }
+  }
+  earlyTheme();
+  function visibility() { root.dataset.startupVisible=String(!document.hidden && state==="loading"); }
+  function paint() {
+    root.dataset.loading=state==="ready"?"false":state==="error"?"error":"true";
+    const progress=document.getElementById("startup-progress");
+    if (progress) progress.hidden=state!=="loading";
+    const message=document.getElementById("startup-message");
+    if (message) message.textContent=state==="error" ? earlyFailure : "正在加载…";
+    const view=document.getElementById("startup-view");
+    view?.setAttribute("aria-busy",String(state==="loading"));
+    const retry=document.getElementById("startup-retry");
+    if (retry) {
+      retry.hidden=state!=="error" || !retryAction;
+      retry.disabled=state==="loading";
+      retry.onclick=() => { if (state==="error" && !disposed) retryAction?.(); };
+    }
+    visibility();
+  }
+  function onError(event) {
+    if (state==="ready" || disposed) return;
+    const target=event.target;
+    const script=target?.tagName==="SCRIPT";
+    fail(script ? "WebUI 资源加载失败，请重试。" : "WebUI 初始化出现异常，请重试。",
+      () => location.reload());
+  }
+  function onRejection() {
+    if (state!=="ready" && !disposed) fail("WebUI 初始化出现异常，请重试。",() => location.reload());
+  }
+  function attach() {
+    if (listenersAttached || disposed) return;
+    listenersAttached=true;
+    window.addEventListener("error",onError,true);
+    window.addEventListener("unhandledrejection",onRejection);
+    document.addEventListener("visibilitychange",visibility);
+  }
+  function cleanup() {
+    window.removeEventListener?.("error",onError,true);
+    window.removeEventListener?.("unhandledrejection",onRejection);
+    document.removeEventListener?.("visibilitychange",visibility);
+    listenersAttached=false;
+  }
+  function fail(text,retry=null) {
+    if (disposed) return;
+    state="error";earlyFailure=text;retryAction=retry;
+    cleanup();paint();
+  }
+  function begin() {
+    if (disposed) return;
+    state="loading";earlyFailure="";retryAction=null;
+    attach();paint();
+  }
+  function ready() {
+    if (disposed) return;
+    state="ready";retryAction=null;
+    cleanup();paint();
+  }
+  function onDOMReady() {
+    document.removeEventListener?.("DOMContentLoaded",onDOMReady);
+    if (!appClaimed && state==="loading") fail("WebUI 初始化未能启动，请重试。",() => location.reload());
+    else paint();
+  }
+  function onPageHide() {
+    disposed=true;cleanup();
+    document.removeEventListener?.("DOMContentLoaded",onDOMReady);
+    window.removeEventListener?.("pagehide",onPageHide);
+    const retry=document.getElementById("startup-retry");
+    if (retry) retry.onclick=null;
+  }
+  window.TurboStartup={claim(){appClaimed=true;},begin,ready,fail};
+  attach();visibility();
+  document.addEventListener("DOMContentLoaded",onDOMReady);
+  window.addEventListener("pagehide",onPageHide);
 })();

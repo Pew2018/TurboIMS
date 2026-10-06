@@ -51,4 +51,4 @@ validate(dest)
 print(dest)
 if os.environ.get("GITHUB_OUTPUT"):
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-        output.write(f"artifact_name=FLASHABLE-TurboIMS-Next-{version}-sdk{compile_sdk}\n")
+        output.write(f"artifact_name={dest.stem}\n")

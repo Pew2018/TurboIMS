@@ -13,7 +13,7 @@ SDK 36 构建产物供 Android 13–16 / arm64 使用；SDK 37 构建产物同�
 
 ## 安装与首次验证
 
-1. 下载成功 Actions 中的 **FLASHABLE-TurboIMS-Next-1.0.0-sdk36** 产物（Android 16）。
+1. 下载成功 Actions 中的 **TurboIMS-Next-1.0.0-sdk36** 产物（Android 16）。
    在 KernelSU Next 直接选择此下载文件安装，**无需解压，不存在内层模块 ZIP**。
    必须等待 Verify actual downloadable ZIP and installer 检查通过。
    旧 0.1.0 的外层 artifact 和 test-reports ZIP 不是模块，不可直接安装。

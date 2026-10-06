@@ -112,3 +112,15 @@ jobs:
           python3 ci/verify_module.py "$RUNNER_TEMP/turboims-downloaded.zip"
           python3 ci/smoke_install.py "$RUNNER_TEMP/turboims-downloaded.zip"
           python3 ci/summarize_download.py "$RUNNER_TEMP/turboims-downloaded.zip"
+
+      # One-time promotion audit. Later master changes do not compare with a stale baseline.
+      - name: Verify promoted payload against the last successful feature build
+        if: github.ref == 'refs/heads/master' && contains(github.event.head_commit.message, '[verify-promotion]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TURBOIMS_BASELINE_COMMIT: 8273f9b24db07e11d32fcdfc03c1fa5c3670c8fc
+          TURBOIMS_BASELINE_ARTIFACT_ID: ${{ matrix.compile_sdk == 36 && '11412274870' || '11412664625' }}
+        run: |
+          gh api "repos/${GH_REPO}/actions/artifacts/${TURBOIMS_BASELINE_ARTIFACT_ID}/zip" > "$RUNNER_TEMP/turboims-baseline.zip"
+          python3 ci/compare_module_payload.py "$RUNNER_TEMP/turboims-downloaded.zip" "$RUNNER_TEMP/turboims-baseline.zip"

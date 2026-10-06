@@ -1,4 +1,5 @@
 "use strict";
+window.TurboStartup?.claim();
 const features = [
   ["volte", "VoLTE", "LTE 通话"],
   ["vowifi", "VoWiFi", "Wi-Fi 通话"],
@@ -143,7 +144,12 @@ function simSyncForm() {
 function renderSimPage(result) {
   const state = result.status || result;
   if (state.config?.sim_profiles) { simProfiles = state.config.sim_profiles || {}; simReconcileEditors(simProfiles); }
-  const subscriptions = Array.isArray(state.subscriptions) ? state.subscriptions : [];
+  const recorded = Array.isArray(state.subscriptions) ? state.subscriptions : [];
+  // status exposes current read-only SIM cards; a last completed task may refer
+  // to a SIM that has since been removed. Do not offer writes to stale slots.
+  const subscriptions = Array.isArray(result.sim_cards) ? result.sim_cards.map(card => ({
+    ...recorded.find(row => row.sub_id === card.sub_id), ...card
+  })) : recorded;
   simSlots = subscriptions.filter(x => Number.isInteger(x.slot) && x.slot >= 0)
     .map(x => ({...x, slot:x.slot}));
   if (simSlots.length && !simSlots.some(x => x.slot === selectedSimSlot)) selectedSimSlot = simSlots[0].slot;
@@ -221,29 +227,27 @@ function simEffectiveProfiles() {
   return profiles;
 }
 function simApplyConfig() {
-  if (!savedConfig || !simSlots.length || busy) return;
+  if (!savedConfig || !simSlots.length || busy || taskLocked()) return;
   const config = {...savedConfig, sim_profiles:simEffectiveProfiles()};
   config.enabled = !!config.enabled;
   return operation(async () => {
-    const saved = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
+    const saved = await taskCall("save", encodeBase64Utf8(JSON.stringify(config)));
     savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
     simBackendSignature = JSON.stringify(simProfiles); simPersistEditors();
-    render(await TurboBridge.call("apply"), true);
-    navigate("sim-page");
-  }, "正在保存 SIM 信息…", $("sim-save"));
+    return render(await taskCall("apply"), true);
+  }, "正在应用 SIM 信息…", $("sim-save"), "sim-apply");
 }
 function simRestore() {
-  if (!savedConfig || !simSlots.length || busy) return;
+  if (!savedConfig || !simSlots.length || busy || taskLocked()) return;
   const next = {...simProfiles}; delete next[String(selectedSimSlot)];
   const nextEditors = {...simEditorProfiles}; delete nextEditors[String(selectedSimSlot)];
   const config = {...savedConfig, sim_profiles:next};
   return operation(async () => {
-    const saved = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
+    const saved = await taskCall("save", encodeBase64Utf8(JSON.stringify(config)));
     savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
     simEditorProfiles = nextEditors; simBackendSignature = JSON.stringify(simProfiles); simPersistEditors();
-    render(await TurboBridge.call("apply"), true);
-    navigate("sim-page");
-  }, "正在恢复 SIM 信息…", $("sim-restore"));
+    return render(await taskCall("apply"), true);
+  }, "正在恢复 SIM 原始信息…", $("sim-restore"), "sim-restore");
 }
 
 // KernelSU Next can draw this page behind the system bars; its injected CSS supplies
@@ -274,6 +278,162 @@ const storage = {
   read(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch (_) { return fallback; } },
   write(key, value) { try { localStorage.setItem(key, value); } catch (_) {} }
 };
+
+const taskLabels = {
+  "ims-apply":"正在应用 IMS 配置…",
+  "ims-restore":"正在停止自动应用并恢复原值…",
+  "sim-apply":"正在应用 SIM 信息…",
+  "sim-restore":"正在恢复 SIM 原始信息…"
+};
+const taskStorageKey = "turboims-operation";
+let taskStatusSnapshot = null;
+let taskSequence = 0;
+let taskPollTimer = null;
+let taskDisposed = false;
+let pageTask = null;
+try {
+  const pending = JSON.parse(storage.read(taskStorageKey,"null"));
+  if (pending && taskLabels[pending.kind] && ["running","unknown"].includes(pending.state)
+      && typeof pending.id === "string") pageTask = {...pending,state:"unknown"};
+} catch (_) {}
+function persistTask() {
+  storage.write(taskStorageKey, pageTask && ["running","unknown"].includes(pageTask.state)
+    ? JSON.stringify(pageTask) : "null");
+}
+function taskLocked() { return !!pageTask && ["running","unknown"].includes(pageTask.state); }
+function taskPage(kind) { return kind.startsWith("sim-") ? "sim-page" : "home"; }
+function renderTaskFeedback() {
+  for (const [page,prefix] of [["home","ims"],["sim-page","sim"]]) {
+    const box = $(prefix+"-task");
+    if (!box) continue;
+    const shown = pageTask && taskPage(pageTask.kind) === page;
+    box.hidden = !shown;
+    const running = shown && pageTask.state === "running";
+    box.setAttribute("aria-busy",String(!!running));
+    box.dataset.running = String(!!running);
+    box.dataset.visible = String(currentPage === page && !document.hidden);
+    $(prefix+"-task-progress").hidden = !running;
+    const text = shown ? pageTask.text : "";
+    if ($(prefix+"-task-status").textContent !== text) $(prefix+"-task-status").textContent = text;
+  }
+}
+const mutationIds = new Set(["apply","restore","sim-save","sim-restore","enabled","periodic-check",
+  "selection","selection-choice","interval","interval-choice","implementation_mode","implementation-mode-choice",
+  "sim-slot-choice","sim-country-choice","sim-carrier-choice","sim-edit-country","sim-edit-carrier",
+  "sim-edit-carrier-test-mccmnc","sim-carrier-test-enabled","reset-features"]);
+function updateTaskControls() {
+  const locked = busy || taskLocked();
+  document.querySelectorAll("button,input,select").forEach(el => {
+    if (mutationIds.has(el.id) || features.some(([key]) => el.id === key || el.id === key+"-switch"))
+      el.disabled = locked;
+  });
+  document.querySelectorAll('[data-feedback="row"]').forEach(row => {
+    if (row.closest("#home,#sim-page")) row.setAttribute("aria-disabled",String(locked));
+  });
+  if (!locked) {
+    updatePeriodicControl();
+    $("sim-carrier-test-enabled").disabled = !simEditorProfile(selectedSimSlot).carrier_test_mccmnc;
+    const state = taskStatusSnapshot?.status || taskStatusSnapshot;
+    const unsupported = !window.ksu?.spawn && typeof window.ksu !== "undefined"
+      || state?.binder?.carrier_config === false
+      || (taskStatusSnapshot?.sdk !== undefined && (taskStatusSnapshot.sdk < 33 || taskStatusSnapshot.sdk > 37));
+    const unavailable = !savedConfig || !simSlots.length || unsupported;
+    for (const id of ["apply","restore","sim-save","sim-restore"]) $(id).disabled = unavailable;
+    const reason = unsupported ? "当前环境不支持配置操作。" : !savedConfig
+      ? "尚未取得配置，请检测设备或刷新状态。" : !simSlots.length ? "未检测到可用 SIM 卡，请检测设备。" : "";
+    for (const prefix of ["ims","sim"]) {
+      $(prefix+"-unavailable").textContent = reason;
+      $(prefix+"-unavailable").hidden = !reason;
+    }
+  }
+}
+function beginTask(kind) {
+  const snapshot = taskStatusSnapshot || {};
+  pageTask = {id:Date.now()+"-"+(++taskSequence),kind,state:"running",text:taskLabels[kind],
+    slot:kind.startsWith("sim-") ? selectedSimSlot : null,
+    session:snapshot.session || snapshot.status?.session || null,
+    backendStart:Number(snapshot.time_ms) || null, localStart:Date.now(), command:null};
+  persistTask(); renderTaskFeedback();
+  return pageTask.id;
+}
+function finishTask(id, result, error = null) {
+  if (!pageTask || pageTask.id !== id || taskDisposed) return;
+  const state = result?.status || result || {};
+  const rows = state.subscriptions || [];
+  const target = pageTask.slot === null ? null : rows.find(row => Number(row.slot) === pageTask.slot);
+  const restore = pageTask.kind.endsWith("restore");
+  const sim = pageTask.kind.startsWith("sim-");
+  let verified = sim ? (target?.sim_profiles_verified === true || target && state.sim_profiles_verified === true)
+    : state.ims_configuration_verified === true || state.write_readback_verified === true;
+  // A global restore returns per-SIM restored/conflict outcomes, not component verification flags.
+  if (pageTask.kind === "ims-restore") verified = rows.length > 0 && rows.every(row => row.phase === "restored");
+  const unknown = rows.some(row => row.write_state_unknown);
+  const failed = error || result?.ok === false || result?.blocked || state.ok === false;
+  let text;
+  if (unknown) text = "暂时无法确认执行结果，请查看诊断与验证。";
+  else if (verified && !(sim && target?.error) && !result?.blocked) {
+    text = sim ? (restore ? "SIM 原始信息已恢复" : "SIM 信息已应用")
+      : (restore ? "自动应用已停止，原值已恢复" : "IMS 配置已应用");
+    if (state.phase === "ims_not_registered") text += "；IMS 尚未注册。";
+    else if (state.configuration_partial) text += "；部分配置未通过核对。";
+    else if (failed && !restore) text += "；其他检查未通过，请查看诊断。";
+  } else text = failed ? "操作未完成，请查看诊断与验证。" : "请求已结束，配置结果尚未确认，请查看诊断与验证。";
+  if (sim) text = "SIM 卡 " + (pageTask.slot + 1) + "：" + text;
+  pageTask = {...pageTask,state:failed || !verified ? "error" : "complete",text};
+  persistTask(); clearTimeout(taskPollTimer); taskPollTimer = null;
+  renderTaskFeedback(); updateTaskControls();
+}
+function markTaskUnknown(id) {
+  if (!pageTask || pageTask.id !== id) return;
+  pageTask = {...pageTask,state:"unknown",text:"暂时无法确认执行结果，请勿重复应用；可刷新状态或查看诊断。"};
+  persistTask(); renderTaskFeedback(); scheduleTaskPoll();
+}
+async function taskCall(action, payload) {
+  const id = pageTask?.id;
+  if (id) { pageTask.command = action; pageTask.commandOffset = Date.now() - pageTask.localStart; persistTask(); }
+  return TurboBridge.call(action,payload,{onLateResult(error,result) {
+    if (taskDisposed || pageTask?.id !== id || pageTask.state !== "unknown") return;
+    if (action === "save") {
+      pageTask = {...pageTask,state:"error",text:"保存请求已结束，本次应用未执行，请重新应用。"};
+      persistTask(); renderTaskFeedback(); updateTaskControls();
+    } else {
+      if (result) render(result,true);
+      finishTask(id,result,error);
+    }
+  }});
+}
+function reconcileTask(result) {
+  if (!pageTask || pageTask.state !== "unknown") return;
+  const state = result.status || result;
+  // Watcher alive is not evidence of this foreground task. Match boot, action,
+  // command and a newer native completion timestamp before releasing conflicts.
+  if (pageTask.session && result.session && pageTask.session !== result.session) {
+    pageTask = {...pageTask,state:"error",text:"设备已重新启动，上次操作结果未确认，请查看当前诊断。"};
+    persistTask(); renderTaskFeedback(); return;
+  }
+  const expected = pageTask.kind === "ims-restore" ? "restore" : "apply";
+  if (pageTask.command === expected && pageTask.session && state.session === pageTask.session
+      && state.action === expected && pageTask.backendStart !== null
+      && Number(state.time_ms) > pageTask.backendStart
+      && Number(state.time_ms) >= pageTask.backendStart + (pageTask.commandOffset || 0)) {
+    finishTask(pageTask.id,state);
+  }
+}
+function scheduleTaskPoll() {
+  clearTimeout(taskPollTimer); taskPollTimer = null;
+  if (taskDisposed || document.hidden || pageTask?.state !== "unknown") return;
+  taskPollTimer = setTimeout(async () => {
+    taskPollTimer = null;
+    try { render(await TurboBridge.call("status")); } catch (_) {}
+    scheduleTaskPoll();
+  },5000);
+}
+document.addEventListener("visibilitychange",() => { renderTaskFeedback(); scheduleTaskPoll(); });
+window.addEventListener("pagehide",() => {
+  taskDisposed = true; clearTimeout(taskPollTimer); taskPollTimer = null;
+  TurboBridge.dispose?.();
+});
+
 let themeMode = storage.read("turboims-theme", "system");
 if (!["system","light","dark"].includes(themeMode)) themeMode = "system";
 let accent = storage.read("turboims-accent", "#42A5F5").toUpperCase();
@@ -289,123 +449,7 @@ try {
 let accentInputInitialized = false;
 let accentInputTimer = null;
 const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
-function colorHex(rgb) { return "#" + rgb.map(value => Math.max(0,Math.min(255,Math.round(value))).toString(16).padStart(2,"0")).join("").toUpperCase(); }
-function relativeLuminance(rgb) {
-  const linear = rgb.map(c => {
-    c /= 255;
-    return c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4;
-  });
-  return linear[0]*.2126 + linear[1]*.7152 + linear[2]*.0722;
-}
-function contrastRatio(a,b) {
-  const lighter = Math.max(a,b), darker = Math.min(a,b);
-  return (lighter + .05) / (darker + .05);
-}
-const LIGHT_FOREGROUND = "#FFFFFF";
-const DARK_FOREGROUND = "#000000";
-function rgbForHex(hex) { return [1,3,5].map(i => parseInt(hex.slice(i,i+2),16)); }
-function foregroundForRgb(rgb) {
-  const background = relativeLuminance(rgb);
-  const white = contrastRatio(background,1), black = contrastRatio(background,0);
-  return {color:white >= black ? LIGHT_FOREGROUND : DARK_FOREGROUND,contrast:Math.max(white,black)};
-}
-// Local OKLab/OKLCH lightness adjustment. Reduce chroma only when required to
-// fit sRGB; no WebView OKLCH support or network dependency is needed.
-function rgbToOklab(rgb) {
-  const [r,g,b] = rgb.map(v => { v /= 255; return v <= .04045 ? v/12.92 : ((v+.055)/1.055)**2.4; });
-  const l = Math.cbrt(.4122214708*r+.5363325363*g+.0514459929*b);
-  const m = Math.cbrt(.2119034982*r+.6806995451*g+.1073969566*b);
-  const s = Math.cbrt(.0883024619*r+.2817188376*g+.6299787005*b);
-  return [.2104542553*l+.793617785*m-.0040720468*s,
-    1.9779984951*l-2.428592205*m+.4505937099*s,
-    .0259040371*l+.7827717662*m-.808675766*s];
-}
-function oklabToLinear([L,a,b]) {
-  const l=(L+.3963377774*a+.2158037573*b)**3;
-  const m=(L-.1055613458*a-.0638541728*b)**3;
-  const s=(L-.0894841775*a-1.291485548*b)**3;
-  return [4.0767416621*l-3.3077115913*m+.2309699292*s,
-    -1.2684380046*l+2.6097574011*m-.3413193965*s,
-    -.0041960863*l-.7034186147*m+1.707614701*s];
-}
-function toneRgb(rgb, lightness) {
-  const [,a,b]=rgbToOklab(rgb), L=Math.max(0,Math.min(1,lightness));
-  let chroma=1, linear=oklabToLinear([L,a,b]);
-  if (!linear.every(v=>v>=-1e-7 && v<=1+1e-7)) {
-    let lo=0,hi=1;
-    for(let i=0;i<22;i++){
-      const mid=(lo+hi)/2, values=oklabToLinear([L,a*mid,b*mid]);
-      if(values.every(v=>v>=-1e-7 && v<=1+1e-7)) lo=mid; else hi=mid;
-    }
-    chroma=lo; linear=oklabToLinear([L,a*chroma,b*chroma]);
-  }
-  return linear.map(v=>{v=Math.max(0,Math.min(1,v));return Math.round(255*(v<=.0031308 ? 12.92*v : 1.055*v**(1/2.4)-.055));});
-}
-function readableTone(rgb, backgrounds, dark, target=4.65) {
-  const start=rgbToOklab(rgb)[0];
-  for(let step=0;step<=200;step++){
-    const L=start+(dark ? 1-start : -start)*step/200;
-    const ink=toneRgb(rgb,L);
-    if(backgrounds.every(bg=>contrastRatio(relativeLuminance(ink),relativeLuminance(bg))>=target))
-      return ink;
-  }
-  return dark ? [255,255,255] : [0,0,0];
-}
-function accentInkForRgb(rgb, backgrounds, dark) {
-  return colorHex(readableTone(rgb,backgrounds,dark));
-}
-function mixRgb(a,b,strength) { return a.map((v,i)=>Math.round(v*strength+b[i]*(1-strength))); }
-function pressedSurface(rgb, foreground, dark) {
-  const white=foreground===LIGHT_FOREGROUND, L=rgbToOklab(rgb)[0];
-  const pressed=toneRgb(rgb,L+(white ? -.035 : .035));
-  if(contrastRatio(relativeLuminance(pressed),relativeLuminance(rgbForHex(foreground)))>=4.5) return pressed;
-  return rgb; // Preserve the fixed foreground even at a gamut boundary.
-}
-// Only derived roles are adjusted. The chosen/saved seed and picker swatches
-// remain exact. Warm/yellow-green themes retain a bright surface and black ink.
-function primarySurfaceForRgb(rgb, dark) {
-  const [L,a,b]=rgbToOklab(rgb);
-  let surface=dark ? toneRgb(rgb,Math.min(L,.50)) : rgb;
-  if(!dark && contrastRatio(relativeLuminance(surface),1)<4.65){
-    const hue=(Math.atan2(b,a)*180/Math.PI+360)%360;
-    const maxChange=hue>=35 && hue<=150 ? .065 : (hue>=180 && hue<=270 ? .19 : .13);
-    const whiteSurface=readableTone(rgb,[[255,255,255]],false);
-    if(L-rgbToOklab(whiteSurface)[0]<=maxChange) surface=whiteSurface;
-  }
-  // Classic blue app bar reference, still subject to final contrast checks.
-  if(!dark && colorHex(rgb)==="#2196F3") surface=rgbForHex("#1976D2");
-  return surface;
-}
-function generateThemePalette(seed, dark) {
-  const rgb=rgbForHex(seed);
-  const surface=dark ? [33,33,33] : [255,255,255];
-  const card=dark ? [32,32,32] : [250,250,250];
-  const page=dark ? [18,18,18] : [238,238,238];
-  const backgrounds=[surface,card,page];
-  const primary=primarySurfaceForRgb(rgb,dark);
-  const onPrimary=foregroundForRgb(primary).color;
-  const primaryPressed=pressedSurface(primary,onPrimary,dark);
-  const ink=readableTone(rgb,backgrounds,dark);
-  const control=readableTone(rgb,backgrounds,dark,3.1);
-  const secondary=mixRgb(rgb,surface,.12);
-  const secondaryPressed=mixRgb(rgb,surface,.18);
-  const onSecondary=readableTone(rgb,[secondary,secondaryPressed],dark);
-  const navBackgrounds=dark ? [[18,18,18],surface] : [[255,255,255],surface];
-  const navIcon=readableTone(rgb,navBackgrounds,dark,3.1);
-  const navLabel=readableTone(rgb,navBackgrounds,dark);
-  return {
-    seed,primarySurface:colorHex(primary),primaryPressed:colorHex(primaryPressed),
-    primarySurfaceDark:colorHex(primarySurfaceForRgb(rgb,true)),onPrimary,
-    accentInk:colorHex(ink),controlAccent:colorHex(control),controlStrong:colorHex(ink),
-    actionPrimary:colorHex(primary),onActionPrimary:onPrimary,
-    actionPrimaryPressed:colorHex(primaryPressed),
-    actionSecondary:colorHex(secondary),onActionSecondary:colorHex(onSecondary),
-    actionSecondaryPressed:colorHex(secondaryPressed),
-    switchThumb:colorHex(control),switchTrack:"rgba("+control.join(",")+",.50)",
-    navIcon:colorHex(navIcon),navLabel:colorHex(navLabel),
-    swatchForeground:foregroundForRgb(rgb).color
-  };
-}
+// Shared color math is loaded synchronously from theme-palette.js.
 function showAppearance() {
   const dark = themeMode === "dark" || (themeMode === "system" && !!media?.matches);
   const root = document.documentElement;
@@ -768,6 +812,7 @@ function showPage(page, scroll = 0) {
   }
   if (page === "accent-page" && !accentInputInitialized) { $("custom-hex").value = accent; accentInputInitialized = true; }
   if (changed) $("page-content").scrollTop = scroll;
+  renderTaskFeedback();
 }
 function synchronizeHistory() {
   const page = pageFromHash();
@@ -834,8 +879,9 @@ $("sim-carrier-test-enabled").onchange = () => {
 };
 $("sim-save").onclick = simApplyConfig;
 $("sim-restore").onclick = async () => {
+  if (busy || taskLocked() || $("sim-restore").disabled) return;
   if (!await ask("恢复 SIM 信息？", "移除当前 SIM 的国家或地区及运营商覆盖，不清除 IMS 配置。")) return;
-  simRestore();
+  return simRestore();
 };
 
 $("open-appearance").onclick = () => navigate("appearance-page");
@@ -1048,12 +1094,16 @@ function render(result, replaceForm = false) {
   message(title, danger, tone, detail);
   if (result.blocked) message(phase === "verification_failed" ? "验证失败" : "自动应用已停止",
     true, "danger", "已停止自动写入，请查看诊断与验证。");
+  taskStatusSnapshot = result;
+  reconcileTask(result);
   // The one-shot worker exiting after a verified apply is normal.
   renderImsRegistrationStatus(result);
   renderComponentVerification(result);
   renderDiagnosticSummary(result);
   renderSimResults(result);
   renderSimPage(result);
+  updateTaskControls();
+  return result;
 }
 function renderImsRegistrationStatus(result) {
   const state = result.status || result;
@@ -1174,43 +1224,51 @@ function renderDiagnosticSummary(result) {
     row.append(term,detail); $("diagnostic-summary").append(row);
   }
 }
-async function operation(work, progress = "正在处理…", trigger = null) {
-  if (busy) return;
+async function operation(work, progress = "正在处理…", trigger = null, taskKind = null) {
+  if (busy || taskLocked() && taskKind) return;
   busy = true;
-  document.querySelectorAll("button,input,select").forEach(x => { if (x.id !== "back" && !primaryPages.some(id => x.id === "tab-"+id)) x.disabled = true; });
-  document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","true"));
+  const taskId = taskKind ? beginTask(taskKind) : null;
+  updateTaskControls();
   message(progress, false, "neutral", "请稍候。");
-  try { await work(); }
-  catch (error) {
+  try {
+    const result = await work();
+    if (taskId) finishTask(taskId,result);
+  } catch (error) {
     if (error.result) render(error.result);
-    else message("操作失败", true, "danger", "请查看诊断与验证。");
-    $("diagnostic-notice").textContent = "操作失败：" + error.message;
+    else message(taskId && error.executionUnknown ? "暂时无法确认执行结果" : "操作失败", true, "danger", "请查看诊断与验证。");
+    $("diagnostic-notice").textContent = "操作未完成：" + error.message;
     if (!error.result) $("details").textContent = JSON.stringify({ok:false,error:error.message},null,2);
+    if (taskId) {
+      if (error.executionUnknown) markTaskUnknown(taskId);
+      else finishTask(taskId,error.result,error);
+    }
   } finally {
     busy = false;
-    document.querySelectorAll("button,input,select").forEach(x => x.disabled = false);
-    updatePeriodicControl();
-    document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","false"));
+    updateTaskControls();
+    renderTaskFeedback();
+    scheduleTaskPoll();
   }
 }
 $("probe").onclick = () => operation(async () => render(await TurboBridge.call("probe")), "正在检测…", $("probe"));
 $("refresh").onclick = () => operation(async () => render(await TurboBridge.call("status")), "正在刷新…", $("refresh"));
 $("apply").onclick = async () => {
+  if (busy || taskLocked() || $("apply").disabled) return;
   const config = configFromForm();
   if (!await ask("应用 IMS 配置？", "应用到所选 SIM 卡。通话仍需运营商支持。")) {
     message("已取消", false, "neutral", "当前设置未保存。"); return;
   }
   operation(async () => {
-    const saved = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
+    const saved = await taskCall("save", encodeBase64Utf8(JSON.stringify(config)));
     savedConfig = saved.config;
-    render(await TurboBridge.call("apply"), true);
-  });
+    return render(await taskCall("apply"), true);
+  }, taskLabels["ims-apply"], $("apply"), "ims-apply");
 };
 $("restore").onclick = async () => {
+  if (busy || taskLocked() || $("restore").disabled) return;
   if (!await ask("停止并恢复？", "停止自动应用并恢复原值，保留冲突项。")) {
     message("已取消", false, "neutral", "自动配置和已应用的设置未改变。"); return;
   }
-  operation(async () => render(await TurboBridge.call("restore"), true));
+  return operation(async () => render(await taskCall("restore"), true), taskLabels["ims-restore"], $("restore"), "ims-restore");
 };
 $("export").onclick = () => operation(async () => {
   const result = await TurboBridge.call("export");
@@ -1218,12 +1276,40 @@ $("export").onclick = () => operation(async () => {
   render(result);
   $("diagnostic-notice").textContent = "诊断已生成，可查看完整数据并复制。";
 });
-function revealInitialUI() {
-  clearTimeout(window.turboStartupTimer);
-  document.documentElement.dataset.loading = "false";
+// This read-only startup request owns the loading view. No visual deadline
+// can pretend it has finished; the unchanged bridge/native timeout still applies.
+let startupInFlight = false;
+let startupGeneration = 0;
+async function initializeWebUI() {
+  if (startupInFlight || taskDisposed) return;
+  startupInFlight = true;
+  const generation = ++startupGeneration;
+  busy = true;
+  window.TurboStartup?.begin();
+  updateTaskControls();
+  try {
+    const result = await TurboBridge.call("status");
+    if (taskDisposed || generation !== startupGeneration) return;
+    render(result,true);
+    window.TurboStartup?.ready();
+  } catch (error) {
+    if (taskDisposed || generation !== startupGeneration) return;
+    if (error.result) render(error.result);
+    $("diagnostic-notice").textContent = "初始化未完成：" + error.message;
+    $("details").textContent = JSON.stringify(error.result || {ok:false,error:error.message},null,2);
+    // Retrying status is safe and read-only. The old request has already settled;
+    // retry never resubmits apply/restore or modifies the native deadline.
+    const text = error.executionUnknown
+      ? "暂时无法确认加载结果，请重试。"
+      : "加载失败，请检查 KernelSU Next 环境后重试。";
+    window.TurboStartup?.fail(text,initializeWebUI);
+  } finally {
+    if (generation === startupGeneration) {
+      startupInFlight = false;
+      busy = false;
+      updateTaskControls();
+      scheduleTaskPoll();
+    }
+  }
 }
-// Bound the loading screen only; a slow bridge keeps controls disabled until
-// operation() settles. Never fabricate configuration or trigger an extra call.
-const initialViewDeadline = setTimeout(revealInitialUI, 6000);
-operation(async () => render(await TurboBridge.call("status"), true))
-  .finally(() => { clearTimeout(initialViewDeadline); revealInitialUI(); });
+initializeWebUI();

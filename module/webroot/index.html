@@ -9,6 +9,7 @@
   <meta id="navigation-bar-color" name="navigation-bar-color" content="#ffffff">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; connect-src 'none'; img-src 'self' data:">
   <title>TurboIMS Next</title>
+  <script src="theme-palette.js"></script>
   <script src="startup.js"></script>
   <link rel="stylesheet" href="style.css">
   <script src="bridge.js" defer></script>
@@ -17,7 +18,13 @@
 </head>
 <body>
 <header class="toolbar"><div class="toolbar-inner"><button id="back" class="back" type="button" aria-label="返回" hidden></button><h1 id="page-title">TurboIMS Next</h1></div></header>
-<div id="startup-view" role="status" aria-live="polite"><span id="startup-message">正在加载…</span><div class="startup-line" aria-hidden="true"></div></div>
+<div id="startup-view" aria-busy="true">
+  <div id="startup-progress" class="operation-progress startup-progress" role="progressbar" aria-label="正在加载 WebUI">
+    <span class="operation-progress__bar operation-progress__primary" aria-hidden="true"><span class="operation-progress__inner"></span></span>
+    <span class="operation-progress__bar operation-progress__secondary" aria-hidden="true"><span class="operation-progress__inner"></span></span>
+  </div>
+  <div class="startup-copy"><p id="startup-message" role="status" aria-live="polite" aria-atomic="true">正在加载…</p><button id="startup-retry" class="text-action" type="button" hidden>重试</button></div>
+</div>
 <div id="page-content" data-primary="true">
 <main id="home" class="page">
   <section class="pref-group device-status-group" aria-labelledby="device-heading">
@@ -50,6 +57,14 @@
       <button id="apply" class="action-button action-button--primary" type="button"><span>应用配置</span></button>
       <button id="restore" class="action-button action-button--secondary" type="button"><span>停止并恢复</span></button>
     </div>
+    <div id="ims-task" class="operation-feedback" hidden aria-busy="false" data-running="false">
+      <p id="ims-task-status" class="operation-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <div id="ims-task-progress" class="operation-progress" role="progressbar" aria-label="正在执行 IMS 操作" hidden>
+        <span class="operation-progress__bar operation-progress__primary" aria-hidden="true"><span class="operation-progress__inner"></span></span>
+        <span class="operation-progress__bar operation-progress__secondary" aria-hidden="true"><span class="operation-progress__inner"></span></span>
+      </div>
+    </div>
+    <p id="ims-unavailable" class="hint operation-unavailable" hidden></p>
     <p class="hint action-summary">停止自动应用并恢复原值，保留冲突项。</p>
   </section>
 </main>
@@ -73,6 +88,14 @@
       <button id="sim-save" class="action-button action-button--primary" type="button"><span>应用信息</span></button>
       <button id="sim-restore" class="action-button action-button--secondary" type="button"><span>恢复原值</span></button>
     </div>
+    <div id="sim-task" class="operation-feedback" hidden aria-busy="false" data-running="false">
+      <p id="sim-task-status" class="operation-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <div id="sim-task-progress" class="operation-progress" role="progressbar" aria-label="正在执行 SIM 操作" hidden>
+        <span class="operation-progress__bar operation-progress__primary" aria-hidden="true"><span class="operation-progress__inner"></span></span>
+        <span class="operation-progress__bar operation-progress__secondary" aria-hidden="true"><span class="operation-progress__inner"></span></span>
+      </div>
+    </div>
+    <p id="sim-unavailable" class="hint operation-unavailable" hidden></p>
     <p class="hint action-summary">应用当前 SIM 信息；恢复原值仅移除本模块记录的 SIM 信息覆盖。</p>
     <p class="hint preference-footer">国家码和名称可独立修改，两种 IMS 方式默认使用真实 SIM 身份。仅主动开启测试身份时应用 Carrier test MCC/MNC。</p>
   </section>
