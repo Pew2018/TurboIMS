@@ -57,8 +57,10 @@ const fs=require("node:fs");
     const before=await metrics();
     if(opts.holdApp){
      assert.equal(before.theme,opts.theme==="dark"||opts.systemDark?"dark":"light");
-     await page.screenshot({path:"preview/startup/"+name+"-early-theme.png"});
+     // Preserve pre-app measurements, then release the deferred script before
+     // screenshot font readiness (which otherwise waits for DOMContentLoaded).
      release();await page.waitForFunction(()=>window.TurboStartup && typeof initializeWebUI==="function");
+     await page.screenshot({path:"preview/startup/"+name+"-saved-theme-loading.png"});
     }
     if(!opts.missingApp && (opts.delay??3000)>500){
      assert.equal(await page.locator("#startup-progress").isVisible(),true);
