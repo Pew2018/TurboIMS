@@ -77,7 +77,6 @@
     const back=document.querySelector?.("#back");
     toolbar?.classList.add("mdc-top-app-bar");
     row?.classList.add("mdc-top-app-bar__row");
-    title?.classList.add("mdc-top-app-bar__title");
     back?.classList.add("mdc-icon-button");
   }
   function scan(root=document) {
