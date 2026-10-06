@@ -677,7 +677,7 @@ function choose(title, description, values, current, onSelect) {
     button.setAttribute("aria-selected", String(value === current));
     button.setAttribute("role", "radio");
     button.setAttribute("aria-checked", String(value === current));
-    const mark = document.createElement("span"); mark.className = "radio-mark mdc-radio";
+    const mark = document.createElement("span"); mark.className = "radio-mark";
     mark.innerHTML = '<input class="mdc-radio__native-control" type="radio" tabindex="-1" aria-hidden="true"><div class="mdc-radio__background"><div class="mdc-radio__outer-circle"></div><div class="mdc-radio__inner-circle"></div></div>';
     mark.setAttribute("aria-hidden","true"); button.append(mark);
     button.onclick = () => {
