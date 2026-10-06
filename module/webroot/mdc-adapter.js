@@ -61,7 +61,7 @@
   }
   function enhanceRadios(root=document) {
     const api=mdc()?.radio?.MDCRadio;
-    root.querySelectorAll?.(".mdc-radio").forEach(el=>{ if(!el.__mdcRadio && api) try{el.__mdcRadio=api.attachTo(el)}catch(_){} });
+    root.querySelectorAll?.(".radio-mark").forEach(el=>{ el.classList.add("mdc-radio"); if(!el.__mdcRadio && api) try{el.__mdcRadio=api.attachTo(el)}catch(_){} });
   }
   function enhanceDialogs(root=document) {
     const api=mdc()?.dialog?.MDCDialog;
@@ -70,7 +70,18 @@
   function enhanceCards(root=document) {
     root.querySelectorAll?.(".pref-group").forEach(el=>el.classList.add("mdc-card"));
   }
+  function enhanceTopAppBar() {
+    const toolbar=document.querySelector?.(".toolbar");
+    const row=document.querySelector?.(".toolbar-inner");
+    const title=document.querySelector?.("#page-title");
+    const back=document.querySelector?.("#back");
+    toolbar?.classList.add("mdc-top-app-bar");
+    row?.classList.add("mdc-top-app-bar__row");
+    title?.classList.add("mdc-top-app-bar__title");
+    back?.classList.add("mdc-icon-button");
+  }
   function scan(root=document) {
+    enhanceTopAppBar();
     root.querySelectorAll?.("input[type=checkbox]").forEach(enhanceSwitch);
     root.querySelectorAll?.(buttonSelector).forEach(enhanceButton);
     enhanceTextFields(root); enhanceRadios(root); enhanceDialogs(root); enhanceCards(root);
