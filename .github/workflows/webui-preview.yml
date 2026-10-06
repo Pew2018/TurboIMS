@@ -1,4 +1,4 @@
-name: Preview operation progress
+name: Preview WebUI startup and operation progress
 on:
   push:
     branches: ["feature/md-indeterminate-progress"]
@@ -26,10 +26,11 @@ jobs:
           python3 -m http.server 8765 --directory module/webroot > "$RUNNER_TEMP/webui-server.log" 2>&1 &
           node ci/ui_polish_preview.cjs
           node ci/task_progress_preview.cjs
+          node ci/startup_preview.cjs
       - name: Upload screenshots and contrast report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: md-indeterminate-progress-preview
+          name: turboims-webui-preview
           path: preview/
           if-no-files-found: error

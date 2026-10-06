@@ -255,11 +255,18 @@ body { height:var(--app-viewport-height,100vh); }
 :root[data-card-groups="true"] .pref-group { padding-bottom:12px; }
 :root[data-card-groups="true"] .bottom-nav { background:var(--surface); }
 /* Keep partially populated controls out of the first paint. No skeleton cards. */
-#startup-view { display:none; flex:1; padding:32px var(--page-padding); color:var(--muted); font-size:13px; }
-.startup-line { width:64px; height:2px; margin-top:14px; background:var(--accent); opacity:.45; }
-:root[data-loading="true"] #startup-view { display:block; }
+#startup-view { display:none; flex:1; min-height:0; position:relative; color:var(--text-secondary); background:var(--background); }
+.startup-copy { width:100%; max-width:620px; margin:0 auto; padding:28px var(--page-padding); }
+#startup-message { margin:0; font-size:var(--summary-size); font-weight:400; line-height:1.5; overflow-wrap:anywhere; }
+#startup-retry { margin-top:12px; }
+:root[data-loading="true"] #startup-view,
+:root[data-loading="error"] #startup-view { display:block; }
 :root[data-loading="true"] #page-content,
-:root[data-loading="true"] .bottom-nav { display:none; }
+:root[data-loading="error"] #page-content,
+:root[data-loading="true"] .bottom-nav,
+:root[data-loading="error"] .bottom-nav { display:none; }
+:root[data-loading="false"] #page-content { animation:startup-content-enter 150ms linear both; }
+@keyframes startup-content-enter { from { opacity:0; } to { opacity:1; } }
 
 /* Shared page actions: equal compact geometry, distinct primary/secondary roles. */
 :root {
@@ -371,3 +378,9 @@ Source: material-components-web/packages/mdc-linear-progress/_linear-progress.sc
   .operation-progress::before { background:GrayText; }
   .operation-progress__inner { background:Highlight; }
 }
+
+/* Same disjoint component as foreground actions; absolute placement avoids
+   reserving/removing a flow row when startup completes. Toolbar stays mounted. */
+.operation-progress.startup-progress { position:absolute; top:0; left:0; width:100%; margin:0; }
+:root[data-startup-visible="false"] .startup-progress .operation-progress__bar,
+:root[data-startup-visible="false"] .startup-progress .operation-progress__inner { animation-play-state:paused; }

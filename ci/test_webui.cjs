@@ -95,7 +95,7 @@ test("slow runner stays asynchronous and the bridge deadline outlives control.sh
 });
 test("WebUI has offline assets and no CDN dependencies",()=>{
   const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
-  for(const file of ["startup.js","bridge.js","feedback.js","app.js","style.css"])
+  for(const file of ["theme-palette.js","startup.js","bridge.js","feedback.js","app.js","style.css"])
     assert.ok(fs.existsSync(path.join(__dirname,"../module/webroot",file)));
   assert.ok(!/https?:\/\/|<iframe/i.test(html));
   for(const id of ["enabled","selection","interval","features","probe","apply","restore","export","refresh","sim-edit-country","sim-edit-carrier","accent-scope-choice","accent-toolbar","accent-section-labels","accent-navigation-icons","card-groups"])
@@ -169,6 +169,8 @@ async function appHarness(options = {}) {
     matchMedia:()=>({matches:false,addEventListener(){}}),
     btoa:s=>Buffer.from(s).toString("base64"), setTimeout, clearTimeout
   });
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/theme-palette.js"),"utf8"),context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/startup.js"),"utf8"),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8"),context);
   await Promise.resolve();await Promise.resolve();
   await new Promise(resolve=>setImmediate(resolve));
@@ -649,7 +651,7 @@ test("initial view stays clean until status succeeds or fails",async()=>{
     if(fail)reject(new Error("bridge unavailable"));
     else resolve({phase:"not_started"});
     await new Promise(yes=>setImmediate(yes));
-    assert.equal(doc.documentElement.dataset.loading,"false");
+    assert.equal(doc.documentElement.dataset.loading,fail ? "error" : "false");
     assert.equal(require("node:vm").runInContext("busy",context),false);
     assert.deepEqual(calls.map(([action])=>action),["status"]);
   }
@@ -993,4 +995,47 @@ test("late real completion remains observable after bridge deadline, no root can
   receiver.stdout.emit("data",'{"ok":true,"phase":"verified"}');
   receiver.emit("exit",0);
   assert.equal(late.result.phase,"verified");
+});
+
+test("startup has one full-width shared disjoint indicator, a single stable toolbar and no visual deadline",()=>{
+ const html=fs.readFileSync(path.join(__dirname,"../module/webroot/index.html"),"utf8");
+ const app=fs.readFileSync(path.join(__dirname,"../module/webroot/app.js"),"utf8");
+ const css=fs.readFileSync(path.join(__dirname,"../module/webroot/style.css"),"utf8");
+ assert.equal((html.match(/<header class="toolbar">/g)||[]).length,1);
+ assert.doesNotMatch(html,/startup-line/);
+ assert.match(html,/id="startup-progress" class="operation-progress startup-progress"/);
+ assert.doesNotMatch(app,/initialViewDeadline|revealInitialUI|turboStartupTimer/);
+ assert.match(css,/startup-content-enter 150ms/);
+ assert.match(css,/\.operation-progress\.startup-progress.*position:absolute/);
+});
+test("startup read-only retry is serialized and success immediately leaves the loading state",async()=>{
+ const pending=new Promise(()=>{});
+ const {context,doc,calls}=await appHarness({initialStatus:pending});
+ const vm=require("node:vm");
+ assert.equal(doc.documentElement.dataset.loading,"true");
+ await context.initializeWebUI();
+ assert.equal(calls.length,1);
+ // The failure/retry path uses an independent harness with a rejected status.
+ let reject;const fail=new Promise((_,r)=>{reject=r;});
+ const h=await appHarness({initialStatus:fail});
+ reject(new Error("read denied"));await new Promise(r=>setImmediate(r));
+ assert.equal(h.doc.documentElement.dataset.loading,"error");
+ assert.equal(h.doc.getElementById("startup-progress").hidden,true);
+ assert.equal(h.doc.getElementById("startup-retry").hidden,false);
+ assert.equal(vm.runInContext("startupInFlight",h.context),false);
+ h.context.TurboBridge.call=async action=>{assert.equal(action,"status");return {ok:true,phase:"not_started"};};
+ await h.doc.getElementById("startup-retry").onclick();
+ await new Promise(r=>setImmediate(r));
+ assert.equal(h.doc.documentElement.dataset.loading,"false");
+ assert.equal(h.doc.getElementById("startup-progress").hidden,true);
+ assert.equal(h.doc.getElementById("startup-retry").hidden,true);
+});
+test("startup timeout reports unknown without treating an elapsed deadline as initialization success",async()=>{
+ let reject;const pending=new Promise((_,r)=>{reject=r;});
+ const {doc}=await appHarness({initialStatus:pending});
+ const error=new Error("deadline");error.executionUnknown=true;reject(error);
+ await new Promise(r=>setImmediate(r));
+ assert.equal(doc.documentElement.dataset.loading,"error");
+ assert.match(doc.getElementById("startup-message").textContent,/无法确认/);
+ assert.equal(doc.getElementById("startup-progress").hidden,true);
 });

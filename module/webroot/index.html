@@ -9,6 +9,7 @@
   <meta id="navigation-bar-color" name="navigation-bar-color" content="#ffffff">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; connect-src 'none'; img-src 'self' data:">
   <title>TurboIMS Next</title>
+  <script src="theme-palette.js"></script>
   <script src="startup.js"></script>
   <link rel="stylesheet" href="style.css">
   <script src="bridge.js" defer></script>
@@ -17,7 +18,13 @@
 </head>
 <body>
 <header class="toolbar"><div class="toolbar-inner"><button id="back" class="back" type="button" aria-label="返回" hidden></button><h1 id="page-title">TurboIMS Next</h1></div></header>
-<div id="startup-view" role="status" aria-live="polite"><span id="startup-message">正在加载…</span><div class="startup-line" aria-hidden="true"></div></div>
+<div id="startup-view" aria-busy="true">
+  <div id="startup-progress" class="operation-progress startup-progress" role="progressbar" aria-label="正在加载 WebUI">
+    <span class="operation-progress__bar operation-progress__primary" aria-hidden="true"><span class="operation-progress__inner"></span></span>
+    <span class="operation-progress__bar operation-progress__secondary" aria-hidden="true"><span class="operation-progress__inner"></span></span>
+  </div>
+  <div class="startup-copy"><p id="startup-message" role="status" aria-live="polite" aria-atomic="true">正在加载…</p><button id="startup-retry" class="text-action" type="button" hidden>重试</button></div>
+</div>
 <div id="page-content" data-primary="true">
 <main id="home" class="page">
   <section class="pref-group device-status-group" aria-labelledby="device-heading">
