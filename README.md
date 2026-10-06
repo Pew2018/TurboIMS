@@ -14,6 +14,10 @@
 
 ---
 
+## WebUI Design Reference
+
+[TurboIMS Classic System WebUI Design Specification v1.0](docs/TurboIMS-Classic-WebUI-Design-Spec-v1.0.md) (Chinese) documents the visual language, semantic colors, controls, tap ripples, navigation, and reusable implementation details, based on commit `ca8a31d824fb0101324d01a0ed2fd660f736d53c`.
+
 ## 📱 About
 
 **Turbo IMS** is an enhanced fork of the original [IMS project by vvb2060](https://github.com/vvb2060/Ims), designed to enable VoLTE, VoWiFi, VoNR, and other advanced IMS features on Google Pixel phones through privileged system configuration.

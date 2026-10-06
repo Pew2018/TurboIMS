@@ -14,6 +14,10 @@
 
 ---
 
+## WebUI 设计规范
+
+[TurboIMS Classic System WebUI 技术与设计规范 v1.0](docs/TurboIMS-Classic-WebUI-Design-Spec-v1.0.md)：归档基于提交 `ca8a31d824fb0101324d01a0ed2fd660f736d53c` 的设计语言、语义颜色、控件细节、点按涟漪、导航行为与可复用实现，供后续 WebUI 项目参考。
+
 ## 📱 关于项目
 
 **Turbo IMS** 是 [vvb2060 的 IMS 项目](https://github.com/vvb2060/Ims) 的增强版分支，专为 Google Pixel 手机设计，通过系统级权限配置启用 VoLTE、VoWiFi、VoNR 等高级 IMS 功能。
