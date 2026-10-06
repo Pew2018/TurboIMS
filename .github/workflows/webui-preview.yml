@@ -1,7 +1,7 @@
 name: Preview WebUI startup and operation progress
 on:
   push:
-    branches: ["feature/md-indeterminate-progress", "master"]
+    branches: ["feature/md-indeterminate-progress", "feature/mdc-webui", "master"]
     paths: ["module/webroot/**", "ci/**", ".github/workflows/webui-preview.yml"]
   workflow_dispatch:
 permissions:
@@ -15,6 +15,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Prepare local MDC Web assets
+        run: |
+          npm install --no-save --ignore-scripts material-components-web@14.0.0
+          node ci/prepare_mdc_web.cjs
       - name: Install Chinese preview font
         run: sudo apt-get update -qq && sudo apt-get install -y fonts-noto-cjk
       - name: Install remote browser

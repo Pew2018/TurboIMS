@@ -384,3 +384,33 @@ Source: material-components-web/packages/mdc-linear-progress/_linear-progress.sc
 .operation-progress.startup-progress { position:absolute; top:0; left:0; width:100%; margin:0; }
 :root[data-startup-visible="false"] .startup-progress .operation-progress__bar,
 :root[data-startup-visible="false"] .startup-progress .operation-progress__inner { animation-play-state:paused; }
+
+/* MDC Web v14 integration: preserve TurboIMS classic Material geometry and theme tokens. */
+.mdc-card.pref-group { box-sizing:border-box; }
+.mdc-button { min-height:48px; min-width:64px; border-radius:2px; text-transform:none; letter-spacing:0; font:inherit; }
+.mdc-button__label { white-space:nowrap; }
+.mdc-button.mdc-button--text { padding:0 8px; color:var(--control-accent-strong); }
+.action-button.mdc-button { min-width:112px; height:48px; padding:0 16px; border-radius:2px; }
+.action-button--primary.mdc-button { background:var(--action-primary); color:var(--on-action-primary); }
+.action-button--secondary.mdc-button { background:var(--action-secondary); color:var(--on-action-secondary); }
+.action-button.mdc-button:disabled,.mdc-button:disabled { color:var(--text-disabled); background:var(--surface-disabled); box-shadow:none; }
+.text-action.mdc-button,.choice.mdc-button,.pref-action.mdc-button { background:transparent; box-shadow:none; }
+.mdc-switch { flex:none; width:48px; height:48px; }
+.switch-hit { position:relative; }
+.switch-hit .mdc-input-proxy { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+.mdc-switch__track { border-radius:4px; }
+.mdc-switch__handle { border-radius:50%; }
+.mdc-text-field.text-editor-field,.hex-row.mdc-text-field { width:100%; min-height:56px; background:transparent; border-radius:0; }
+.mdc-text-field.text-editor-field .mdc-text-field__input,.hex-row.mdc-text-field .mdc-text-field__input { color:var(--ink); font:inherit; }
+.mdc-text-field--filled:not(.mdc-text-field--disabled) { --mdc-theme-primary:var(--control-accent-strong); background:transparent; }
+.mdc-text-field--filled::before,.mdc-text-field--filled::after { background:transparent; }
+.mdc-dialog { z-index:10; }
+.mdc-dialog__surface.dialog { width:100%; max-width:288px; border-radius:3px; background:var(--surface); }
+.mdc-dialog__scrim { background-color:var(--scrim); }
+.dialog .mdc-button { min-width:56px; }
+.radio-mark.mdc-radio { width:20px; height:20px; margin-left:12px; }
+.radio-mark.mdc-radio::before,.radio-mark.mdc-radio::after { display:none; }
+.option .mdc-radio__native-control { pointer-events:none; }
+@media(prefers-reduced-motion:reduce) {
+  .mdc-switch,.mdc-button,.mdc-dialog,.mdc-text-field { transition-duration:0ms !important; }
+}

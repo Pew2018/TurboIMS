@@ -582,8 +582,10 @@ document.addEventListener("keydown", e => {
 });
 function actionButton(title, onClick, secondary = false) {
   const button = document.createElement("button");
-  button.type = "button"; button.textContent = title;
-  if (secondary) button.className = "secondary";
+  button.type = "button"; button.className = "mdc-button mdc-button--text" + (secondary ? " secondary" : "");
+  const ripple = document.createElement("span"); ripple.className = "mdc-button__ripple";
+  const label = document.createElement("span"); label.className = "mdc-button__label"; label.textContent = title;
+  button.append(ripple,label);
   button.onclick = onClick; button.dataset.ripple = "control";
   window.TouchFeedback?.bind(button); return button;
 }
@@ -675,7 +677,8 @@ function choose(title, description, values, current, onSelect) {
     button.setAttribute("aria-selected", String(value === current));
     button.setAttribute("role", "radio");
     button.setAttribute("aria-checked", String(value === current));
-    const mark = document.createElement("span"); mark.className = "radio-mark";
+    const mark = document.createElement("span"); mark.className = "radio-mark mdc-radio";
+    mark.innerHTML = '<input class="mdc-radio__native-control" type="radio" tabindex="-1" aria-hidden="true"><div class="mdc-radio__background"><div class="mdc-radio__outer-circle"></div><div class="mdc-radio__inner-circle"></div></div>';
     mark.setAttribute("aria-hidden","true"); button.append(mark);
     button.onclick = () => {
       if (sheetClosing || sheetFinishing) return;

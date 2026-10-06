@@ -11,13 +11,16 @@
   <title>TurboIMS Next</title>
   <script src="theme-palette.js"></script>
   <script src="startup.js"></script>
+  <link rel="stylesheet" href="mdc-web.min.css">
   <link rel="stylesheet" href="style.css">
+  <script src="mdc-web.min.js" defer></script>
+  <script src="mdc-adapter.js" defer></script>
   <script src="bridge.js" defer></script>
   <script src="feedback.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
-<header class="toolbar"><div class="toolbar-inner"><button id="back" class="back" type="button" aria-label="返回" hidden></button><h1 id="page-title">TurboIMS Next</h1></div></header>
+<header class="toolbar mdc-top-app-bar"><div class="toolbar-inner mdc-top-app-bar__row"><button id="back" class="back mdc-icon-button" type="button" aria-label="返回" hidden></button><h1 id="page-title" class="mdc-top-app-bar__title">TurboIMS Next</h1></div></header>
 <div id="startup-view" aria-busy="true">
   <div id="startup-progress" class="operation-progress startup-progress" role="progressbar" aria-label="正在加载 WebUI">
     <span class="operation-progress__bar operation-progress__primary" aria-hidden="true"><span class="operation-progress__inner"></span></span>
@@ -115,7 +118,7 @@
   <section class="pref-group" aria-labelledby="text-editor-heading">
     <h2 id="text-editor-heading" class="category"></h2>
     <label id="text-editor-input-label" class="text-editor-label" for="text-editor-input">输入</label>
-    <input id="text-editor-input" class="text-editor-input" type="text" autocomplete="off" spellcheck="false" aria-describedby="text-editor-hint text-editor-error">
+    <div class="text-editor-field mdc-text-field mdc-text-field--filled"><span class="mdc-text-field__ripple"></span><span class="mdc-floating-label" id="text-editor-floating-label">输入</span><input id="text-editor-input" class="text-editor-input mdc-text-field__input" type="text" autocomplete="off" spellcheck="false" aria-describedby="text-editor-hint text-editor-error"><span class="mdc-line-ripple"></span></div>
     <p id="text-editor-hint" class="hint"></p>
     <p id="text-editor-error" class="field-error" role="status"></p>
     <div id="text-editor-actions" class="action-group text-editor-actions" role="group" aria-label="输入操作">
@@ -142,7 +145,7 @@
     <div id="material-colors" class="swatches"></div>
     <h3 class="category color-category">自定义颜色</h3>
     <label class="hex-label" for="custom-hex">HEX</label>
-    <div class="hex-row"><input id="custom-hex" class="hex-field" type="text" inputmode="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="#42A5F5" aria-describedby="hex-error"></div>
+    <div class="hex-row mdc-text-field mdc-text-field--filled"><span class="mdc-text-field__ripple"></span><span class="mdc-floating-label">HEX</span><input id="custom-hex" class="hex-field mdc-text-field__input" type="text" inputmode="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="#42A5F5" aria-describedby="hex-error"><span class="mdc-line-ripple"></span></div>
     <p id="hex-error" class="field-error" role="status"></p>
   </section>
 </main>
@@ -189,11 +192,11 @@
   <button id="tab-sim-page" class="bottom-tab" type="button"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 2h-8L4 8v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM8 18H6v-2h2v2zm10 0h-2v-2h2v2zm-4 0h-4v-2h4v2zm4-4H6v-4h12v4z"></path></svg><span>SIM 卡信息</span></button>
   <button id="tab-settings-page" class="bottom-tab" type="button"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.66-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65A.49.49 0 0 0 10 22h4a.49.49 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"></path></svg><span>设置</span></button>
 </div></nav>
-<div id="sheet" class="dialog-backdrop" hidden>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-describedby="sheet-description">
+<div id="sheet" class="dialog-backdrop mdc-dialog" hidden>
+  <div class="mdc-dialog__container"><div class="dialog mdc-dialog__surface" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-describedby="sheet-description">
     <h2 id="sheet-title"></h2><p id="sheet-description"></p><div id="sheet-content"></div>
-    <div class="dialog-footer"><button id="sheet-close" class="dialog-cancel" type="button">取消</button><div id="sheet-actions" class="dialog-actions"></div></div>
-  </div>
+    <div class="dialog-footer"><button id="sheet-close" class="dialog-cancel mdc-button mdc-button--text" type="button">取消</button><div id="sheet-actions" class="dialog-actions"></div></div>
+  </div></div><div class="mdc-dialog__scrim"></div>
 </div>
 </body>
 </html>

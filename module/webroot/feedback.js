@@ -18,6 +18,7 @@
   const pending = new WeakMap();
   function bindRipple(surface) {
     if (!surface || bound.has(surface)) return;
+    if (surface.classList?.contains("mdc-button") || surface.classList?.contains("mdc-switch") || surface.classList?.contains("mdc-radio")) return;
     bound.add(surface);
     surface.dataset.ripple = "control";
     surface.addEventListener("pointerdown", event => {
