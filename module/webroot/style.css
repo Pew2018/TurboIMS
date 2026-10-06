@@ -318,3 +318,56 @@ input[role="switch"]:checked:disabled { background:var(--switch-disabled-on-trac
 .status-card-values dd { margin:0; color:var(--ink); text-align:right; overflow-wrap:anywhere; }
 :root[data-theme="dark"] .status-card-values dd { color:var(--ink); }
 :root[data-card-groups="true"] .device-status-group { padding-bottom:12px; }
+
+/*
+Adapted MDC Web linear progress motion, Copyright 2017 Google Inc.
+MIT license: see MDC-LINEAR-PROGRESS-LICENSE.txt bundled in this directory.
+Source: material-components-web/packages/mdc-linear-progress/_linear-progress.scss.
+*/
+.operation-feedback { margin:14px 0; overflow-anchor:none; }
+.operation-status { margin:0; font-size:var(--summary-size); line-height:1.5; color:var(--text-secondary); overflow-wrap:anywhere; }
+.operation-progress { position:relative; width:100%; height:4px; margin-top:8px; overflow:hidden; border-radius:0; background:transparent; }
+.operation-progress::before { content:""; position:absolute; inset:0; background:var(--control-accent); opacity:.18; }
+:root[data-theme="dark"] .operation-progress::before { opacity:.28; }
+.operation-progress__bar { position:absolute; inset-block:0; width:100%; transform-origin:top left; }
+.operation-progress__inner { position:absolute; inset:0; width:100%; background:var(--control-accent); transform-origin:center center; }
+.operation-progress__primary { left:-145.166611%; animation:turbo-progress-primary-translate 2s infinite linear; }
+.operation-progress__primary > span { animation:turbo-progress-primary-scale 2s infinite linear; }
+.operation-progress__secondary { left:-54.888891%; animation:turbo-progress-secondary-translate 2s infinite linear; }
+.operation-progress__secondary > span { animation:turbo-progress-secondary-scale 2s infinite linear; }
+.operation-feedback[data-visible="false"] .operation-progress__bar,
+.operation-feedback[data-visible="false"] .operation-progress__inner { animation-play-state:paused; }
+.operation-unavailable { margin:12px 0; }
+@keyframes turbo-progress-primary-translate {
+  0% { transform:translateX(0); }
+  20% { transform:translateX(0); animation-timing-function:cubic-bezier(.5,0,.701732,.495819); }
+  59.15% { transform:translateX(83.67142%); animation-timing-function:cubic-bezier(.302435,.381352,.55,.956352); }
+  100% { transform:translateX(200.611057%); }
+}
+@keyframes turbo-progress-primary-scale {
+  0% { transform:scaleX(.08); }
+  36.65% { transform:scaleX(.08); animation-timing-function:cubic-bezier(.334731,.12482,.785844,1); }
+  69.15% { transform:scaleX(.661479); animation-timing-function:cubic-bezier(.06,.11,.6,1); }
+  100% { transform:scaleX(.08); }
+}
+@keyframes turbo-progress-secondary-translate {
+  0% { transform:translateX(0); animation-timing-function:cubic-bezier(.15,0,.515058,.409685); }
+  25% { transform:translateX(37.651913%); animation-timing-function:cubic-bezier(.31033,.284058,.8,.733712); }
+  48.35% { transform:translateX(84.386165%); animation-timing-function:cubic-bezier(.4,.627035,.6,.902026); }
+  100% { transform:translateX(160.277782%); }
+}
+@keyframes turbo-progress-secondary-scale {
+  0% { transform:scaleX(.08); animation-timing-function:cubic-bezier(.205028,.057051,.57661,.453971); }
+  19.15% { transform:scaleX(.457104); animation-timing-function:cubic-bezier(.152313,.196432,.648374,1.004315); }
+  44.15% { transform:scaleX(.72796); animation-timing-function:cubic-bezier(.257759,-.003163,.211762,1.38179); }
+  100% { transform:scaleX(.08); }
+}
+@media(prefers-reduced-motion:reduce) {
+  .operation-progress__primary { left:0; transform:none; }
+  .operation-progress__primary > span { transform:scaleX(.3); transform-origin:left; }
+  .operation-progress__secondary { display:none; }
+}
+@media(forced-colors:active) {
+  .operation-progress::before { background:GrayText; }
+  .operation-progress__inner { background:Highlight; }
+}

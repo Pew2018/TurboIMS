@@ -221,29 +221,27 @@ function simEffectiveProfiles() {
   return profiles;
 }
 function simApplyConfig() {
-  if (!savedConfig || !simSlots.length || busy) return;
+  if (!savedConfig || !simSlots.length || busy || taskLocked()) return;
   const config = {...savedConfig, sim_profiles:simEffectiveProfiles()};
   config.enabled = !!config.enabled;
   return operation(async () => {
-    const saved = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
+    const saved = await taskCall("save", encodeBase64Utf8(JSON.stringify(config)));
     savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
     simBackendSignature = JSON.stringify(simProfiles); simPersistEditors();
-    render(await TurboBridge.call("apply"), true);
-    navigate("sim-page");
-  }, "正在保存 SIM 信息…", $("sim-save"));
+    return render(await taskCall("apply"), true);
+  }, "正在应用 SIM 信息…", $("sim-save"), "sim-apply");
 }
 function simRestore() {
-  if (!savedConfig || !simSlots.length || busy) return;
+  if (!savedConfig || !simSlots.length || busy || taskLocked()) return;
   const next = {...simProfiles}; delete next[String(selectedSimSlot)];
   const nextEditors = {...simEditorProfiles}; delete nextEditors[String(selectedSimSlot)];
   const config = {...savedConfig, sim_profiles:next};
   return operation(async () => {
-    const saved = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
+    const saved = await taskCall("save", encodeBase64Utf8(JSON.stringify(config)));
     savedConfig = saved.config; simProfiles = saved.config.sim_profiles || {};
     simEditorProfiles = nextEditors; simBackendSignature = JSON.stringify(simProfiles); simPersistEditors();
-    render(await TurboBridge.call("apply"), true);
-    navigate("sim-page");
-  }, "正在恢复 SIM 信息…", $("sim-restore"));
+    return render(await taskCall("apply"), true);
+  }, "正在恢复 SIM 原始信息…", $("sim-restore"), "sim-restore");
 }
 
 // KernelSU Next can draw this page behind the system bars; its injected CSS supplies
@@ -274,6 +272,162 @@ const storage = {
   read(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch (_) { return fallback; } },
   write(key, value) { try { localStorage.setItem(key, value); } catch (_) {} }
 };
+
+const taskLabels = {
+  "ims-apply":"正在应用 IMS 配置…",
+  "ims-restore":"正在停止自动应用并恢复原值…",
+  "sim-apply":"正在应用 SIM 信息…",
+  "sim-restore":"正在恢复 SIM 原始信息…"
+};
+const taskStorageKey = "turboims-operation";
+let taskStatusSnapshot = null;
+let taskSequence = 0;
+let taskPollTimer = null;
+let taskDisposed = false;
+let pageTask = null;
+try {
+  const pending = JSON.parse(storage.read(taskStorageKey,"null"));
+  if (pending && taskLabels[pending.kind] && ["running","unknown"].includes(pending.state)
+      && typeof pending.id === "string") pageTask = {...pending,state:"unknown"};
+} catch (_) {}
+function persistTask() {
+  storage.write(taskStorageKey, pageTask && ["running","unknown"].includes(pageTask.state)
+    ? JSON.stringify(pageTask) : "null");
+}
+function taskLocked() { return !!pageTask && ["running","unknown"].includes(pageTask.state); }
+function taskPage(kind) { return kind.startsWith("sim-") ? "sim-page" : "home"; }
+function renderTaskFeedback() {
+  for (const [page,prefix] of [["home","ims"],["sim-page","sim"]]) {
+    const box = $(prefix+"-task");
+    if (!box) continue;
+    const shown = pageTask && taskPage(pageTask.kind) === page;
+    box.hidden = !shown;
+    const running = shown && pageTask.state === "running";
+    box.setAttribute("aria-busy",String(!!running));
+    box.dataset.running = String(!!running);
+    box.dataset.visible = String(currentPage === page && !document.hidden);
+    $(prefix+"-task-progress").hidden = !running;
+    const text = shown ? pageTask.text : "";
+    if ($(prefix+"-task-status").textContent !== text) $(prefix+"-task-status").textContent = text;
+  }
+}
+const mutationIds = new Set(["apply","restore","sim-save","sim-restore","enabled","periodic-check",
+  "selection","selection-choice","interval","interval-choice","implementation_mode","implementation-mode-choice",
+  "sim-slot-choice","sim-country-choice","sim-carrier-choice","sim-edit-country","sim-edit-carrier",
+  "sim-edit-carrier-test-mccmnc","sim-carrier-test-enabled","reset-features"]);
+function updateTaskControls() {
+  const locked = busy || taskLocked();
+  document.querySelectorAll("button,input,select").forEach(el => {
+    if (mutationIds.has(el.id) || features.some(([key]) => el.id === key || el.id === key+"-switch"))
+      el.disabled = locked;
+  });
+  document.querySelectorAll('[data-feedback="row"]').forEach(row => {
+    if (row.closest("#home,#sim-page")) row.setAttribute("aria-disabled",String(locked));
+  });
+  if (!locked) {
+    updatePeriodicControl();
+    $("sim-carrier-test-enabled").disabled = !simEditorProfile(selectedSimSlot).carrier_test_mccmnc;
+    const state = taskStatusSnapshot?.status || taskStatusSnapshot;
+    const unsupported = !window.ksu?.spawn && typeof window.ksu !== "undefined"
+      || state?.binder?.carrier_config === false
+      || (taskStatusSnapshot?.sdk !== undefined && (taskStatusSnapshot.sdk < 33 || taskStatusSnapshot.sdk > 37));
+    const unavailable = !savedConfig || !simSlots.length || unsupported;
+    for (const id of ["apply","restore","sim-save","sim-restore"]) $(id).disabled = unavailable;
+    const reason = unsupported ? "当前环境不支持配置操作。" : !savedConfig
+      ? "尚未取得配置，请检测设备或刷新状态。" : !simSlots.length ? "未检测到可用 SIM 卡，请检测设备。" : "";
+    for (const prefix of ["ims","sim"]) {
+      $(prefix+"-unavailable").textContent = reason;
+      $(prefix+"-unavailable").hidden = !reason;
+    }
+  }
+}
+function beginTask(kind) {
+  const snapshot = taskStatusSnapshot || {};
+  pageTask = {id:Date.now()+"-"+(++taskSequence),kind,state:"running",text:taskLabels[kind],
+    slot:kind.startsWith("sim-") ? selectedSimSlot : null,
+    session:snapshot.session || snapshot.status?.session || null,
+    backendStart:Number(snapshot.time_ms) || null, localStart:Date.now(), command:null};
+  persistTask(); renderTaskFeedback();
+  return pageTask.id;
+}
+function finishTask(id, result, error = null) {
+  if (!pageTask || pageTask.id !== id || taskDisposed) return;
+  const state = result?.status || result || {};
+  const rows = state.subscriptions || [];
+  const target = pageTask.slot === null ? null : rows.find(row => Number(row.slot) === pageTask.slot);
+  const restore = pageTask.kind.endsWith("restore");
+  const sim = pageTask.kind.startsWith("sim-");
+  let verified = sim ? (target?.sim_profiles_verified === true || target && state.sim_profiles_verified === true)
+    : state.ims_configuration_verified === true || state.write_readback_verified === true;
+  // A global restore returns per-SIM restored/conflict outcomes, not component verification flags.
+  if (pageTask.kind === "ims-restore") verified = rows.length > 0 && rows.every(row => row.phase === "restored");
+  const unknown = rows.some(row => row.write_state_unknown);
+  const failed = error || result?.ok === false || result?.blocked || state.ok === false;
+  let text;
+  if (unknown) text = "暂时无法确认执行结果，请查看诊断与验证。";
+  else if (verified && !(sim && target?.error) && !result?.blocked) {
+    text = sim ? (restore ? "SIM 原始信息已恢复" : "SIM 信息已应用")
+      : (restore ? "自动应用已停止，原值已恢复" : "IMS 配置已应用");
+    if (state.phase === "ims_not_registered") text += "；IMS 尚未注册。";
+    else if (state.configuration_partial) text += "；部分配置未通过核对。";
+    else if (failed && !restore) text += "；其他检查未通过，请查看诊断。";
+  } else text = failed ? "操作未完成，请查看诊断与验证。" : "请求已结束，配置结果尚未确认，请查看诊断与验证。";
+  if (sim) text = "SIM 卡 " + (pageTask.slot + 1) + "：" + text;
+  pageTask = {...pageTask,state:failed || !verified ? "error" : "complete",text};
+  persistTask(); clearTimeout(taskPollTimer); taskPollTimer = null;
+  renderTaskFeedback(); updateTaskControls();
+}
+function markTaskUnknown(id) {
+  if (!pageTask || pageTask.id !== id) return;
+  pageTask = {...pageTask,state:"unknown",text:"暂时无法确认执行结果，请勿重复应用；可刷新状态或查看诊断。"};
+  persistTask(); renderTaskFeedback(); scheduleTaskPoll();
+}
+async function taskCall(action, payload) {
+  const id = pageTask?.id;
+  if (id) { pageTask.command = action; pageTask.commandOffset = Date.now() - pageTask.localStart; persistTask(); }
+  return TurboBridge.call(action,payload,{onLateResult(error,result) {
+    if (taskDisposed || pageTask?.id !== id || pageTask.state !== "unknown") return;
+    if (action === "save") {
+      pageTask = {...pageTask,state:"error",text:"保存请求已结束，本次应用未执行，请重新应用。"};
+      persistTask(); renderTaskFeedback(); updateTaskControls();
+    } else {
+      if (result) render(result,true);
+      finishTask(id,result,error);
+    }
+  }});
+}
+function reconcileTask(result) {
+  if (!pageTask || pageTask.state !== "unknown") return;
+  const state = result.status || result;
+  // Watcher alive is not evidence of this foreground task. Match boot, action,
+  // command and a newer native completion timestamp before releasing conflicts.
+  if (pageTask.session && result.session && pageTask.session !== result.session) {
+    pageTask = {...pageTask,state:"error",text:"设备已重新启动，上次操作结果未确认，请查看当前诊断。"};
+    persistTask(); renderTaskFeedback(); return;
+  }
+  const expected = pageTask.kind === "ims-restore" ? "restore" : "apply";
+  if (pageTask.command === expected && pageTask.session && state.session === pageTask.session
+      && state.action === expected && pageTask.backendStart !== null
+      && Number(state.time_ms) > pageTask.backendStart
+      && Number(state.time_ms) >= pageTask.backendStart + (pageTask.commandOffset || 0)) {
+    finishTask(pageTask.id,state);
+  }
+}
+function scheduleTaskPoll() {
+  clearTimeout(taskPollTimer); taskPollTimer = null;
+  if (taskDisposed || document.hidden || pageTask?.state !== "unknown") return;
+  taskPollTimer = setTimeout(async () => {
+    taskPollTimer = null;
+    try { render(await TurboBridge.call("status")); } catch (_) {}
+    scheduleTaskPoll();
+  },5000);
+}
+document.addEventListener("visibilitychange",() => { renderTaskFeedback(); scheduleTaskPoll(); });
+window.addEventListener("pagehide",() => {
+  taskDisposed = true; clearTimeout(taskPollTimer); taskPollTimer = null;
+  TurboBridge.dispose?.();
+});
+
 let themeMode = storage.read("turboims-theme", "system");
 if (!["system","light","dark"].includes(themeMode)) themeMode = "system";
 let accent = storage.read("turboims-accent", "#42A5F5").toUpperCase();
@@ -768,6 +922,7 @@ function showPage(page, scroll = 0) {
   }
   if (page === "accent-page" && !accentInputInitialized) { $("custom-hex").value = accent; accentInputInitialized = true; }
   if (changed) $("page-content").scrollTop = scroll;
+  renderTaskFeedback();
 }
 function synchronizeHistory() {
   const page = pageFromHash();
@@ -834,8 +989,9 @@ $("sim-carrier-test-enabled").onchange = () => {
 };
 $("sim-save").onclick = simApplyConfig;
 $("sim-restore").onclick = async () => {
+  if (busy || taskLocked() || $("sim-restore").disabled) return;
   if (!await ask("恢复 SIM 信息？", "移除当前 SIM 的国家或地区及运营商覆盖，不清除 IMS 配置。")) return;
-  simRestore();
+  return simRestore();
 };
 
 $("open-appearance").onclick = () => navigate("appearance-page");
@@ -1048,12 +1204,16 @@ function render(result, replaceForm = false) {
   message(title, danger, tone, detail);
   if (result.blocked) message(phase === "verification_failed" ? "验证失败" : "自动应用已停止",
     true, "danger", "已停止自动写入，请查看诊断与验证。");
+  taskStatusSnapshot = result;
+  reconcileTask(result);
   // The one-shot worker exiting after a verified apply is normal.
   renderImsRegistrationStatus(result);
   renderComponentVerification(result);
   renderDiagnosticSummary(result);
   renderSimResults(result);
   renderSimPage(result);
+  updateTaskControls();
+  return result;
 }
 function renderImsRegistrationStatus(result) {
   const state = result.status || result;
@@ -1174,43 +1334,51 @@ function renderDiagnosticSummary(result) {
     row.append(term,detail); $("diagnostic-summary").append(row);
   }
 }
-async function operation(work, progress = "正在处理…", trigger = null) {
-  if (busy) return;
+async function operation(work, progress = "正在处理…", trigger = null, taskKind = null) {
+  if (busy || taskLocked() && taskKind) return;
   busy = true;
-  document.querySelectorAll("button,input,select").forEach(x => { if (x.id !== "back" && !primaryPages.some(id => x.id === "tab-"+id)) x.disabled = true; });
-  document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","true"));
+  const taskId = taskKind ? beginTask(taskKind) : null;
+  updateTaskControls();
   message(progress, false, "neutral", "请稍候。");
-  try { await work(); }
-  catch (error) {
+  try {
+    const result = await work();
+    if (taskId) finishTask(taskId,result);
+  } catch (error) {
     if (error.result) render(error.result);
-    else message("操作失败", true, "danger", "请查看诊断与验证。");
-    $("diagnostic-notice").textContent = "操作失败：" + error.message;
+    else message(taskId && error.executionUnknown ? "暂时无法确认执行结果" : "操作失败", true, "danger", "请查看诊断与验证。");
+    $("diagnostic-notice").textContent = "操作未完成：" + error.message;
     if (!error.result) $("details").textContent = JSON.stringify({ok:false,error:error.message},null,2);
+    if (taskId) {
+      if (error.executionUnknown) markTaskUnknown(taskId);
+      else finishTask(taskId,error.result,error);
+    }
   } finally {
     busy = false;
-    document.querySelectorAll("button,input,select").forEach(x => x.disabled = false);
-    updatePeriodicControl();
-    document.querySelectorAll('[data-feedback="row"]').forEach(row => row.setAttribute("aria-disabled","false"));
+    updateTaskControls();
+    renderTaskFeedback();
+    scheduleTaskPoll();
   }
 }
 $("probe").onclick = () => operation(async () => render(await TurboBridge.call("probe")), "正在检测…", $("probe"));
 $("refresh").onclick = () => operation(async () => render(await TurboBridge.call("status")), "正在刷新…", $("refresh"));
 $("apply").onclick = async () => {
+  if (busy || taskLocked() || $("apply").disabled) return;
   const config = configFromForm();
   if (!await ask("应用 IMS 配置？", "应用到所选 SIM 卡。通话仍需运营商支持。")) {
     message("已取消", false, "neutral", "当前设置未保存。"); return;
   }
   operation(async () => {
-    const saved = await TurboBridge.call("save", encodeBase64Utf8(JSON.stringify(config)));
+    const saved = await taskCall("save", encodeBase64Utf8(JSON.stringify(config)));
     savedConfig = saved.config;
-    render(await TurboBridge.call("apply"), true);
-  });
+    return render(await taskCall("apply"), true);
+  }, taskLabels["ims-apply"], $("apply"), "ims-apply");
 };
 $("restore").onclick = async () => {
+  if (busy || taskLocked() || $("restore").disabled) return;
   if (!await ask("停止并恢复？", "停止自动应用并恢复原值，保留冲突项。")) {
     message("已取消", false, "neutral", "自动配置和已应用的设置未改变。"); return;
   }
-  operation(async () => render(await TurboBridge.call("restore"), true));
+  return operation(async () => render(await taskCall("restore"), true), taskLabels["ims-restore"], $("restore"), "ims-restore");
 };
 $("export").onclick = () => operation(async () => {
   const result = await TurboBridge.call("export");

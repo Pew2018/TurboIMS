@@ -1,7 +1,7 @@
-name: Preview semantic color system
+name: Preview operation progress
 on:
   push:
-    branches: ["feature/material-color-system-1.0.0-v2"]
+    branches: ["feature/md-indeterminate-progress"]
     paths: ["module/webroot/**", "ci/**", ".github/workflows/webui-preview.yml"]
   workflow_dispatch:
 permissions:
@@ -25,10 +25,11 @@ jobs:
         run: |
           python3 -m http.server 8765 --directory module/webroot > "$RUNNER_TEMP/webui-server.log" 2>&1 &
           node ci/ui_polish_preview.cjs
+          node ci/task_progress_preview.cjs
       - name: Upload screenshots and contrast report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: material-color-system-preview
+          name: md-indeterminate-progress-preview
           path: preview/
           if-no-files-found: error
